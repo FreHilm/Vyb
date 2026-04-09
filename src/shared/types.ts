@@ -23,6 +23,8 @@ export interface AppSettings {
   shellFontSize: number; // 10-24, default 14
   geminiApiKey: string; // Google Gemini API key for icon generation
   iconPromptPrefix: string; // Universe/style description for generated icons
+  sidebarWidth: number; // pixels, default 250
+  terminalSplitPercent: number; // agent pane %, default 67
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -33,6 +35,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   shellFontSize: 14,
   geminiApiKey: '',
   iconPromptPrefix: 'A minimal, modern flat icon with a dark background, clean geometric shapes, suitable as a project avatar',
+  sidebarWidth: 250,
+  terminalSplitPercent: 67,
 };
 
 export interface SidebarFolder {
@@ -64,6 +68,7 @@ export const IPC_CHANNELS = {
   PROFILE_STATUS_CHANGE: 'profile:status-change',
   SHELL_SHOW_IN_FOLDER: 'shell:showInFolder',
   SHELL_OPEN_VSCODE: 'shell:openVSCode',
+  SHELL_OPEN_FORK: 'shell:openFork',
   DIALOG_SELECT_DIRECTORY: 'dialog:selectDirectory',
   DIALOG_SELECT_FILE: 'dialog:selectFile',
   SETTINGS_LOAD: 'settings:load',

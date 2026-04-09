@@ -15,6 +15,7 @@ interface TerminalPaneProps {
   shellOpen: boolean;
   onShellExited: () => void;
   settings: AppSettings;
+  onSplitChange: (percent: number) => void;
 }
 
 interface TerminalInstance {
@@ -83,11 +84,12 @@ export function TerminalPane({
   shellOpen,
   onShellExited,
   settings,
+  onSplitChange,
 }: TerminalPaneProps) {
   const splitRef = useRef<HTMLDivElement>(null);
   const agentContainerRef = useRef<HTMLDivElement>(null);
   const shellContainerRef = useRef<HTMLDivElement>(null);
-  const [agentPercent, setAgentPercent] = useState(67); // default 2/3
+  const [agentPercent, setAgentPercent] = useState(settings.terminalSplitPercent);
   const agentTerminalsRef = useRef<Map<string, TerminalInstance>>(new Map());
   const shellTerminalsRef = useRef<Map<string, TerminalInstance>>(new Map());
   const shellInitializedRef = useRef<Set<string>>(new Set());
@@ -281,8 +283,12 @@ export function TerminalPane({
     const totalHeight = container.clientHeight;
     if (totalHeight === 0) return;
     const deltaPercent = (delta / totalHeight) * 100;
-    setAgentPercent((p) => Math.max(20, Math.min(80, p + deltaPercent)));
-  }, []);
+    setAgentPercent((p) => {
+      const next = Math.max(20, Math.min(80, p + deltaPercent));
+      onSplitChange(next);
+      return next;
+    });
+  }, [onSplitChange]);
 
   // Refit visible terminals on container resize
   useEffect(() => {

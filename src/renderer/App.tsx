@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { CommandBar } from './components/CommandBar';
 import { TerminalPane } from './components/TerminalPane';
@@ -26,6 +26,7 @@ declare global {
       ) => () => void;
       openInFinder: (folderPath: string) => Promise<void>;
       openInVSCode: (folderPath: string) => Promise<void>;
+      openInFork: (folderPath: string) => Promise<void>;
       createShellTerminal: (terminalId: string, cwd: string) => Promise<void>;
       onShellExited: (
         callback: (payload: { terminalId: string }) => void,
@@ -62,6 +63,7 @@ export function App() {
   useEffect(() => {
     window.api.loadSettings().then((loaded) => {
       setSettings(loaded);
+      setSidebarWidth(loaded.sidebarWidth);
       applyTheme(loaded.baseHue, loaded.darkness, loaded.profileFontSize);
     });
 
@@ -179,9 +181,40 @@ export function App() {
     window.api.saveLayout(newLayout);
   }, []);
 
-  const handleSidebarResize = useCallback((delta: number) => {
-    setSidebarWidth((w) => Math.max(160, Math.min(500, w + delta)));
-  }, []);
+  // Debounce saving pane sizes to settings
+  const savePaneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
+  const savePaneSizes = useCallback(
+    (patch: Partial<AppSettings>) => {
+      if (savePaneTimerRef.current) clearTimeout(savePaneTimerRef.current);
+      savePaneTimerRef.current = setTimeout(() => {
+        const updated = { ...settingsRef.current, ...patch };
+        setSettings(updated);
+        window.api.saveSettings(updated);
+      }, 500);
+    },
+    [],
+  );
+
+  const handleSidebarResize = useCallback(
+    (delta: number) => {
+      setSidebarWidth((w) => {
+        const next = Math.max(160, Math.min(500, w + delta));
+        savePaneSizes({ sidebarWidth: next });
+        return next;
+      });
+    },
+    [savePaneSizes],
+  );
+
+  const handleTerminalSplitChange = useCallback(
+    (percent: number) => {
+      savePaneSizes({ terminalSplitPercent: percent });
+    },
+    [savePaneSizes],
+  );
 
   return (
     <div className="app" style={{ gridTemplateColumns: `${sidebarWidth}px auto 1fr` }}>
@@ -232,6 +265,7 @@ export function App() {
             });
           }}
           settings={settings}
+          onSplitChange={handleTerminalSplitChange}
         />
       </div>
       {editorOpen && (

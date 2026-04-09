@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, protocol, net } from 'electron';
+import { app, BrowserWindow, Menu, protocol, net, nativeImage } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
@@ -9,12 +9,20 @@ if (started) {
   app.quit();
 }
 
+const APP_NAME = 'Power Agent Command Center';
+
+// On macOS in dev mode, the menu shows "Electron" because the binary is Electron.app.
+// This overrides it by patching the dock and about panel name.
+if (process.platform === 'darwin') {
+  app.dock?.setBadge('');
+  app.setAboutPanelOptions({ applicationName: APP_NAME });
+}
+
 // Register a custom protocol to serve local files (icons) to the renderer
 protocol.registerSchemesAsPrivileged([
   { scheme: 'local-file', privileges: { bypassCSP: true, supportFetchAPI: true } },
 ]);
 
-const APP_NAME = 'Power Agent Command Center';
 app.name = APP_NAME;
 
 let mainWindow: BrowserWindow | null = null;
@@ -88,6 +96,14 @@ function openSettings() {
 }
 
 const createWindow = () => {
+  const iconPath = path.join(app.getAppPath(), 'logo.png');
+  const appIcon = nativeImage.createFromPath(iconPath);
+
+  // Set dock icon on macOS
+  if (process.platform === 'darwin' && !appIcon.isEmpty()) {
+    app.dock?.setIcon(appIcon);
+  }
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -95,6 +111,7 @@ const createWindow = () => {
     minHeight: 500,
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#1e1e2e',
+    icon: appIcon,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

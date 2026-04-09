@@ -12,6 +12,7 @@ const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     name: 'Power Agent Command Center',
+    icon: './build/icon',
   },
   rebuildConfig: {},
   makers: [
