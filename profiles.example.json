@@ -1,0 +1,14 @@
+[
+  {
+    "id": "claude-default",
+    "name": "Claude Code",
+    "icon": "",
+    "workingDirectory": "~",
+    "command": "claude",
+    "args": [],
+    "statusPatterns": {
+      "ready": ["[>]\\s*$", "\\$\\s*$"],
+      "needsInput": ["\\(y\\/n\\)", "Allow .+\\?", "Do you want", "\\? \\("]
+    }
+  }
+]
