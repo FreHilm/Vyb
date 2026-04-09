@@ -1,22 +1,30 @@
 import { AgentStatus, Profile } from '../shared/types';
 
 function stripAnsi(str: string): string {
-  // Strips ANSI escape codes including CSI, OSC, and single-char escapes
-  return str.replace(
-    /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\].*?(?:\x07|\x1B\\))/g,
-    '',
-  );
+  // Strip all ANSI escape sequences: CSI, OSC, DCS, single-char escapes, and cursor sequences
+  return str
+    .replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '') // CSI sequences
+    .replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, '') // OSC sequences
+    .replace(/\x1B[()][0-9A-B]/g, '') // Character set selection
+    .replace(/\x1B[>=<]/g, '') // Keypad/cursor mode
+    .replace(/\x1B\[[\?]?[0-9;]*[hlsr]/g, '') // Private mode set/reset
+    .replace(/\x1B[78DEHM]/g, '') // Misc single-char sequences
+    .replace(/\r/g, ''); // Strip carriage returns
 }
 
 interface ProfileState {
   buffer: string;
   status: AgentStatus;
   debounceTimer: ReturnType<typeof setTimeout> | null;
+  idleTimer: ReturnType<typeof setTimeout> | null;
   patterns: {
     ready: RegExp[];
     needsInput: RegExp[];
   };
 }
+
+const IDLE_TIMEOUT = 1500; // ms without output → assume ready if currently working
+const DEBOUNCE_MS = 400;
 
 export class StatusDetector {
   private states: Map<string, ProfileState> = new Map();
@@ -31,16 +39,29 @@ export class StatusDetector {
   register(profileId: string, profile: Profile): void {
     const readyPatterns = profile.statusPatterns?.ready?.map(
       (p) => new RegExp(p),
-    ) ?? [/[❯>]\s*$/, /\$\s*$/];
+    ) ?? [
+      /❯/, // Claude Code prompt character anywhere
+      /\? for shortcuts/, // Claude Code idle hint
+      />\s*$/, // Generic prompt at end
+      /\$\s*$/, // Shell prompt at end
+    ];
 
     const needsInputPatterns = profile.statusPatterns?.needsInput?.map(
       (p) => new RegExp(p),
-    ) ?? [/\(y\/n\)/i, /Allow .+\?/i, /Do you want/i, /\? \(/];
+    ) ?? [
+      /\(y\/n\)/i,
+      /\(Y\)es/,
+      /Allow .+\?/i,
+      /Do you want/i,
+      /\? \(/,
+      /approve|deny/i,
+    ];
 
     this.states.set(profileId, {
       buffer: '',
       status: 'offline',
       debounceTimer: null,
+      idleTimer: null,
       patterns: {
         ready: readyPatterns,
         needsInput: needsInputPatterns,
@@ -50,7 +71,10 @@ export class StatusDetector {
 
   unregister(profileId: string): void {
     const state = this.states.get(profileId);
-    if (state?.debounceTimer) clearTimeout(state.debounceTimer);
+    if (state) {
+      if (state.debounceTimer) clearTimeout(state.debounceTimer);
+      if (state.idleTimer) clearTimeout(state.idleTimer);
+    }
     this.states.delete(profileId);
   }
 
@@ -59,17 +83,33 @@ export class StatusDetector {
     if (!state) return;
 
     state.buffer += data;
-    if (state.buffer.length > 1000) {
-      state.buffer = state.buffer.slice(-1000);
+    if (state.buffer.length > 2000) {
+      state.buffer = state.buffer.slice(-2000);
     }
 
+    // Reset debounce — check patterns after output settles
     if (state.debounceTimer) clearTimeout(state.debounceTimer);
     state.debounceTimer = setTimeout(() => {
       this.checkStatus(profileId);
-    }, 300);
+    }, DEBOUNCE_MS);
+
+    // Reset idle timer — if no more data arrives, assume ready
+    if (state.idleTimer) clearTimeout(state.idleTimer);
+    if (state.status === 'working') {
+      state.idleTimer = setTimeout(() => {
+        if (state.status === 'working') {
+          this.updateStatus(profileId, 'ready');
+        }
+      }, IDLE_TIMEOUT);
+    }
   }
 
   setWorking(profileId: string): void {
+    const state = this.states.get(profileId);
+    if (state) {
+      // Clear idle timer when we know the agent is working
+      if (state.idleTimer) clearTimeout(state.idleTimer);
+    }
     this.updateStatus(profileId, 'working');
   }
 
@@ -106,7 +146,6 @@ export class StatusDetector {
     if (!state || state.status === newStatus) return;
 
     state.status = newStatus;
-    state.buffer = '';
     this.onStatusChange(profileId, newStatus);
   }
 }

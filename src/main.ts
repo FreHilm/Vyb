@@ -1,5 +1,6 @@
-import { app, BrowserWindow, Menu } from 'electron';
+import { app, BrowserWindow, Menu, protocol, net } from 'electron';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
 import { setupIpcHandlers, cleanupIpcHandlers } from './main/ipc-handlers';
 import { IPC_CHANNELS } from './shared/types';
@@ -7,6 +8,11 @@ import { IPC_CHANNELS } from './shared/types';
 if (started) {
   app.quit();
 }
+
+// Register a custom protocol to serve local files (icons) to the renderer
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'local-file', privileges: { bypassCSP: true, supportFetchAPI: true } },
+]);
 
 const APP_NAME = 'Power Agent Command Center';
 app.name = APP_NAME;
@@ -108,13 +114,19 @@ const createWindow = () => {
   }
 };
 
-app.on('ready', createWindow);
+app.on('ready', () => {
+  // Handle local-file:// protocol to serve icons from disk
+  protocol.handle('local-file', (request) => {
+    const filePath = decodeURIComponent(request.url.replace('local-file://', ''));
+    return net.fetch(pathToFileURL(filePath).toString());
+  });
+
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   cleanupIpcHandlers();
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  app.quit();
 });
 
 app.on('activate', () => {

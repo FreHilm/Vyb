@@ -20,9 +20,21 @@ export function SettingsDialog({
   );
   const [agentFontSize, setAgentFontSize] = useState(settings.agentFontSize);
   const [shellFontSize, setShellFontSize] = useState(settings.shellFontSize);
+  const [geminiApiKey, setGeminiApiKey] = useState(settings.geminiApiKey);
+  const [iconPromptPrefix, setIconPromptPrefix] = useState(
+    settings.iconPromptPrefix,
+  );
 
   const handleSave = () => {
-    onSave({ baseHue, darkness, profileFontSize, agentFontSize, shellFontSize });
+    onSave({
+      baseHue,
+      darkness,
+      profileFontSize,
+      agentFontSize,
+      shellFontSize,
+      geminiApiKey,
+      iconPromptPrefix,
+    });
   };
 
   const handleOverlayClick = (e: React.MouseEvent) => {
@@ -127,6 +139,37 @@ export function SettingsDialog({
               />
               <span className="field-hint">Default: 14</span>
             </div>
+          </label>
+
+          <div style={{ borderTop: '1px solid var(--c-surface0)', margin: '8px 0' }} />
+
+          <label className="field">
+            <span className="field-label">Gemini API Key</span>
+            <input
+              type="text"
+              value={geminiApiKey}
+              onChange={(e) => setGeminiApiKey(e.target.value)}
+              placeholder="AIza..."
+              style={{ fontFamily: 'monospace' }}
+            />
+            <span className="field-hint">
+              Required for AI icon generation. Get one at ai.google.dev
+            </span>
+          </label>
+
+          <label className="field">
+            <span className="field-label">Icon Generation Prompt</span>
+            <textarea
+              className="field-textarea"
+              value={iconPromptPrefix}
+              onChange={(e) => setIconPromptPrefix(e.target.value)}
+              placeholder="Describe the visual universe/style for generated icons..."
+              rows={3}
+            />
+            <span className="field-hint">
+              Each icon prompt will be: "Make a project icon for the project
+              [name] that matches the following universe: [this text]"
+            </span>
           </label>
         </div>
 

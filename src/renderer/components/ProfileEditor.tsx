@@ -29,6 +29,9 @@ export function ProfileEditor({
   const [workingDirectory, setWorkingDirectory] = useState('');
   const [command, setCommand] = useState('claude');
   const [args, setArgs] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState('');
+  const [iconCacheBust, setIconCacheBust] = useState(0);
 
   useEffect(() => {
     if (profile) {
@@ -48,6 +51,25 @@ export function ProfileEditor({
   const handleBrowseIcon = async () => {
     const file = await window.api.selectFile();
     if (file) setIcon(file);
+  };
+
+  const handleGenerateIcon = async () => {
+    if (!name.trim()) return;
+    setGenerating(true);
+    setGenError('');
+    try {
+      const profileId = profile?.id ?? generateId(name);
+      const iconPath = await window.api.generateIcon(profileId, name.trim());
+      if (iconPath) {
+        setIcon(iconPath);
+        setIconCacheBust(Date.now());
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setGenError(msg);
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const handleSave = () => {
@@ -84,7 +106,12 @@ export function ProfileEditor({
         <div className="modal-header">
           <h3>{isNew ? 'New Profile' : 'Edit Profile'}</h3>
           <button className="modal-close" onClick={onClose}>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="currentColor"
+            >
               <path d="M1.7 0.3a1 1 0 00-1.4 1.4L5.6 7l-5.3 5.3a1 1 0 101.4 1.4L7 8.4l5.3 5.3a1 1 0 001.4-1.4L8.4 7l5.3-5.3a1 1 0 00-1.4-1.4L7 5.6 1.7 0.3z" />
             </svg>
           </button>
@@ -149,7 +176,27 @@ export function ProfileEditor({
               <button className="browse-btn" onClick={handleBrowseIcon}>
                 Browse
               </button>
+              <button
+                className="browse-btn generate-icon-btn"
+                onClick={handleGenerateIcon}
+                disabled={generating || !name.trim()}
+                title="Generate icon with AI (requires Gemini API key in Settings)"
+              >
+                {generating ? 'Generating...' : 'AI Generate'}
+              </button>
             </div>
+            {icon && (
+              <div className="icon-preview">
+                <img
+                  src={`local-file://${icon}${iconCacheBust ? `?t=${iconCacheBust}` : ''}`}
+                  alt="Icon preview"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              </div>
+            )}
+            {genError && <div className="field-error">{genError}</div>}
           </label>
         </div>
 

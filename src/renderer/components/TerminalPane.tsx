@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -6,6 +6,7 @@ import { ClipboardAddon } from '@xterm/addon-clipboard';
 import '@xterm/xterm/css/xterm.css';
 import { Profile, AppSettings } from '../../shared/types';
 import { getTerminalTheme } from '../theme';
+import { ResizeHandle } from './ResizeHandle';
 
 interface TerminalPaneProps {
   profiles: Profile[];
@@ -83,8 +84,10 @@ export function TerminalPane({
   onShellExited,
   settings,
 }: TerminalPaneProps) {
+  const splitRef = useRef<HTMLDivElement>(null);
   const agentContainerRef = useRef<HTMLDivElement>(null);
   const shellContainerRef = useRef<HTMLDivElement>(null);
+  const [agentPercent, setAgentPercent] = useState(67); // default 2/3
   const agentTerminalsRef = useRef<Map<string, TerminalInstance>>(new Map());
   const shellTerminalsRef = useRef<Map<string, TerminalInstance>>(new Map());
   const shellInitializedRef = useRef<Set<string>>(new Set());
@@ -272,6 +275,15 @@ export function TerminalPane({
     }
   }, [shellOpen, activeProfileId, ensureShellTerminal]);
 
+  const handleTerminalSplitResize = useCallback((delta: number) => {
+    const container = splitRef.current;
+    if (!container) return;
+    const totalHeight = container.clientHeight;
+    if (totalHeight === 0) return;
+    const deltaPercent = (delta / totalHeight) * 100;
+    setAgentPercent((p) => Math.max(20, Math.min(80, p + deltaPercent)));
+  }, []);
+
   // Refit visible terminals on container resize
   useEffect(() => {
     const agentContainer = agentContainerRef.current;
@@ -322,21 +334,27 @@ export function TerminalPane({
     return () => observer.disconnect();
   }, [activeProfileId, shellOpen]);
 
+  const agentStyle = shellOpen
+    ? { height: `${agentPercent}%` }
+    : { flex: 1 };
+  const shellStyle = shellOpen
+    ? { height: `${100 - agentPercent}%`, display: 'block' as const }
+    : { display: 'none' as const };
+
   return (
-    <div className={`terminal-split ${shellOpen ? 'shell-visible' : ''}`}>
-      <div className="terminal-pane agent-pane" ref={agentContainerRef}>
+    <div className="terminal-split" ref={splitRef}>
+      <div className="terminal-pane agent-pane" style={agentStyle} ref={agentContainerRef}>
         {!activeProfileId && (
           <div className="terminal-placeholder">Select a profile to start</div>
         )}
       </div>
-      <div
-        className="terminal-divider"
-        style={{ display: shellOpen ? 'block' : 'none' }}
-      />
+      {shellOpen && (
+        <ResizeHandle direction="vertical" onResize={handleTerminalSplitResize} />
+      )}
       <div
         className="terminal-pane shell-pane"
         ref={shellContainerRef}
-        style={{ display: shellOpen ? 'block' : 'none' }}
+        style={shellStyle}
       />
     </div>
   );

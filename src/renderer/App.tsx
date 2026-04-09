@@ -4,7 +4,8 @@ import { CommandBar } from './components/CommandBar';
 import { TerminalPane } from './components/TerminalPane';
 import { ProfileEditor } from './components/ProfileEditor';
 import { SettingsDialog } from './components/SettingsDialog';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS } from '../shared/types';
+import { ResizeHandle } from './components/ResizeHandle';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -34,6 +35,10 @@ declare global {
       loadSettings: () => Promise<AppSettings>;
       saveSettings: (settings: AppSettings) => Promise<void>;
       onOpenSettings: (callback: () => void) => () => void;
+      setActiveProfile: (profileId: string | null) => void;
+      generateIcon: (profileId: string, projectName: string) => Promise<string | null>;
+      loadLayout: () => Promise<SidebarLayout>;
+      saveLayout: (layout: SidebarLayout) => Promise<void>;
     };
   }
 }
@@ -47,9 +52,11 @@ export function App() {
   const [initialized, setInitialized] = useState<Set<string>>(new Set());
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
-  const [shellOpen, setShellOpen] = useState(false);
+  const [shellOpenSet, setShellOpenSet] = useState<Set<string>>(new Set());
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(250);
+  const [layout, setLayout] = useState<SidebarLayout>({ items: [], folders: [] });
 
   // Load settings and profiles on mount
   useEffect(() => {
@@ -57,6 +64,8 @@ export function App() {
       setSettings(loaded);
       applyTheme(loaded.baseHue, loaded.darkness, loaded.profileFontSize);
     });
+
+    window.api.loadLayout().then(setLayout);
 
     window.api.getProfiles().then((loadedProfiles) => {
       setProfiles(loadedProfiles);
@@ -87,6 +96,11 @@ export function App() {
   useEffect(() => {
     applyTheme(settings.baseHue, settings.darkness, settings.profileFontSize);
   }, [settings]);
+
+  // Sync active profile to main process for notification suppression
+  useEffect(() => {
+    window.api.setActiveProfile(activeProfileId);
+  }, [activeProfileId]);
 
   const handleSaveSettings = async (newSettings: AppSettings) => {
     await window.api.saveSettings(newSettings);
@@ -160,28 +174,63 @@ export function App() {
 
   const activeProfile = profiles.find((p) => p.id === activeProfileId) || null;
 
+  const handleLayoutChange = useCallback((newLayout: SidebarLayout) => {
+    setLayout(newLayout);
+    window.api.saveLayout(newLayout);
+  }, []);
+
+  const handleSidebarResize = useCallback((delta: number) => {
+    setSidebarWidth((w) => Math.max(160, Math.min(500, w + delta)));
+  }, []);
+
   return (
-    <div className="app">
+    <div className="app" style={{ gridTemplateColumns: `${sidebarWidth}px auto 1fr` }}>
+      <div className="titlebar">
+        {activeProfile && (
+          <>
+            <span className="titlebar-name">{activeProfile.name}</span>
+            <span className="titlebar-path">{activeProfile.workingDirectory}</span>
+          </>
+        )}
+      </div>
       <Sidebar
         profiles={profiles}
         activeProfileId={activeProfileId}
         statuses={statuses}
+        layout={layout}
+        onLayoutChange={handleLayoutChange}
         onSelectProfile={handleSelectProfile}
         onEditProfile={handleEditProfile}
         onAddProfile={handleAddProfile}
       />
+      <ResizeHandle direction="horizontal" onResize={handleSidebarResize} />
       <div className="main-area">
         <CommandBar
           profile={activeProfile}
-          shellOpen={shellOpen}
-          onToggleShell={() => setShellOpen((v) => !v)}
+          shellOpen={activeProfileId ? shellOpenSet.has(activeProfileId) : false}
+          onToggleShell={() => {
+            if (!activeProfileId) return;
+            setShellOpenSet((prev) => {
+              const next = new Set(prev);
+              if (next.has(activeProfileId)) next.delete(activeProfileId);
+              else next.add(activeProfileId);
+              return next;
+            });
+          }}
         />
         <TerminalPane
           profiles={profiles}
           activeProfileId={activeProfileId}
           initialized={initialized}
-          shellOpen={shellOpen}
-          onShellExited={() => setShellOpen(false)}
+          shellOpen={activeProfileId ? shellOpenSet.has(activeProfileId) : false}
+          onShellExited={() => {
+            if (!activeProfileId) return;
+            setShellOpenSet((prev) => {
+              const next = new Set(prev);
+              next.delete(activeProfileId);
+              return next;
+            });
+          }}
           settings={settings}
         />
       </div>
