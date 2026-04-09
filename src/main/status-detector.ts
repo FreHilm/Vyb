@@ -1,30 +1,40 @@
 import { AgentStatus, Profile } from '../shared/types';
 
 function stripAnsi(str: string): string {
-  // Strip all ANSI escape sequences: CSI, OSC, DCS, single-char escapes, and cursor sequences
   return str
-    .replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '') // CSI sequences
-    .replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, '') // OSC sequences
-    .replace(/\x1B[()][0-9A-B]/g, '') // Character set selection
-    .replace(/\x1B[>=<]/g, '') // Keypad/cursor mode
-    .replace(/\x1B\[[\?]?[0-9;]*[hlsr]/g, '') // Private mode set/reset
-    .replace(/\x1B[78DEHM]/g, '') // Misc single-char sequences
-    .replace(/\r/g, ''); // Strip carriage returns
+    .replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, '')
+    .replace(/\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g, '')
+    .replace(/\x1B[()][0-9A-B]/g, '')
+    .replace(/\x1B[>=<]/g, '')
+    .replace(/\x1B[78DEHM]/g, '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '') // strip remaining control chars
+    .replace(/\r/g, '');
+}
+
+// Extract OSC terminal title sequences from raw data
+function extractOscTitles(data: string): string[] {
+  const titles: string[] = [];
+  const re = /\x1B\](?:0|2);([^\x07\x1B]*?)(?:\x07|\x1B\\)/g;
+  let match;
+  while ((match = re.exec(data)) !== null) {
+    titles.push(match[1]);
+  }
+  return titles;
 }
 
 interface ProfileState {
   buffer: string;
+  rawBuffer: string; // keeps raw data for OSC extraction
   status: AgentStatus;
   debounceTimer: ReturnType<typeof setTimeout> | null;
-  idleTimer: ReturnType<typeof setTimeout> | null;
   patterns: {
     ready: RegExp[];
     needsInput: RegExp[];
+    working: RegExp[];
   };
 }
 
-const IDLE_TIMEOUT = 1500; // ms without output → assume ready if currently working
-const DEBOUNCE_MS = 400;
+const DEBOUNCE_MS = 800;
 
 export class StatusDetector {
   private states: Map<string, ProfileState> = new Map();
@@ -40,10 +50,9 @@ export class StatusDetector {
     const readyPatterns = profile.statusPatterns?.ready?.map(
       (p) => new RegExp(p),
     ) ?? [
-      /❯/, // Claude Code prompt character anywhere
-      /\? for shortcuts/, // Claude Code idle hint
-      />\s*$/, // Generic prompt at end
-      /\$\s*$/, // Shell prompt at end
+      /for\s*shortcuts/,          // Claude Code idle hint (spaces may be stripped)
+      /❯/,                        // Claude Code prompt character
+      /\$\s*$/,                   // Shell prompt at end of buffer
     ];
 
     const needsInputPatterns = profile.statusPatterns?.needsInput?.map(
@@ -51,30 +60,35 @@ export class StatusDetector {
     ) ?? [
       /\(y\/n\)/i,
       /\(Y\)es/,
-      /Allow .+\?/i,
-      /Do you want/i,
-      /\? \(/,
+      /Allow\s*once/i,
+      /Allow\s*always/i,
+      /Do\s*you\s*want/i,
       /approve|deny/i,
+      /Yes.*No.*Always/,            // Claude Code permission button row
+      /Run\s*command/i,
+      /Bash\s*command/i,
+    ];
+
+    const workingPatterns = [
+      /⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏/,
     ];
 
     this.states.set(profileId, {
       buffer: '',
+      rawBuffer: '',
       status: 'offline',
       debounceTimer: null,
-      idleTimer: null,
       patterns: {
         ready: readyPatterns,
         needsInput: needsInputPatterns,
+        working: workingPatterns,
       },
     });
   }
 
   unregister(profileId: string): void {
     const state = this.states.get(profileId);
-    if (state) {
-      if (state.debounceTimer) clearTimeout(state.debounceTimer);
-      if (state.idleTimer) clearTimeout(state.idleTimer);
-    }
+    if (state?.debounceTimer) clearTimeout(state.debounceTimer);
     this.states.delete(profileId);
   }
 
@@ -82,34 +96,26 @@ export class StatusDetector {
     const state = this.states.get(profileId);
     if (!state) return;
 
-    state.buffer += data;
+    // Keep raw data for OSC title extraction
+    state.rawBuffer += data;
+    if (state.rawBuffer.length > 4000) {
+      state.rawBuffer = state.rawBuffer.slice(-4000);
+    }
+
+    // Stripped buffer for text pattern matching
+    const stripped = stripAnsi(data);
+    state.buffer += stripped;
     if (state.buffer.length > 2000) {
       state.buffer = state.buffer.slice(-2000);
     }
 
-    // Reset debounce — check patterns after output settles
     if (state.debounceTimer) clearTimeout(state.debounceTimer);
     state.debounceTimer = setTimeout(() => {
       this.checkStatus(profileId);
     }, DEBOUNCE_MS);
-
-    // Reset idle timer — if no more data arrives, assume ready
-    if (state.idleTimer) clearTimeout(state.idleTimer);
-    if (state.status === 'working') {
-      state.idleTimer = setTimeout(() => {
-        if (state.status === 'working') {
-          this.updateStatus(profileId, 'ready');
-        }
-      }, IDLE_TIMEOUT);
-    }
   }
 
   setWorking(profileId: string): void {
-    const state = this.states.get(profileId);
-    if (state) {
-      // Clear idle timer when we know the agent is working
-      if (state.idleTimer) clearTimeout(state.idleTimer);
-    }
     this.updateStatus(profileId, 'working');
   }
 
@@ -121,10 +127,9 @@ export class StatusDetector {
     const state = this.states.get(profileId);
     if (!state) return;
 
-    const cleaned = stripAnsi(state.buffer);
-    const lastChunk = cleaned.slice(-500);
+    const lastChunk = state.buffer.slice(-500);
 
-    // Check needs-input first (higher priority)
+    // Check needs-input (highest priority)
     for (const pattern of state.patterns.needsInput) {
       if (pattern.test(lastChunk)) {
         this.updateStatus(profileId, 'needs-input');
@@ -132,13 +137,23 @@ export class StatusDetector {
       }
     }
 
-    // Check ready
+    // 3. If working, check spinner to stay working
+    if (state.status === 'working') {
+      for (const pattern of state.patterns.working) {
+        if (pattern.test(lastChunk)) {
+          return;
+        }
+      }
+    }
+
+    // 4. Check ready patterns on stripped text
     for (const pattern of state.patterns.ready) {
       if (pattern.test(lastChunk)) {
         this.updateStatus(profileId, 'ready');
         return;
       }
     }
+
   }
 
   private updateStatus(profileId: string, newStatus: AgentStatus): void {

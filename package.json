@@ -6,6 +6,7 @@
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {
+    "postinstall": "node -e \"const{execSync}=require('child_process');const p=require('path').join(require('electron'),'../../..','Contents','Info.plist');try{execSync('/usr/libexec/PlistBuddy -c \\'Set :CFBundleName Power Agent Command Center\\' \\''+p+'\\'');execSync('/usr/libexec/PlistBuddy -c \\'Set :CFBundleDisplayName Power Agent Command Center\\' \\''+p+'\\'');}catch(e){}\"",
     "start": "electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make",

@@ -78,7 +78,6 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     (_, profileId: string, profile: Profile) => {
       statusDetector.register(profileId, profile);
       ptyManager.create(profileId, profile);
-      statusDetector.setWorking(profileId);
     },
   );
 
@@ -125,6 +124,28 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       exec(`code "${folderPath}"`, (err) => {
         if (err) {
           console.error('Failed to open VS Code:', err.message);
+        }
+      });
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_FORK, (_, folderPath: string) => {
+    if (process.platform === 'darwin') {
+      exec(`open -a Fork "${folderPath}"`, (err) => {
+        if (err) {
+          console.error('Failed to open Fork:', err.message);
+        }
+      });
+    } else if (process.platform === 'win32') {
+      exec(`Fork.exe "${folderPath}"`, (err) => {
+        if (err) {
+          console.error('Failed to open Fork:', err.message);
+        }
+      });
+    } else {
+      exec(`fork "${folderPath}"`, (err) => {
+        if (err) {
+          console.error('Failed to open Fork:', err.message);
         }
       });
     }
