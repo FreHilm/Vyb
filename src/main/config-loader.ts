@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Profile, AppSettings, DEFAULT_SETTINGS } from '../shared/types';
+import { Profile, AppSettings, DEFAULT_SETTINGS, SidebarLayout } from '../shared/types';
 
 export function loadProfiles(): Profile[] {
   const userDataPath = app.getPath('userData');
@@ -74,4 +74,22 @@ export function loadSettings(): AppSettings {
 export function saveSettings(settings: AppSettings): void {
   const settingsPath = path.join(app.getPath('userData'), 'settings.json');
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+}
+
+export function loadLayout(): SidebarLayout {
+  const layoutPath = path.join(app.getPath('userData'), 'layout.json');
+  if (!fs.existsSync(layoutPath)) {
+    return { items: [], folders: [] };
+  }
+  try {
+    const content = fs.readFileSync(layoutPath, 'utf-8');
+    return JSON.parse(content) as SidebarLayout;
+  } catch {
+    return { items: [], folders: [] };
+  }
+}
+
+export function saveLayout(layout: SidebarLayout): void {
+  const layoutPath = path.join(app.getPath('userData'), 'layout.json');
+  fs.writeFileSync(layoutPath, JSON.stringify(layout, null, 2));
 }

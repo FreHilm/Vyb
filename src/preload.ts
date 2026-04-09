@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC_CHANNELS, Profile, AppSettings } from './shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
   getProfiles: (): Promise<Profile[]> =>
@@ -82,4 +82,16 @@ contextBridge.exposeInMainWorld('api', {
     return () =>
       ipcRenderer.removeListener(IPC_CHANNELS.SETTINGS_OPEN_DIALOG, handler);
   },
+
+  setActiveProfile: (profileId: string | null): void =>
+    ipcRenderer.send(IPC_CHANNELS.PROFILE_SET_ACTIVE, profileId),
+
+  generateIcon: (profileId: string, projectName: string): Promise<string | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GENERATE_ICON, profileId, projectName),
+
+  loadLayout: (): Promise<SidebarLayout> =>
+    ipcRenderer.invoke(IPC_CHANNELS.LAYOUT_LOAD),
+
+  saveLayout: (layout: SidebarLayout): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.LAYOUT_SAVE, layout),
 });

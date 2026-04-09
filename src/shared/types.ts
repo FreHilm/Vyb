@@ -21,6 +21,8 @@ export interface AppSettings {
   profileFontSize: number; // 10-20, default 13
   agentFontSize: number; // 10-24, default 14
   shellFontSize: number; // 10-24, default 14
+  geminiApiKey: string; // Google Gemini API key for icon generation
+  iconPromptPrefix: string; // Universe/style description for generated icons
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -29,7 +31,25 @@ export const DEFAULT_SETTINGS: AppSettings = {
   profileFontSize: 13,
   agentFontSize: 14,
   shellFontSize: 14,
+  geminiApiKey: '',
+  iconPromptPrefix: 'A minimal, modern flat icon with a dark background, clean geometric shapes, suitable as a project avatar',
 };
+
+export interface SidebarFolder {
+  id: string;
+  name: string;
+  isOpen: boolean;
+  profileIds: string[];
+}
+
+export type SidebarItem =
+  | { type: 'profile'; profileId: string }
+  | { type: 'folder'; folderId: string };
+
+export interface SidebarLayout {
+  items: SidebarItem[];
+  folders: SidebarFolder[];
+}
 
 export const IPC_CHANNELS = {
   TERMINAL_CREATE: 'terminal:create',
@@ -49,4 +69,8 @@ export const IPC_CHANNELS = {
   SETTINGS_LOAD: 'settings:load',
   SETTINGS_SAVE: 'settings:save',
   SETTINGS_OPEN_DIALOG: 'settings:openDialog',
+  PROFILE_SET_ACTIVE: 'profile:setActive',
+  GENERATE_ICON: 'icon:generate',
+  LAYOUT_LOAD: 'layout:load',
+  LAYOUT_SAVE: 'layout:save',
 } as const;

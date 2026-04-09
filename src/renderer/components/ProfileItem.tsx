@@ -41,7 +41,7 @@ export function ProfileItem({
     >
       <div className="profile-icon">
         {profile.icon ? (
-          <img src={profile.icon} alt={profile.name} />
+          <img src={`local-file://${profile.icon}`} alt={profile.name} />
         ) : (
           <div className="profile-icon-placeholder">
             {profile.name.charAt(0).toUpperCase()}
