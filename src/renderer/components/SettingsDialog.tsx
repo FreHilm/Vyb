@@ -13,7 +13,7 @@ interface SettingsDialogProps {
   profilesWithoutIcons: number;
 }
 
-type SettingsTab = 'appearance' | 'icons' | 'apps';
+type SettingsTab = 'appearance' | 'icons' | 'apps' | 'integrations';
 
 export function SettingsDialog({
   settings,
@@ -47,6 +47,8 @@ export function SettingsDialog({
   const [externalApps, setExternalApps] = useState<ExternalApp[]>(
     settings.externalApps || [],
   );
+  const [slackEnabled, setSlackEnabled] = useState(settings.slackEnabled);
+  const [slackBotToken, setSlackBotToken] = useState(settings.slackBotToken);
 
   const handleSave = () => {
     onSave({
@@ -65,6 +67,8 @@ export function SettingsDialog({
       iconPromptPrefix,
       iconReferenceImage,
       externalApps,
+      slackEnabled,
+      slackBotToken,
     });
   };
 
@@ -103,7 +107,13 @@ export function SettingsDialog({
             className={`settings-tab ${tab === 'apps' ? 'settings-tab-active' : ''}`}
             onClick={() => setTab('apps')}
           >
-            Applications
+            Apps
+          </button>
+          <button
+            className={`settings-tab ${tab === 'integrations' ? 'settings-tab-active' : ''}`}
+            onClick={() => setTab('integrations')}
+          >
+            Integrations
           </button>
         </div>
 
@@ -463,6 +473,49 @@ export function SettingsDialog({
               >
                 + Add Application
               </button>
+            </>
+          )}
+
+          {tab === 'integrations' && (
+            <>
+              <div className="integration-section">
+                <div className="integration-header">
+                  <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" style={{ opacity: 0.7 }}>
+                    <path d="M6.5 1.5a1 1 0 00-2 0v1.25a.75.75 0 01-.75.75H2.5a1 1 0 000 2h1.25a.75.75 0 01.75.75V7.5a1 1 0 002 0V6.25a.75.75 0 01.75-.75H8.5a1 1 0 000-2H7.25a.75.75 0 01-.75-.75V1.5zM11.5 8.5a1 1 0 00-2 0v1.25a.75.75 0 01-.75.75H7.5a1 1 0 000 2h1.25a.75.75 0 01.75.75v1.25a1 1 0 002 0v-1.25a.75.75 0 01.75-.75h1.25a1 1 0 000-2h-1.25a.75.75 0 01-.75-.75V8.5z" />
+                  </svg>
+                  <span className="integration-title">Slack</span>
+                  <label className="integration-toggle">
+                    <input
+                      type="checkbox"
+                      checked={slackEnabled}
+                      onChange={(e) => setSlackEnabled(e.target.checked)}
+                    />
+                    <span className="toggle-slider" />
+                  </label>
+                </div>
+                <span className="field-hint" style={{ marginBottom: 8 }}>
+                  Two-way integration: status updates posted to Slack, messages from Slack forwarded to agents.
+                  Map each profile to a channel in its profile settings.
+                </span>
+
+                {slackEnabled && (
+                  <label className="field">
+                    <span className="field-label">Bot Token</span>
+                    <input
+                      type="text"
+                      value={slackBotToken}
+                      onChange={(e) => setSlackBotToken(e.target.value)}
+                      placeholder="xoxb-..."
+                      style={{ fontFamily: 'monospace' }}
+                    />
+                    <span className="field-hint">
+                      Create a Slack app at api.slack.com/apps, add Bot Token Scopes:
+                      chat:write, channels:history, channels:read.
+                      Install to workspace and copy the Bot User OAuth Token.
+                    </span>
+                  </label>
+                )}
+              </div>
             </>
           )}
         </div>

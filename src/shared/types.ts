@@ -13,6 +13,7 @@ export interface Profile {
   command: string;
   args: string[];
   statusPatterns?: StatusPatterns;
+  slackChannel?: string; // Slack channel ID or name for this profile
 }
 
 export interface AppSettings {
@@ -32,6 +33,8 @@ export interface AppSettings {
   sidebarWidth: number; // pixels, default 250
   terminalSplitPercent: number; // agent pane %, default 67
   externalApps: ExternalApp[];
+  slackEnabled: boolean;
+  slackBotToken: string; // xoxb-...
 }
 
 export interface ExternalApp {
@@ -61,6 +64,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     { id: 'vscode', name: 'VS Code', icon: 'vscode', command: 'open -a "Visual Studio Code" "{path}"' },
     { id: 'fork', name: 'Fork', icon: 'gitBranch', command: 'open -a Fork "{path}"' },
   ],
+  slackEnabled: false,
+  slackBotToken: '',
 };
 
 export interface SidebarFolder {
