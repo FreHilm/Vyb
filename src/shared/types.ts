@@ -105,7 +105,16 @@ export const IPC_CHANNELS = {
   LAYOUT_SAVE: 'layout:save',
   README_LOAD: 'readme:load',
   GIT_STATUS: 'git:status',
+  FILE_LIST_DIR: 'file:listDir',
+  FILE_READ: 'file:read',
+  FILE_SAVE: 'file:save',
 } as const;
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+}
 
 export interface GitStatus {
   isGit: boolean;

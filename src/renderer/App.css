@@ -1007,6 +1007,132 @@
   font-style: italic;
 }
 
+/* File Explorer */
+.file-explorer {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.file-editor-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.file-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--c-mantle);
+  border-bottom: 1px solid var(--c-surface0);
+  min-height: 32px;
+}
+
+.file-editor-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+}
+
+.file-modified-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c-yellow);
+}
+
+.file-save-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+}
+
+.file-editor-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.file-editor-content .cm-editor {
+  height: 100%;
+}
+
+.file-editor-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-overlay0);
+  font-size: 14px;
+}
+
+.file-tree-pane {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-mantle);
+  border-left: 1px solid var(--c-surface0);
+  overflow: hidden;
+}
+
+.file-tree-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--c-subtext0);
+  border-bottom: 1px solid var(--c-surface0);
+}
+
+.file-tree-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+}
+
+.file-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--c-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-tree-item:hover {
+  background: var(--c-surface0);
+}
+
+.file-tree-selected {
+  background: var(--c-surface1);
+}
+
+.file-tree-arrow {
+  font-size: 10px;
+  color: var(--c-overlay0);
+  width: 12px;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.file-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Readme Viewer */
 .readme-viewer {
   flex: 1;
