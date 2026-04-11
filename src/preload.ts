@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus } from './shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
   getProfiles: (): Promise<Profile[]> =>
@@ -96,6 +96,15 @@ contextBridge.exposeInMainWorld('api', {
 
   getGitStatus: (cwd: string): Promise<GitStatus> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_STATUS, cwd),
+
+  listDir: (dirPath: string): Promise<FileEntry[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_DIR, dirPath),
+
+  readFile: (filePath: string): Promise<string | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_READ, filePath),
+
+  saveFile: (filePath: string, content: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_SAVE, filePath, content),
 
   loadReadme: (workingDirectory: string): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.README_LOAD, workingDirectory),

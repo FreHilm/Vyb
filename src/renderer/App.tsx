@@ -6,8 +6,9 @@ import { ProfileEditor } from './components/ProfileEditor';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ResizeHandle } from './components/ResizeHandle';
 import { ReadmeViewer } from './components/ReadmeViewer';
+import { FileExplorer } from './components/FileExplorer';
 import { StatusBar } from './components/StatusBar';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp, FileEntry } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -41,6 +42,9 @@ declare global {
       onOpenSettings: (callback: () => void) => () => void;
       platform: string;
       getGitStatus: (cwd: string) => Promise<GitStatus>;
+      listDir: (dirPath: string) => Promise<FileEntry[]>;
+      readFile: (filePath: string) => Promise<string | null>;
+      saveFile: (filePath: string, content: string) => Promise<boolean>;
       loadReadme: (workingDirectory: string) => Promise<string | null>;
       setActiveProfile: (profileId: string | null) => void;
       generateIcon: (profileId: string, projectName: string) => Promise<string | null>;
@@ -66,6 +70,7 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [layout, setLayout] = useState<SidebarLayout>({ items: [], folders: [] });
   const [readmeVisible, setReadmeVisible] = useState(false);
+  const [filesVisible, setFilesVisible] = useState(false);
   const [hasUpdates, setHasUpdates] = useState<Set<string>>(new Set());
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState('');
@@ -320,19 +325,30 @@ export function App() {
               return next;
             });
           }}
-          onToggleReadme={() => setReadmeVisible((v) => !v)}
+          onToggleReadme={() => {
+            setReadmeVisible((v) => !v);
+            setFilesVisible(false);
+          }}
+          filesVisible={filesVisible}
+          onToggleFiles={() => {
+            setFilesVisible((v) => !v);
+            setReadmeVisible(false);
+          }}
           externalApps={settings.externalApps || []}
         />
         {readmeVisible && activeProfile && (
           <ReadmeViewer workingDirectory={activeProfile.workingDirectory} />
         )}
-        <div style={{ display: readmeVisible ? 'none' : 'contents' }}>
+        {filesVisible && activeProfile && (
+          <FileExplorer workingDirectory={activeProfile.workingDirectory} />
+        )}
+        <div style={{ display: readmeVisible || filesVisible ? 'none' : 'contents' }}>
           <TerminalPane
             profiles={profiles}
             activeProfileId={activeProfileId}
             initialized={initialized}
             shellOpen={activeProfileId ? shellOpenSet.has(activeProfileId) : false}
-            hidden={readmeVisible}
+            hidden={readmeVisible || filesVisible}
             onShellExited={() => {
               if (!activeProfileId) return;
               setShellOpenSet((prev) => {

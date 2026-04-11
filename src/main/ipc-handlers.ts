@@ -3,7 +3,7 @@ import { exec, execSync } from 'child_process';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus } from '../shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry } from '../shared/types';
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
 import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout } from './config-loader';
@@ -285,6 +285,42 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     const lastCommit = run('git log -1 --pretty=format:%s');
 
     return { isGit, branch, modified, staged, untracked, ahead, behind, stashes, lastCommit };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FILE_LIST_DIR, (_, dirPath: string): FileEntry[] => {
+    try {
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      return entries
+        .filter((e) => !e.name.startsWith('.'))
+        .map((e) => ({
+          name: e.name,
+          path: path.join(dirPath, e.name),
+          isDirectory: e.isDirectory(),
+        }))
+        .sort((a, b) => {
+          if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+    } catch {
+      return [];
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FILE_READ, (_, filePath: string): string | null => {
+    try {
+      return fs.readFileSync(filePath, 'utf-8');
+    } catch {
+      return null;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FILE_SAVE, (_, filePath: string, content: string): boolean => {
+    try {
+      fs.writeFileSync(filePath, content, 'utf-8');
+      return true;
+    } catch {
+      return false;
+    }
   });
 
   ipcMain.handle(IPC_CHANNELS.README_LOAD, (_, workingDirectory: string): string | null => {
