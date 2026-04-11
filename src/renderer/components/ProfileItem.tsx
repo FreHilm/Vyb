@@ -49,8 +49,9 @@ export function ProfileItem({
         )}
       </div>
       <div className="profile-info">
-        <div className="profile-name">{profile.name}</div>
-        <div className="profile-status-label">{STATUS_LABELS[status]}</div>
+        <div className="profile-name" title={profile.name}>
+          {profile.name}
+        </div>
       </div>
       <button
         className="edit-profile-btn"
@@ -62,8 +63,8 @@ export function ProfileItem({
         </svg>
       </button>
       <div
-        className="status-dot"
-        style={{ backgroundColor: STATUS_COLORS[status] }}
+        className={`status-dot ${status === 'working' ? 'working' : ''}`}
+        style={{ backgroundColor: STATUS_COLORS[status], color: STATUS_COLORS[status] }}
         title={STATUS_LABELS[status]}
       />
     </div>
