@@ -5,6 +5,7 @@ import { TerminalPane } from './components/TerminalPane';
 import { ProfileEditor } from './components/ProfileEditor';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ResizeHandle } from './components/ResizeHandle';
+import { ReadmeViewer } from './components/ReadmeViewer';
 import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
@@ -36,6 +37,8 @@ declare global {
       loadSettings: () => Promise<AppSettings>;
       saveSettings: (settings: AppSettings) => Promise<void>;
       onOpenSettings: (callback: () => void) => () => void;
+      platform: string;
+      loadReadme: (workingDirectory: string) => Promise<string | null>;
       setActiveProfile: (profileId: string | null) => void;
       generateIcon: (profileId: string, projectName: string) => Promise<string | null>;
       loadLayout: () => Promise<SidebarLayout>;
@@ -53,11 +56,15 @@ export function App() {
   const [initialized, setInitialized] = useState<Set<string>>(new Set());
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
+  const [iconRevision, setIconRevision] = useState(0);
   const [shellOpenSet, setShellOpenSet] = useState<Set<string>>(new Set());
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [layout, setLayout] = useState<SidebarLayout>({ items: [], folders: [] });
+  const [readmeVisible, setReadmeVisible] = useState(false);
+  const [batchGenerating, setBatchGenerating] = useState(false);
+  const [batchProgress, setBatchProgress] = useState('');
 
   // Load settings and profiles on mount
   useEffect(() => {
@@ -110,6 +117,39 @@ export function App() {
     setSettingsOpen(false);
   };
 
+  const handleBatchGenerateIcons = useCallback(async () => {
+    if (batchGenerating) return;
+    const withoutIcons = profiles.filter((p) => !p.icon);
+    if (withoutIcons.length === 0) return;
+
+    setBatchGenerating(true);
+    let done = 0;
+
+    for (const profile of withoutIcons) {
+      done++;
+      setBatchProgress(`${done}/${withoutIcons.length}: ${profile.name}`);
+      try {
+        const iconPath = await window.api.generateIcon(profile.id, profile.name);
+        if (iconPath) {
+          // Update the profile with the new icon
+          setProfiles((prev) => {
+            const updated = prev.map((p) =>
+              p.id === profile.id ? { ...p, icon: iconPath } : p,
+            );
+            window.api.saveProfiles(updated);
+            return updated;
+          });
+          setIconRevision((r) => r + 1);
+        }
+      } catch (err) {
+        console.error(`Failed to generate icon for ${profile.name}:`, err);
+      }
+    }
+
+    setBatchGenerating(false);
+    setBatchProgress('');
+  }, [batchGenerating, profiles]);
+
   const initializeProfile = useCallback(
     (profileId: string) => {
       if (initialized.has(profileId)) return;
@@ -156,6 +196,7 @@ export function App() {
     await window.api.saveProfiles(updated);
     setProfiles(updated);
     setEditorOpen(false);
+    setIconRevision((r) => r + 1);
 
     setActiveProfileId(saved.id);
     if (!initialized.has(saved.id)) {
@@ -231,6 +272,7 @@ export function App() {
         activeProfileId={activeProfileId}
         statuses={statuses}
         layout={layout}
+        iconRevision={iconRevision}
         onLayoutChange={handleLayoutChange}
         onSelectProfile={handleSelectProfile}
         onEditProfile={handleEditProfile}
@@ -241,6 +283,7 @@ export function App() {
         <CommandBar
           profile={activeProfile}
           shellOpen={activeProfileId ? shellOpenSet.has(activeProfileId) : false}
+          readmeVisible={readmeVisible}
           onToggleShell={() => {
             if (!activeProfileId) return;
             setShellOpenSet((prev) => {
@@ -250,23 +293,30 @@ export function App() {
               return next;
             });
           }}
+          onToggleReadme={() => setReadmeVisible((v) => !v)}
         />
-        <TerminalPane
-          profiles={profiles}
-          activeProfileId={activeProfileId}
-          initialized={initialized}
-          shellOpen={activeProfileId ? shellOpenSet.has(activeProfileId) : false}
-          onShellExited={() => {
-            if (!activeProfileId) return;
-            setShellOpenSet((prev) => {
-              const next = new Set(prev);
-              next.delete(activeProfileId);
-              return next;
-            });
-          }}
-          settings={settings}
-          onSplitChange={handleTerminalSplitChange}
-        />
+        {readmeVisible && activeProfile && (
+          <ReadmeViewer workingDirectory={activeProfile.workingDirectory} />
+        )}
+        <div style={{ display: readmeVisible ? 'none' : 'contents' }}>
+          <TerminalPane
+            profiles={profiles}
+            activeProfileId={activeProfileId}
+            initialized={initialized}
+            shellOpen={activeProfileId ? shellOpenSet.has(activeProfileId) : false}
+            hidden={readmeVisible}
+            onShellExited={() => {
+              if (!activeProfileId) return;
+              setShellOpenSet((prev) => {
+                const next = new Set(prev);
+                next.delete(activeProfileId);
+                return next;
+              });
+            }}
+            settings={settings}
+            onSplitChange={handleTerminalSplitChange}
+          />
+        </div>
       </div>
       {editorOpen && (
         <ProfileEditor
@@ -281,6 +331,10 @@ export function App() {
           settings={settings}
           onSave={handleSaveSettings}
           onClose={() => setSettingsOpen(false)}
+          batchGenerating={batchGenerating}
+          batchProgress={batchProgress}
+          onBatchGenerate={handleBatchGenerateIcons}
+          profilesWithoutIcons={profiles.filter((p) => !p.icon).length}
         />
       )}
     </div>

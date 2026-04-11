@@ -104,12 +104,15 @@ const createWindow = () => {
     app.dock?.setIcon(appIcon);
   }
 
+  const isMac = process.platform === 'darwin';
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 800,
     minHeight: 500,
-    titleBarStyle: 'hiddenInset',
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    titleBarOverlay: !isMac ? { color: '#1e1e2e', symbolColor: '#cdd6f4', height: 38 } : undefined,
     backgroundColor: '#1e1e2e',
     icon: appIcon,
     webPreferences: {
@@ -134,7 +137,9 @@ const createWindow = () => {
 app.on('ready', () => {
   // Handle local-file:// protocol to serve icons from disk
   protocol.handle('local-file', (request) => {
-    const filePath = decodeURIComponent(request.url.replace('local-file://', ''));
+    // Strip query string (used for cache busting) before resolving file path
+    const rawPath = request.url.replace('local-file://', '').split('?')[0];
+    const filePath = decodeURIComponent(rawPath);
     return net.fetch(pathToFileURL(filePath).toString());
   });
 

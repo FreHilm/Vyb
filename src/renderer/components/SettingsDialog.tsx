@@ -6,12 +6,20 @@ interface SettingsDialogProps {
   settings: AppSettings;
   onSave: (settings: AppSettings) => void;
   onClose: () => void;
+  batchGenerating: boolean;
+  batchProgress: string;
+  onBatchGenerate: () => void;
+  profilesWithoutIcons: number;
 }
 
 export function SettingsDialog({
   settings,
   onSave,
   onClose,
+  batchGenerating,
+  batchProgress,
+  onBatchGenerate,
+  profilesWithoutIcons,
 }: SettingsDialogProps) {
   const [baseHue, setBaseHue] = useState(settings.baseHue);
   const [darkness, setDarkness] = useState(settings.darkness);
@@ -21,9 +29,16 @@ export function SettingsDialog({
   );
   const [agentFontSize, setAgentFontSize] = useState(settings.agentFontSize);
   const [shellFontSize, setShellFontSize] = useState(settings.shellFontSize);
+  const [iconProvider, setIconProvider] = useState(settings.iconProvider);
+  const [geminiModel, setGeminiModel] = useState(settings.geminiModel);
   const [geminiApiKey, setGeminiApiKey] = useState(settings.geminiApiKey);
+  const [openaiModel, setOpenaiModel] = useState(settings.openaiModel);
+  const [openaiApiKey, setOpenaiApiKey] = useState(settings.openaiApiKey);
   const [iconPromptPrefix, setIconPromptPrefix] = useState(
     settings.iconPromptPrefix,
+  );
+  const [iconReferenceImage, setIconReferenceImage] = useState(
+    settings.iconReferenceImage,
   );
 
   const handleSave = () => {
@@ -35,8 +50,13 @@ export function SettingsDialog({
       profileFontSize,
       agentFontSize,
       shellFontSize,
+      iconProvider,
+      geminiModel,
       geminiApiKey,
+      openaiModel,
+      openaiApiKey,
       iconPromptPrefix,
+      iconReferenceImage,
     });
   };
 
@@ -158,19 +178,83 @@ export function SettingsDialog({
 
           <div style={{ borderTop: '1px solid var(--c-surface0)', margin: '8px 0' }} />
 
-          <label className="field">
-            <span className="field-label">Gemini API Key</span>
-            <input
-              type="text"
-              value={geminiApiKey}
-              onChange={(e) => setGeminiApiKey(e.target.value)}
-              placeholder="AIza..."
-              style={{ fontFamily: 'monospace' }}
-            />
-            <span className="field-hint">
-              Required for AI icon generation. Get one at ai.google.dev
-            </span>
-          </label>
+          <div className="field">
+            <span className="field-label">Icon Generation Provider</span>
+            <div className="field-row">
+              <button
+                className={`provider-btn ${iconProvider === 'gemini' ? 'provider-btn-active' : ''}`}
+                onClick={() => setIconProvider('gemini')}
+              >
+                Gemini
+              </button>
+              <button
+                className={`provider-btn ${iconProvider === 'openai' ? 'provider-btn-active' : ''}`}
+                onClick={() => setIconProvider('openai')}
+              >
+                ChatGPT
+              </button>
+            </div>
+          </div>
+
+          {iconProvider === 'gemini' && (
+            <>
+              <label className="field">
+                <span className="field-label">Gemini Model</span>
+                <select
+                  className="field-select"
+                  value={geminiModel}
+                  onChange={(e) => setGeminiModel(e.target.value)}
+                >
+                  <option value="gemini-3.1-flash-image-preview">Nano Banana 2 (gemini-3.1-flash) — Newest, fast</option>
+                  <option value="gemini-3-pro-image-preview">Nano Banana Pro (gemini-3-pro) — Best quality, 4K</option>
+                  <option value="gemini-2.5-flash-image">Nano Banana (gemini-2.5-flash) — Stable</option>
+                </select>
+              </label>
+              <label className="field">
+                <span className="field-label">Gemini API Key</span>
+                <input
+                  type="text"
+                  value={geminiApiKey}
+                  onChange={(e) => setGeminiApiKey(e.target.value)}
+                  placeholder="AIza..."
+                  style={{ fontFamily: 'monospace' }}
+                />
+                <span className="field-hint">
+                  Get one at ai.google.dev
+                </span>
+              </label>
+            </>
+          )}
+
+          {iconProvider === 'openai' && (
+            <>
+              <label className="field">
+                <span className="field-label">OpenAI Model</span>
+                <select
+                  className="field-select"
+                  value={openaiModel}
+                  onChange={(e) => setOpenaiModel(e.target.value)}
+                >
+                  <option value="gpt-image-1">GPT Image 1 — Newest, best quality</option>
+                  <option value="dall-e-3">DALL-E 3</option>
+                  <option value="dall-e-2">DALL-E 2</option>
+                </select>
+              </label>
+              <label className="field">
+                <span className="field-label">OpenAI API Key</span>
+                <input
+                  type="text"
+                  value={openaiApiKey}
+                  onChange={(e) => setOpenaiApiKey(e.target.value)}
+                  placeholder="sk-..."
+                  style={{ fontFamily: 'monospace' }}
+                />
+                <span className="field-hint">
+                  Get one at platform.openai.com
+              </span>
+              </label>
+            </>
+          )}
 
           <label className="field">
             <span className="field-label">Icon Generation Prompt</span>
@@ -186,6 +270,81 @@ export function SettingsDialog({
               [name] that matches the following universe: [this text]"
             </span>
           </label>
+
+          <label className="field">
+            <span className="field-label">Style Reference Image</span>
+            <div className="field-with-btn">
+              <input
+                type="text"
+                value={iconReferenceImage}
+                onChange={(e) => setIconReferenceImage(e.target.value)}
+                placeholder="(optional) /path/to/reference-icon.png"
+              />
+              <button
+                className="browse-btn"
+                onClick={async () => {
+                  const file = await window.api.selectFile();
+                  if (file) setIconReferenceImage(file);
+                }}
+              >
+                Browse
+              </button>
+              {iconReferenceImage && (
+                <button
+                  className="browse-btn"
+                  onClick={() => setIconReferenceImage('')}
+                  title="Clear reference image"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            {iconReferenceImage && (
+              <div className="icon-preview" style={{ marginTop: 8 }}>
+                <img
+                  src={`local-file://${iconReferenceImage}`}
+                  alt="Reference"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              </div>
+            )}
+            <span className="field-hint">
+              All generated icons will use this image as a visual style
+              reference for consistency
+            </span>
+          </label>
+
+          <div style={{ borderTop: '1px solid var(--c-surface0)', margin: '8px 0' }} />
+
+          <div className="field">
+            <button
+              className={`batch-generate-btn ${batchGenerating ? 'batch-generating' : ''}`}
+              onClick={onBatchGenerate}
+              disabled={batchGenerating || profilesWithoutIcons === 0}
+            >
+              {batchGenerating ? (
+                <>
+                  <svg className="batch-spinner" viewBox="0 0 24 24" width="16" height="16">
+                    <circle
+                      cx="12" cy="12" r="10"
+                      fill="none" stroke="currentColor"
+                      strokeWidth="3" strokeDasharray="50 20"
+                    />
+                  </svg>
+                  Generating... {batchProgress}
+                </>
+              ) : profilesWithoutIcons === 0 ? (
+                'All profiles have icons'
+              ) : (
+                `Generate icons for ${profilesWithoutIcons} profile${profilesWithoutIcons > 1 ? 's' : ''}`
+              )}
+            </button>
+            <span className="field-hint">
+              Generates icons for all profiles that don't have one yet
+            </span>
+          </div>
         </div>
 
         <div className="modal-footer">

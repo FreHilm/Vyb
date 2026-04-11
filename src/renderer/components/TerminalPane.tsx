@@ -13,6 +13,7 @@ interface TerminalPaneProps {
   activeProfileId: string | null;
   initialized: Set<string>;
   shellOpen: boolean;
+  hidden: boolean;
   onShellExited: () => void;
   settings: AppSettings;
   onSplitChange: (percent: number) => void;
@@ -82,6 +83,7 @@ export function TerminalPane({
   activeProfileId,
   initialized,
   shellOpen,
+  hidden,
   onShellExited,
   settings,
   onSplitChange,
@@ -173,7 +175,20 @@ export function TerminalPane({
   }, [initialized, settings.agentFontSize, settings.baseHue]);
 
   // Show/hide agent terminals and lazily create PTY on first show
+  // When hidden (README visible): hide ALL terminal elements, do nothing else
+  // When visible: show the active one, open/fit it
   useEffect(() => {
+    if (hidden) {
+      // Hide everything — don't open, don't fit, don't touch anything
+      agentTerminalsRef.current.forEach((instance) => {
+        instance.element.style.display = 'none';
+      });
+      shellTerminalsRef.current.forEach((instance) => {
+        instance.element.style.display = 'none';
+      });
+      return;
+    }
+
     agentTerminalsRef.current.forEach((instance, id) => {
       if (id === activeProfileId) {
         openTerminal(instance);
@@ -225,7 +240,7 @@ export function TerminalPane({
         instance.element.style.display = 'none';
       }
     });
-  }, [activeProfileId, initialized, shellOpen, profiles]);
+  }, [activeProfileId, initialized, shellOpen, hidden, profiles]);
 
   // Create shell terminal when toggled
   const ensureShellTerminal = useCallback(
@@ -289,6 +304,38 @@ export function TerminalPane({
       return next;
     });
   }, [onSplitChange]);
+
+  // Refit terminals when returning from hidden state (e.g. README viewer)
+  useEffect(() => {
+    if (hidden) return;
+    // Small delay to allow the container to get its dimensions back
+    const timer = setTimeout(() => {
+      if (activeProfileId) {
+        const agentInst = agentTerminalsRef.current.get(activeProfileId);
+        if (agentInst && agentInst.opened) {
+          agentInst.fitAddon.fit();
+          window.api.resizeTerminal(
+            activeProfileId,
+            agentInst.terminal.cols,
+            agentInst.terminal.rows,
+          );
+        }
+        if (shellOpen) {
+          const sid = shellId(activeProfileId);
+          const shellInst = shellTerminalsRef.current.get(sid);
+          if (shellInst && shellInst.opened) {
+            shellInst.fitAddon.fit();
+            window.api.resizeTerminal(
+              sid,
+              shellInst.terminal.cols,
+              shellInst.terminal.rows,
+            );
+          }
+        }
+      }
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [hidden, activeProfileId, shellOpen]);
 
   // Refit visible terminals on container resize
   useEffect(() => {

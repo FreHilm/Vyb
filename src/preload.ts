@@ -89,6 +89,11 @@ contextBridge.exposeInMainWorld('api', {
   setActiveProfile: (profileId: string | null): void =>
     ipcRenderer.send(IPC_CHANNELS.PROFILE_SET_ACTIVE, profileId),
 
+  platform: process.platform,
+
+  loadReadme: (workingDirectory: string): Promise<string | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.README_LOAD, workingDirectory),
+
   generateIcon: (profileId: string, projectName: string): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.GENERATE_ICON, profileId, projectName),
 
