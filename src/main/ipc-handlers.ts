@@ -1,9 +1,9 @@
 import { app, ipcMain, shell, dialog, BrowserWindow, Notification } from 'electron';
-import { exec } from 'child_process';
+import { exec, execSync } from 'child_process';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout } from '../shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus } from '../shared/types';
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
 import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout } from './config-loader';
@@ -224,6 +224,58 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
   ipcMain.handle(IPC_CHANNELS.LAYOUT_SAVE, (_, layout: SidebarLayout) => {
     saveLayout(layout);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_STATUS, (_, cwd: string): GitStatus => {
+    const empty: GitStatus = {
+      isGit: false, branch: '', modified: 0, staged: 0, untracked: 0,
+      ahead: 0, behind: 0, stashes: 0, lastCommit: '',
+    };
+    const run = (cmd: string): string => {
+      try {
+        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8' }).trim();
+      } catch {
+        return '';
+      }
+    };
+
+    // Check if git repo
+    const isGit = run('git rev-parse --is-inside-work-tree') === 'true';
+    if (!isGit) return empty;
+
+    const branch = run('git branch --show-current') || run('git rev-parse --short HEAD');
+
+    // Porcelain status for counts
+    const statusLines = run('git status --porcelain').split('\n').filter(Boolean);
+    let modified = 0;
+    let staged = 0;
+    let untracked = 0;
+    for (const line of statusLines) {
+      const x = line[0];
+      const y = line[1];
+      if (x === '?') { untracked++; continue; }
+      if (x !== ' ' && x !== '?') staged++;
+      if (y !== ' ' && y !== '?') modified++;
+    }
+
+    // Ahead/behind
+    let ahead = 0;
+    let behind = 0;
+    const abStr = run('git rev-list --left-right --count HEAD...@{upstream}');
+    if (abStr) {
+      const parts = abStr.split(/\s+/);
+      ahead = parseInt(parts[0], 10) || 0;
+      behind = parseInt(parts[1], 10) || 0;
+    }
+
+    // Stash count
+    const stashList = run('git stash list');
+    const stashes = stashList ? stashList.split('\n').filter(Boolean).length : 0;
+
+    // Last commit
+    const lastCommit = run('git log -1 --pretty=format:%s');
+
+    return { isGit, branch, modified, staged, untracked, ahead, behind, stashes, lastCommit };
   });
 
   ipcMain.handle(IPC_CHANNELS.README_LOAD, (_, workingDirectory: string): string | null => {

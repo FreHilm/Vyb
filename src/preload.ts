@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout } from './shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
   getProfiles: (): Promise<Profile[]> =>
@@ -90,6 +90,9 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.send(IPC_CHANNELS.PROFILE_SET_ACTIVE, profileId),
 
   platform: process.platform,
+
+  getGitStatus: (cwd: string): Promise<GitStatus> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_STATUS, cwd),
 
   loadReadme: (workingDirectory: string): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.README_LOAD, workingDirectory),

@@ -91,4 +91,17 @@ export const IPC_CHANNELS = {
   LAYOUT_LOAD: 'layout:load',
   LAYOUT_SAVE: 'layout:save',
   README_LOAD: 'readme:load',
+  GIT_STATUS: 'git:status',
 } as const;
+
+export interface GitStatus {
+  isGit: boolean;
+  branch: string;
+  modified: number;
+  staged: number;
+  untracked: number;
+  ahead: number;
+  behind: number;
+  stashes: number;
+  lastCommit: string;
+}
