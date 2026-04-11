@@ -7,6 +7,7 @@ import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
 import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout } from './config-loader';
+import { initSlack, stopSlack, postStatus, setMessageHandler } from './slack-integration';
 
 let ptyManager: PtyManager;
 let statusDetector: StatusDetector;
@@ -31,7 +32,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     isQuitting = true;
   });
 
-  statusDetector = new StatusDetector((profileId, status, previousStatus) => {
+  statusDetector = new StatusDetector((profileId, status, previousStatus, output) => {
     safeSend(IPC_CHANNELS.PROFILE_STATUS_CHANGE, { profileId, status });
 
     // Only notify on meaningful transitions:
@@ -45,21 +46,25 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       (status === 'needs-input' && (previousStatus === 'working' || previousStatus === 'ready'));
     if (!isNotifiable) return;
 
-    const isFocusedOnThis =
-      mainWindow.isFocused() && profileId === activeProfileId;
-    if (isFocusedOnThis) return;
-
     const profile = profiles.find((p) => p.id === profileId);
     if (profile) {
-      const opts: Electron.NotificationConstructorOptions = {
-        title: profile.name,
-        body: status === 'ready' ? 'Task completed' : 'Needs your input',
-      };
-      if (profile.icon && fs.existsSync(profile.icon)) {
-        opts.icon = profile.icon;
+      // Post to Slack (always, even if focused — Slack is for remote monitoring)
+      postStatus(profile, status, previousStatus, output);
+
+      // OS notification only if not focused on this profile
+      const isFocusedOnThis =
+        mainWindow.isFocused() && profileId === activeProfileId;
+      if (!isFocusedOnThis) {
+        const opts: Electron.NotificationConstructorOptions = {
+          title: profile.name,
+          body: status === 'ready' ? 'Task completed' : 'Needs your input',
+        };
+        if (profile.icon && fs.existsSync(profile.icon)) {
+          opts.icon = profile.icon;
+        }
+        const notification = new Notification(opts);
+        notification.show();
       }
-      const notification = new Notification(opts);
-      notification.show();
     }
   });
 
@@ -81,8 +86,17 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     },
   );
 
+  // Set up Slack message handler — forwards Slack messages to the agent's PTY
+  setMessageHandler((profileId, text) => {
+    ptyManager.write(profileId, text + '\r');
+    statusDetector.setWorking(profileId);
+  });
+
   ipcMain.handle(IPC_CHANNELS.PROFILES_LOAD, () => {
     profiles = loadProfiles();
+    // Init Slack with current settings and profiles
+    const settings = loadSettings();
+    initSlack(settings, profiles);
     return profiles;
   });
 
@@ -200,6 +214,8 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.PROFILES_SAVE, (_, updatedProfiles: Profile[]) => {
     saveProfiles(updatedProfiles);
     profiles = updatedProfiles;
+    const settings = loadSettings();
+    initSlack(settings, profiles);
   });
 
   ipcMain.handle(IPC_CHANNELS.DIALOG_SELECT_DIRECTORY, async () => {
@@ -229,6 +245,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
   ipcMain.handle(IPC_CHANNELS.SETTINGS_SAVE, (_, settings: AppSettings) => {
     saveSettings(settings);
+    initSlack(settings, profiles);
   });
 
   ipcMain.handle(IPC_CHANNELS.LAYOUT_LOAD, () => {
@@ -529,6 +546,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
 export function cleanupIpcHandlers(): void {
   isQuitting = true;
+  stopSlack();
   if (ptyManager) {
     ptyManager.destroyAll();
   }

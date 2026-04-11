@@ -28,10 +28,10 @@ const DEBOUNCE_MS = 800;
 
 export class StatusDetector {
   private states: Map<string, ProfileState> = new Map();
-  private onStatusChange: (profileId: string, status: AgentStatus, previousStatus: AgentStatus) => void;
+  private onStatusChange: (profileId: string, status: AgentStatus, previousStatus: AgentStatus, output: string) => void;
 
   constructor(
-    onStatusChange: (profileId: string, status: AgentStatus, previousStatus: AgentStatus) => void,
+    onStatusChange: (profileId: string, status: AgentStatus, previousStatus: AgentStatus, output: string) => void,
   ) {
     this.onStatusChange = onStatusChange;
   }
@@ -165,8 +165,8 @@ export class StatusDetector {
     if (!state || state.status === newStatus) return;
 
     const oldStatus = state.status;
+    const output = state.buffer;
     state.status = newStatus;
-    // Include the previous status so the notification handler can decide
-    this.onStatusChange(profileId, newStatus, oldStatus);
+    this.onStatusChange(profileId, newStatus, oldStatus, output);
   }
 }

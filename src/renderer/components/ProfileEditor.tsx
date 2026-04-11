@@ -29,6 +29,7 @@ export function ProfileEditor({
   const [workingDirectory, setWorkingDirectory] = useState('');
   const [command, setCommand] = useState('claude');
   const [args, setArgs] = useState('');
+  const [slackChannel, setSlackChannel] = useState('');
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState('');
   const [iconCacheBust, setIconCacheBust] = useState(0);
@@ -40,6 +41,7 @@ export function ProfileEditor({
       setWorkingDirectory(profile.workingDirectory);
       setCommand(profile.command);
       setArgs(profile.args.join(' '));
+      setSlackChannel(profile.slackChannel || '');
     }
   }, [profile]);
 
@@ -85,6 +87,7 @@ export function ProfileEditor({
         .trim()
         .split(/\s+/)
         .filter((a) => a),
+      slackChannel: slackChannel.trim() || undefined,
     };
 
     onSave(saved);
@@ -212,6 +215,20 @@ export function ProfileEditor({
               </div>
             )}
             {genError && <div className="field-error">{genError}</div>}
+          </label>
+
+          <label className="field">
+            <span className="field-label">Slack Channel</span>
+            <input
+              type="text"
+              value={slackChannel}
+              onChange={(e) => setSlackChannel(e.target.value)}
+              placeholder="(optional) Channel ID e.g. C01234ABCDE"
+            />
+            <span className="field-hint">
+              Channel ID from Slack (right-click channel → View channel details → copy ID).
+              Requires Slack integration enabled in Settings → Integrations.
+            </span>
           </label>
         </div>
 

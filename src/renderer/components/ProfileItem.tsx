@@ -39,6 +39,7 @@ export function ProfileItem({
   };
 
   const isAnimated = status === 'working' || status === 'needs-input';
+  const isCalm = status === 'ready';
 
   const itemStyle: React.CSSProperties | undefined =
     hasUpdate && !isActive
@@ -46,20 +47,20 @@ export function ProfileItem({
           '--update-color': STATUS_COLORS[status],
           '--update-bg': STATUS_COLORS[status] + '14',
         } as React.CSSProperties
-      : isActive && isAnimated
+      : isActive && (isAnimated || isCalm)
         ? { '--flame-color': STATUS_COLORS[status] } as React.CSSProperties
         : undefined;
 
   return (
     <div
-      className={`profile-item ${isActive ? 'active' : ''} ${hasUpdate && !isActive ? 'has-update' : ''} ${isActive && isAnimated ? 'active-working' : ''}`}
+      className={`profile-item ${isActive ? 'active' : ''} ${hasUpdate && !isActive ? 'has-update' : ''} ${isActive && (isAnimated || isCalm) ? 'active-working' : ''}`}
       style={itemStyle}
       onClick={onClick}
       title={profile.name}
     >
       {isActive && (
         <div
-          className={`flame-indicator ${isAnimated ? 'flame-animated' : ''}`}
+          className={`flame-indicator ${isAnimated ? 'flame-animated' : isCalm ? 'flame-calm' : ''}`}
           style={{ '--flame-color': STATUS_COLORS[status] } as React.CSSProperties}
         >
           <svg viewBox="0 0 20 60" preserveAspectRatio="none" fill="none">
