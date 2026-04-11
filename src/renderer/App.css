@@ -241,6 +241,7 @@
   cursor: pointer;
   transition: background 0.15s;
   user-select: none;
+  position: relative;
 }
 
 .profile-item:hover {
@@ -249,7 +250,84 @@
 
 .profile-item.active {
   background: var(--c-surface0);
-  box-shadow: inset 3px 0 0 var(--c-blue);
+}
+
+/* Flame indicator */
+.flame-indicator {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.flame-indicator svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.flame-base {
+  fill: var(--flame-color);
+}
+
+.flame {
+  fill: var(--flame-color);
+  opacity: 0.3;
+  transition: fill 0.3s, opacity 0.3s;
+}
+
+.flame-1 { opacity: 0.25; }
+.flame-2 { opacity: 0.15; }
+.flame-3 { opacity: 0.2; }
+.flame-4 { opacity: 0.15; }
+
+/* Animated flames when agent is working */
+.flame-animated .flame {
+  opacity: 0.5;
+}
+
+.flame-animated .flame-1 {
+  animation: flicker1 0.7s ease-in-out infinite alternate;
+}
+
+.flame-animated .flame-2 {
+  animation: flicker2 0.9s ease-in-out infinite alternate;
+}
+
+.flame-animated .flame-3 {
+  animation: flicker3 0.5s ease-in-out infinite alternate;
+}
+
+.flame-animated .flame-4 {
+  animation: flicker4 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes flicker1 {
+  0% { opacity: 0.2; transform: scaleX(0.7); }
+  100% { opacity: 0.6; transform: scaleX(1.2); }
+}
+
+@keyframes flicker2 {
+  0% { opacity: 0.15; transform: scaleX(0.6); }
+  100% { opacity: 0.5; transform: scaleX(1.1); }
+}
+
+@keyframes flicker3 {
+  0% { opacity: 0.2; transform: scaleX(0.8); }
+  100% { opacity: 0.55; transform: scaleX(1.3); }
+}
+
+@keyframes flicker4 {
+  0% { opacity: 0.1; transform: scaleX(0.65); }
+  100% { opacity: 0.45; transform: scaleX(1.15); }
+}
+
+.profile-item.active-working {
+  background: color-mix(in srgb, var(--flame-color, transparent) 6%, transparent);
 }
 
 .profile-item.has-update {

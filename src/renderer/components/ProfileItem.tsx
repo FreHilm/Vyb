@@ -38,20 +38,39 @@ export function ProfileItem({
     onEdit();
   };
 
-  const updateStyle = hasUpdate && !isActive
-    ? {
-        '--update-color': STATUS_COLORS[status],
-        '--update-bg': STATUS_COLORS[status] + '14',
-      } as React.CSSProperties
-    : undefined;
+  const isAnimated = status === 'working' || status === 'needs-input';
+
+  const itemStyle: React.CSSProperties | undefined =
+    hasUpdate && !isActive
+      ? {
+          '--update-color': STATUS_COLORS[status],
+          '--update-bg': STATUS_COLORS[status] + '14',
+        } as React.CSSProperties
+      : isActive && isAnimated
+        ? { '--flame-color': STATUS_COLORS[status] } as React.CSSProperties
+        : undefined;
 
   return (
     <div
-      className={`profile-item ${isActive ? 'active' : ''} ${hasUpdate && !isActive ? 'has-update' : ''}`}
-      style={updateStyle}
+      className={`profile-item ${isActive ? 'active' : ''} ${hasUpdate && !isActive ? 'has-update' : ''} ${isActive && isAnimated ? 'active-working' : ''}`}
+      style={itemStyle}
       onClick={onClick}
       title={profile.name}
     >
+      {isActive && (
+        <div
+          className={`flame-indicator ${isAnimated ? 'flame-animated' : ''}`}
+          style={{ '--flame-color': STATUS_COLORS[status] } as React.CSSProperties}
+        >
+          <svg viewBox="0 0 20 60" preserveAspectRatio="none" fill="none">
+            <rect className="flame-base" x="0" y="0" width="4" height="60" />
+            <path className="flame flame-1" d="M4 5 Q12 10 8 15 Q14 20 6 25 Q10 30 4 35 L4 5z" />
+            <path className="flame flame-2" d="M4 15 Q16 22 7 30 Q13 38 4 45 L4 15z" />
+            <path className="flame flame-3" d="M4 0 Q10 8 7 12 Q12 18 5 22 Q9 26 4 30 L4 0z" />
+            <path className="flame flame-4" d="M4 30 Q14 36 8 42 Q11 48 4 55 L4 30z" />
+          </svg>
+        </div>
+      )}
       <div className="profile-icon">
         {profile.icon ? (
           <img src={`local-file://${profile.icon}?v=${iconRevision}`} alt={profile.name} />
