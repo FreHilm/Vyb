@@ -1287,6 +1287,90 @@
   text-overflow: ellipsis;
 }
 
+/* Shell Panels */
+.shell-pane-container {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.shell-panels {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.shell-panel {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  height: 100%;
+}
+
+.shell-instance {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  padding: 2px;
+}
+
+/* Close button — top-right of each panel, visible on hover */
+.shell-close-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 10;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  border-radius: 4px;
+  color: var(--c-overlay0);
+  cursor: pointer;
+  padding: 3px;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.shell-panel:hover .shell-close-btn {
+  opacity: 1;
+}
+
+.shell-close-btn:hover {
+  color: var(--c-red);
+  background: var(--c-surface1);
+}
+
+/* Split button — right edge of shell pane, visible on hover over last panel */
+.shell-split-btn {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  z-index: 10;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  border-radius: 6px;
+  color: var(--c-overlay0);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.shell-pane-container:hover .shell-split-btn {
+  opacity: 0.6;
+}
+
+.shell-split-btn:hover {
+  opacity: 1 !important;
+  color: var(--c-blue);
+  background: var(--c-surface1);
+}
+
 /* Readme Viewer */
 .readme-viewer {
   flex: 1;
