@@ -287,7 +287,9 @@ export function App() {
         {activeProfile && (
           <>
             <span className="titlebar-name">{activeProfile.name}</span>
-            <span className="titlebar-path">{activeProfile.workingDirectory}</span>
+            <span className="titlebar-path" title={activeProfile.workingDirectory}>
+              {activeProfile.workingDirectory.replace(/^\/Users\/[^/]+/, '~')}
+            </span>
           </>
         )}
       </div>
