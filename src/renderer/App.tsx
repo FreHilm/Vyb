@@ -64,7 +64,7 @@ export function App() {
     window.api.loadSettings().then((loaded) => {
       setSettings(loaded);
       setSidebarWidth(loaded.sidebarWidth);
-      applyTheme(loaded.baseHue, loaded.darkness, loaded.profileFontSize);
+      applyTheme(loaded.baseHue, loaded.darkness, loaded.textLightness, loaded.profileFontSize);
     });
 
     window.api.loadLayout().then(setLayout);
@@ -96,7 +96,7 @@ export function App() {
 
   // Apply theme whenever settings change
   useEffect(() => {
-    applyTheme(settings.baseHue, settings.darkness, settings.profileFontSize);
+    applyTheme(settings.baseHue, settings.darkness, settings.textLightness, settings.profileFontSize);
   }, [settings]);
 
   // Sync active profile to main process for notification suppression

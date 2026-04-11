@@ -60,9 +60,18 @@ function darken(l: number, darkness: number): number {
   return l * factor;
 }
 
+// Text entries whose lightness is controlled by the textLightness slider
+const TEXT_ENTRIES = new Set(['text', 'subtext0', 'overlay0', 'white']);
+
+// textLightness 0 = white (100%), 100 = black (0%)
+function textLight(_defaultL: number, textLightness: number): number {
+  return 100 - textLightness;
+}
+
 export function applyTheme(
   baseHue: number,
   darkness: number,
+  textLightness: number,
   profileFontSize: number,
 ): void {
   const shift = baseHue >= 360 ? 0 : baseHue - BASE_HUE;
@@ -71,7 +80,10 @@ export function applyTheme(
   for (const c of PALETTE) {
     const h = shiftHue(c.h, shift);
     const s = satFor(c.s, baseHue);
-    const l = darken(c.l, darkness);
+    let l = darken(c.l, darkness);
+    if (TEXT_ENTRIES.has(c.name)) {
+      l = textLight(l > 0 ? l : c.l, textLightness);
+    }
     root.style.setProperty(`--c-${c.name}`, `hsl(${h}, ${s}%, ${l}%)`);
   }
 

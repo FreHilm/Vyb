@@ -18,6 +18,7 @@ export interface Profile {
 export interface AppSettings {
   baseHue: number; // 0-360, default 240 (purple), 360 = grayscale
   darkness: number; // 0-100, default 0. Scales lightness down toward black.
+  textLightness: number; // 0-100, default 50. Controls UI text brightness.
   profileFontSize: number; // 10-20, default 13
   agentFontSize: number; // 10-24, default 14
   shellFontSize: number; // 10-24, default 14
@@ -30,6 +31,7 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   baseHue: 240,
   darkness: 0,
+  textLightness: 12,
   profileFontSize: 13,
   agentFontSize: 14,
   shellFontSize: 14,
