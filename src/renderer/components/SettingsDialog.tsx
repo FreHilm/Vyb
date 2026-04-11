@@ -15,6 +15,7 @@ export function SettingsDialog({
 }: SettingsDialogProps) {
   const [baseHue, setBaseHue] = useState(settings.baseHue);
   const [darkness, setDarkness] = useState(settings.darkness);
+  const [textLightness, setTextLightness] = useState(settings.textLightness);
   const [profileFontSize, setProfileFontSize] = useState(
     settings.profileFontSize,
   );
@@ -27,8 +28,10 @@ export function SettingsDialog({
 
   const handleSave = () => {
     onSave({
+      ...settings,
       baseHue,
       darkness,
+      textLightness,
       profileFontSize,
       agentFontSize,
       shellFontSize,
@@ -96,6 +99,18 @@ export function SettingsDialog({
               border: '1px solid rgba(255,255,255,0.1)',
             }}
           />
+
+          <label className="field">
+            <span className="field-label">Text Brightness</span>
+            <input
+              type="range"
+              className="text-lightness-slider"
+              min="0"
+              max="100"
+              value={textLightness}
+              onChange={(e) => setTextLightness(Number(e.target.value))}
+            />
+          </label>
 
           <label className="field">
             <span className="field-label">Profile Panel Font Size</span>
