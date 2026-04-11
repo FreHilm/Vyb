@@ -14,6 +14,7 @@ interface SidebarProps {
   statuses: Map<string, AgentStatus>;
   layout: SidebarLayout;
   iconRevision: number;
+  hasUpdates: Set<string>;
   onLayoutChange: (layout: SidebarLayout) => void;
   onSelectProfile: (profileId: string) => void;
   onEditProfile: (profile: Profile) => void;
@@ -75,6 +76,7 @@ export function Sidebar({
   onEditProfile,
   onAddProfile,
   iconRevision,
+  hasUpdates,
 }: SidebarProps) {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [folderNameInput, setFolderNameInput] = useState('');
@@ -278,6 +280,7 @@ export function Sidebar({
           profile={profile}
           isActive={profile.id === activeProfileId}
           status={statuses.get(profile.id) || 'offline'}
+          hasUpdate={hasUpdates.has(profile.id)}
           iconRevision={iconRevision}
           onClick={() => onSelectProfile(profile.id)}
           onEdit={() => onEditProfile(profile)}

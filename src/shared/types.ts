@@ -31,6 +31,14 @@ export interface AppSettings {
   iconReferenceImage: string; // Path to reference image for style consistency
   sidebarWidth: number; // pixels, default 250
   terminalSplitPercent: number; // agent pane %, default 67
+  externalApps: ExternalApp[];
+}
+
+export interface ExternalApp {
+  id: string;
+  name: string;
+  icon: string; // icon key from APP_ICONS (e.g. 'code', 'gitBranch')
+  command: string; // e.g. 'open -a "Visual Studio Code" "{path}"' — use {path} as placeholder
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -49,6 +57,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   iconReferenceImage: '',
   sidebarWidth: 250,
   terminalSplitPercent: 67,
+  externalApps: [
+    { id: 'vscode', name: 'VS Code', icon: 'vscode', command: 'open -a "Visual Studio Code" "{path}"' },
+    { id: 'fork', name: 'Fork', icon: 'gitBranch', command: 'open -a Fork "{path}"' },
+  ],
 };
 
 export interface SidebarFolder {
@@ -81,6 +93,7 @@ export const IPC_CHANNELS = {
   SHELL_SHOW_IN_FOLDER: 'shell:showInFolder',
   SHELL_OPEN_VSCODE: 'shell:openVSCode',
   SHELL_OPEN_FORK: 'shell:openFork',
+  SHELL_OPEN_EXTERNAL: 'shell:openExternal',
   DIALOG_SELECT_DIRECTORY: 'dialog:selectDirectory',
   DIALOG_SELECT_FILE: 'dialog:selectFile',
   SETTINGS_LOAD: 'settings:load',

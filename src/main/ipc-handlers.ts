@@ -164,6 +164,15 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_EXTERNAL, (_, command: string, folderPath: string) => {
+    const resolved = command.replace(/\{path\}/g, folderPath);
+    exec(resolved, (err) => {
+      if (err) {
+        console.error('Failed to open external app:', err.message);
+      }
+    });
+  });
+
   ipcMain.handle(
     IPC_CHANNELS.SHELL_TERMINAL_CREATE,
     (_, terminalId: string, cwd: string) => {

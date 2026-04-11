@@ -4,6 +4,7 @@ interface ProfileItemProps {
   profile: Profile;
   isActive: boolean;
   status: AgentStatus;
+  hasUpdate: boolean;
   iconRevision: number;
   onClick: () => void;
   onEdit: () => void;
@@ -27,6 +28,7 @@ export function ProfileItem({
   profile,
   isActive,
   status,
+  hasUpdate,
   iconRevision,
   onClick,
   onEdit,
@@ -36,9 +38,17 @@ export function ProfileItem({
     onEdit();
   };
 
+  const updateStyle = hasUpdate && !isActive
+    ? {
+        '--update-color': STATUS_COLORS[status],
+        '--update-bg': STATUS_COLORS[status] + '14',
+      } as React.CSSProperties
+    : undefined;
+
   return (
     <div
-      className={`profile-item ${isActive ? 'active' : ''}`}
+      className={`profile-item ${isActive ? 'active' : ''} ${hasUpdate && !isActive ? 'has-update' : ''}`}
+      style={updateStyle}
       onClick={onClick}
       title={profile.name}
     >
