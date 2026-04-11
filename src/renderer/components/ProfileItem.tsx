@@ -1,3 +1,4 @@
+import { useEffect, useState, useRef } from 'react';
 import { Profile, AgentStatus } from '../../shared/types';
 
 interface ProfileItemProps {
@@ -33,6 +34,18 @@ export function ProfileItem({
   onClick,
   onEdit,
 }: ProfileItemProps) {
+  const [bouncing, setBouncing] = useState(false);
+  const prevActiveRef = useRef(isActive);
+
+  useEffect(() => {
+    if (isActive && !prevActiveRef.current) {
+      setBouncing(true);
+      const timer = setTimeout(() => setBouncing(false), 600);
+      return () => clearTimeout(timer);
+    }
+    prevActiveRef.current = isActive;
+  }, [isActive]);
+
   const handleEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
     onEdit();
@@ -72,7 +85,7 @@ export function ProfileItem({
           </svg>
         </div>
       )}
-      <div className="profile-icon">
+      <div className={`profile-icon ${bouncing ? 'icon-bounce' : ''}`}>
         {profile.icon ? (
           <img src={`local-file://${profile.icon}?v=${iconRevision}`} alt={profile.name} />
         ) : (
