@@ -254,6 +254,11 @@
   box-shadow: inset 3px 0 0 var(--c-blue);
 }
 
+.profile-item.has-update {
+  box-shadow: inset 3px 0 0 var(--update-color, #22c55e);
+  background: var(--update-bg, rgba(34, 197, 94, 0.08));
+}
+
 .profile-icon {
   width: 48px;
   height: 48px;
@@ -440,6 +445,13 @@
   height: 100%;
   color: var(--c-overlay0);
   font-size: 14px;
+}
+
+.command-bar-separator {
+  width: 1px;
+  height: 20px;
+  background: var(--c-surface1);
+  flex-shrink: 0;
 }
 
 .action-btn-active {
@@ -764,6 +776,40 @@
 .field .field-hint {
   font-size: 11px;
   color: var(--c-overlay0);
+}
+
+/* Settings tabs */
+.settings-modal {
+  width: 520px;
+}
+
+.settings-tabs {
+  display: flex;
+  padding: 12px 24px 0;
+  gap: 0;
+  border-bottom: 1px solid var(--c-surface0);
+}
+
+.settings-tab {
+  padding: 8px 20px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--c-overlay0);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.settings-tab:hover {
+  color: var(--c-text);
+}
+
+.settings-tab-active {
+  color: var(--c-text);
+  border-bottom-color: var(--c-blue);
+  font-weight: 500;
 }
 
 .field-select {
@@ -1091,6 +1137,105 @@
   border: none;
   border-top: 1px solid var(--c-surface0);
   margin: 24px 0;
+}
+
+/* External app editor rows */
+.ext-app-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ext-app-fields {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ext-app-name,
+.ext-app-command {
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--c-text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  width: 100%;
+}
+
+.ext-app-command {
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+}
+
+.ext-app-name:focus,
+.ext-app-command:focus {
+  border-color: var(--c-blue);
+}
+
+.ext-app-icon-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ext-app-icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  color: var(--c-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ext-app-icon-btn:hover {
+  border-color: var(--c-blue);
+}
+
+.ext-app-icon-select {
+  width: 36px;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  border-radius: 4px;
+  color: var(--c-text);
+  font-size: 9px;
+  padding: 2px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.ext-app-icon-select:focus {
+  border-color: var(--c-blue);
+  outline: none;
+}
+
+.ext-app-icon-select option {
+  background: var(--c-base);
+  color: var(--c-text);
+}
+
+.ext-app-delete {
+  background: none;
+  border: none;
+  color: var(--c-overlay0);
+  cursor: pointer;
+  padding: 10px 4px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.ext-app-delete:hover {
+  color: var(--c-red);
 }
 
 .batch-generating {

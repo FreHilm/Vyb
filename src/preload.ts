@@ -49,6 +49,9 @@ contextBridge.exposeInMainWorld('api', {
   openInFork: (folderPath: string): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_FORK, folderPath),
 
+  openExternal: (command: string, folderPath: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_EXTERNAL, command, folderPath),
+
   createShellTerminal: (terminalId: string, cwd: string): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.SHELL_TERMINAL_CREATE, terminalId, cwd),
 

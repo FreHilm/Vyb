@@ -32,7 +32,8 @@ Power Agent Command Center lets you manage multiple AI coding agents (Claude Cod
 - **README viewer** — View any project's README.md directly in the app with full GitHub Flavored Markdown support.
 - **AI-generated icons** — Generate unique profile icons using Gemini or OpenAI image APIs, with optional style reference images.
 - **Customizable theme** — Adjust hue, darkness, and text brightness to match your preference. Separate font size controls for sidebar, agent terminals, and shell terminals.
-- **Quick launchers** — One-click buttons to open the working directory in Finder, VS Code, or Fork.
+- **Update indicators** — Sidebar profiles flash an update badge when an inactive agent finishes a task or needs input, so you never miss a status change.
+- **Configurable quick launchers** — Add your own external app buttons (VS Code, Fork, iTerm, or any command) to the command bar. Each launcher has a custom name, icon, and shell command with `{path}` placeholder.
 
 ## Getting Started
 
@@ -102,18 +103,36 @@ Profiles are fully editable through the in-app profile editor — no need to edi
 
 ### Settings
 
-All settings are accessible via the settings dialog (`Cmd+,` on macOS, `Ctrl+,` on Windows/Linux):
+All settings are accessible via the settings dialog (`Cmd+,` on macOS, `Ctrl+,` on Windows/Linux), organized into three tabs: **Appearance**, **Icons**, and **Apps**.
+
+#### Appearance
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| Base Hue | UI color hue (0-359), or 360 for grayscale | — |
-| Darkness | How dark the UI background is (0-100) | — |
-| Text Lightness | UI text brightness (0-100) | — |
-| Profile Font Size | Sidebar text size (10-20px) | — |
-| Agent Font Size | Agent terminal text size (10-24px) | — |
-| Shell Font Size | Shell terminal text size (10-24px) | — |
+| Base Hue | UI color hue (0-359), or 360 for grayscale | 240 |
+| Darkness | How dark the UI background is (0-100) | 0 |
+| Text Lightness | UI text brightness (0-100) | 12 |
+| Profile Font Size | Sidebar text size (10-20px) | 13 |
+| Agent Font Size | Agent terminal text size (10-24px) | 14 |
+| Shell Font Size | Shell terminal text size (10-24px) | 14 |
+
+#### Icons
+
+| Setting | Description | Default |
+|---------|-------------|---------|
 | Icon Provider | AI image generation service (`gemini` or `openai`) | `gemini` |
 | Icon Prompt Prefix | Customizable prompt for icon generation | Flat icon style |
+
+#### Apps
+
+Configure external app launchers that appear in the command bar. Each app has a name, icon (chosen from a built-in icon set), and a shell command. Use `{path}` in the command as a placeholder for the profile's working directory.
+
+Default launchers:
+
+| Name | Command |
+|------|---------|
+| VS Code | `open -a "Visual Studio Code" "{path}"` |
+| Fork | `open -a Fork "{path}"` |
 
 ### Folder Organization
 
@@ -140,7 +159,8 @@ The app follows Electron's recommended security model with strict context isolat
 │  ├── TerminalPane     — xterm.js + WebGL             │
 │  ├── CommandBar       — quick-action buttons         │
 │  ├── ProfileEditor    — profile CRUD modal           │
-│  ├── SettingsDialog   — theme & config modal         │
+│  ├── SettingsDialog   — tabbed settings (theme/icons/apps) │
+│  ├── StatusBar        — git status & info bar        │
 │  └── ReadmeViewer     — markdown display             │
 └─────────────────────────────────────────────────────┘
 ```
@@ -206,13 +226,15 @@ src/
 │   ├── App.tsx                    # Root component & state
 │   ├── App.css                    # Application styles
 │   ├── theme.ts                   # Dynamic color system
+│   ├── icons.ts                   # SVG icon set for external app buttons
 │   └── components/
 │       ├── Sidebar.tsx            # Profile list, folders, drag-and-drop
 │       ├── ProfileItem.tsx        # Profile entry with status badge
 │       ├── CommandBar.tsx         # Action buttons (README, Terminal, etc.)
 │       ├── TerminalPane.tsx       # xterm.js split view
 │       ├── ProfileEditor.tsx      # Add/edit profile modal
-│       ├── SettingsDialog.tsx     # Theme & settings modal
+│       ├── SettingsDialog.tsx     # Tabbed settings modal
+│       ├── StatusBar.tsx          # Git status & info display
 │       ├── ReadmeViewer.tsx       # Markdown viewer
 │       └── ResizeHandle.tsx       # Draggable pane dividers
 └── shared/
@@ -221,4 +243,4 @@ src/
 
 ## License
 
-All rights reserved.
+MIT

@@ -7,7 +7,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { ResizeHandle } from './components/ResizeHandle';
 import { ReadmeViewer } from './components/ReadmeViewer';
 import { StatusBar } from './components/StatusBar';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -29,6 +29,7 @@ declare global {
       openInFinder: (folderPath: string) => Promise<void>;
       openInVSCode: (folderPath: string) => Promise<void>;
       openInFork: (folderPath: string) => Promise<void>;
+      openExternal: (command: string, folderPath: string) => Promise<void>;
       createShellTerminal: (terminalId: string, cwd: string) => Promise<void>;
       onShellExited: (
         callback: (payload: { terminalId: string }) => void,
@@ -65,6 +66,7 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [layout, setLayout] = useState<SidebarLayout>({ items: [], folders: [] });
   const [readmeVisible, setReadmeVisible] = useState(false);
+  const [hasUpdates, setHasUpdates] = useState<Set<string>>(new Set());
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState('');
 
@@ -87,8 +89,22 @@ export function App() {
 
     const unsubStatus = window.api.onStatusChange(({ profileId, status }) => {
       setStatuses((prev) => {
+        const prevStatus = prev.get(profileId);
         const next = new Map(prev);
         next.set(profileId, status as AgentStatus);
+
+        // Mark non-active profiles as having updates when task completes or needs input
+        if (
+          (status === 'ready' && prevStatus === 'working') ||
+          (status === 'needs-input')
+        ) {
+          setHasUpdates((u) => {
+            const updated = new Set(u);
+            updated.add(profileId);
+            return updated;
+          });
+        }
+
         return next;
       });
     });
@@ -167,6 +183,12 @@ export function App() {
     (profileId: string) => {
       setActiveProfileId(profileId);
       initializeProfile(profileId);
+      setHasUpdates((prev) => {
+        if (!prev.has(profileId)) return prev;
+        const next = new Set(prev);
+        next.delete(profileId);
+        return next;
+      });
     },
     [initializeProfile],
   );
@@ -275,6 +297,7 @@ export function App() {
         statuses={statuses}
         layout={layout}
         iconRevision={iconRevision}
+        hasUpdates={hasUpdates}
         onLayoutChange={handleLayoutChange}
         onSelectProfile={handleSelectProfile}
         onEditProfile={handleEditProfile}
@@ -296,6 +319,7 @@ export function App() {
             });
           }}
           onToggleReadme={() => setReadmeVisible((v) => !v)}
+          externalApps={settings.externalApps || []}
         />
         {readmeVisible && activeProfile && (
           <ReadmeViewer workingDirectory={activeProfile.workingDirectory} />
