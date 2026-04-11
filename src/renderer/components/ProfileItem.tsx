@@ -76,12 +76,13 @@ export function ProfileItem({
           className={`flame-indicator ${isAnimated ? 'flame-animated' : isCalm ? 'flame-calm' : ''}`}
           style={{ '--flame-color': STATUS_COLORS[status] } as React.CSSProperties}
         >
-          <svg viewBox="0 0 20 60" preserveAspectRatio="none" fill="none">
-            <rect className="flame-base" x="0" y="0" width="4" height="60" />
-            <path className="flame flame-1" d="M4 5 Q12 10 8 15 Q14 20 6 25 Q10 30 4 35 L4 5z" />
-            <path className="flame flame-2" d="M4 15 Q16 22 7 30 Q13 38 4 45 L4 15z" />
-            <path className="flame flame-3" d="M4 0 Q10 8 7 12 Q12 18 5 22 Q9 26 4 30 L4 0z" />
-            <path className="flame flame-4" d="M4 30 Q14 36 8 42 Q11 48 4 55 L4 30z" />
+          <svg viewBox="0 0 24 60" preserveAspectRatio="none" fill="none">
+            <rect className="flame-base" x="0" y="0" width="3" height="60" />
+            <path className="flame flame-1" d="M3 2 L10 5 L6 9 L14 12 L5 16 L12 19 L7 23 L11 26 L3 30z" />
+            <path className="flame flame-2" d="M3 12 L18 16 L8 20 L16 25 L6 29 L13 33 L3 38z" />
+            <path className="flame flame-3" d="M3 28 L12 31 L7 35 L17 38 L9 42 L14 46 L5 50 L10 53 L3 56z" />
+            <path className="flame flame-4" d="M3 0 L9 3 L5 6 L11 8 L3 12z" />
+            <path className="flame flame-5" d="M3 48 L15 51 L8 54 L12 57 L3 60z" />
           </svg>
         </div>
       )}
