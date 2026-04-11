@@ -22,8 +22,13 @@ export interface AppSettings {
   profileFontSize: number; // 10-20, default 13
   agentFontSize: number; // 10-24, default 14
   shellFontSize: number; // 10-24, default 14
-  geminiApiKey: string; // Google Gemini API key for icon generation
+  iconProvider: 'gemini' | 'openai'; // Which AI to use for icon generation
+  geminiModel: string; // Gemini model for image generation
+  geminiApiKey: string; // Google Gemini API key
+  openaiModel: string; // OpenAI model for image generation
+  openaiApiKey: string; // OpenAI API key
   iconPromptPrefix: string; // Universe/style description for generated icons
+  iconReferenceImage: string; // Path to reference image for style consistency
   sidebarWidth: number; // pixels, default 250
   terminalSplitPercent: number; // agent pane %, default 67
 }
@@ -35,8 +40,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   profileFontSize: 13,
   agentFontSize: 14,
   shellFontSize: 14,
+  iconProvider: 'gemini',
+  geminiModel: 'gemini-3.1-flash-image-preview',
   geminiApiKey: '',
+  openaiModel: 'gpt-image-1',
+  openaiApiKey: '',
   iconPromptPrefix: 'A minimal, modern flat icon with a dark background, clean geometric shapes, suitable as a project avatar',
+  iconReferenceImage: '',
   sidebarWidth: 250,
   terminalSplitPercent: 67,
 };
@@ -80,4 +90,5 @@ export const IPC_CHANNELS = {
   GENERATE_ICON: 'icon:generate',
   LAYOUT_LOAD: 'layout:load',
   LAYOUT_SAVE: 'layout:save',
+  README_LOAD: 'readme:load',
 } as const;

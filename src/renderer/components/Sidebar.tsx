@@ -13,6 +13,7 @@ interface SidebarProps {
   activeProfileId: string | null;
   statuses: Map<string, AgentStatus>;
   layout: SidebarLayout;
+  iconRevision: number;
   onLayoutChange: (layout: SidebarLayout) => void;
   onSelectProfile: (profileId: string) => void;
   onEditProfile: (profile: Profile) => void;
@@ -73,6 +74,7 @@ export function Sidebar({
   onSelectProfile,
   onEditProfile,
   onAddProfile,
+  iconRevision,
 }: SidebarProps) {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [folderNameInput, setFolderNameInput] = useState('');
@@ -167,18 +169,22 @@ export function Sidebar({
   const handleDragOver = useCallback(
     (targetId: string) => (e: React.DragEvent) => {
       e.preventDefault();
+      e.stopPropagation();
       e.dataTransfer.dropEffect = 'move';
       setDropTarget(targetId);
     },
     [],
   );
 
-  const handleDragLeave = useCallback(() => {
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    // Only clear if leaving the element entirely, not entering a child
+    const related = e.relatedTarget as Node | null;
+    if (related && e.currentTarget.contains(related)) return;
     setDropTarget(null);
   }, []);
 
   const handleDrop = useCallback(
-    (targetId: string, targetType: 'before' | 'into-folder') =>
+    (targetId: string, targetType: 'before' | 'into-folder', inFolderId?: string) =>
       (e: React.DragEvent) => {
         e.preventDefault();
         setDropTarget(null);
@@ -203,9 +209,17 @@ export function Sidebar({
           }
 
           if (targetType === 'into-folder') {
-            // Drop into folder
+            // Drop into folder (append to end)
             const folder = folders.find((f) => f.id === targetId);
             if (folder) folder.profileIds.push(data.profileId);
+          } else if (inFolderId) {
+            // Reorder within a folder — insert before targetId
+            const folder = folders.find((f) => f.id === inFolderId);
+            if (folder) {
+              const idx = folder.profileIds.indexOf(targetId);
+              if (idx >= 0) folder.profileIds.splice(idx, 0, data.profileId);
+              else folder.profileIds.push(data.profileId);
+            }
           } else {
             // Insert before target in top-level items
             const idx = items.findIndex((i) => {
@@ -245,7 +259,7 @@ export function Sidebar({
   );
 
   // Render a profile item with drag support
-  const renderProfile = (profileId: string, indent: boolean) => {
+  const renderProfile = (profileId: string, indent: boolean, folderId?: string) => {
     const profile = profileMap.get(profileId);
     if (!profile) return null;
     return (
@@ -258,12 +272,13 @@ export function Sidebar({
         onDragStart={handleDragStart({ type: 'profile', profileId })}
         onDragOver={handleDragOver(profileId)}
         onDragLeave={handleDragLeave}
-        onDrop={handleDrop(profileId, 'before')}
+        onDrop={handleDrop(profileId, 'before', folderId)}
       >
         <ProfileItem
           profile={profile}
           isActive={profile.id === activeProfileId}
           status={statuses.get(profile.id) || 'offline'}
+          iconRevision={iconRevision}
           onClick={() => onSelectProfile(profile.id)}
           onEdit={() => onEditProfile(profile)}
         />
@@ -418,7 +433,7 @@ export function Sidebar({
                 </button>
               </div>
               {folder.isOpen &&
-                folder.profileIds.map((pid) => renderProfile(pid, true))}
+                folder.profileIds.map((pid) => renderProfile(pid, true, folder.id))}
             </div>
           );
         })}

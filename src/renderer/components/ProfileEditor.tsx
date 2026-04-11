@@ -185,15 +185,30 @@ export function ProfileEditor({
                 {generating ? 'Generating...' : 'AI Generate'}
               </button>
             </div>
-            {icon && (
-              <div className="icon-preview">
-                <img
-                  src={`local-file://${icon}${iconCacheBust ? `?t=${iconCacheBust}` : ''}`}
-                  alt="Icon preview"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
-                />
+            {(icon || generating) && (
+              <div className={`icon-preview ${generating ? 'icon-generating' : ''}`}>
+                {icon && (
+                  <img
+                    src={`local-file://${icon}${iconCacheBust ? `?t=${iconCacheBust}` : ''}`}
+                    alt="Icon preview"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                )}
+                {generating && (
+                  <div className="icon-spinner">
+                    <svg viewBox="0 0 24 24" width="24" height="24">
+                      <circle
+                        cx="12" cy="12" r="10"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeDasharray="50 20"
+                      />
+                    </svg>
+                  </div>
+                )}
               </div>
             )}
             {genError && <div className="field-error">{genError}</div>}

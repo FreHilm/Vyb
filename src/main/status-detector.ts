@@ -7,24 +7,13 @@ function stripAnsi(str: string): string {
     .replace(/\x1B[()][0-9A-B]/g, '')
     .replace(/\x1B[>=<]/g, '')
     .replace(/\x1B[78DEHM]/g, '')
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '') // strip remaining control chars
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
     .replace(/\r/g, '');
-}
-
-// Extract OSC terminal title sequences from raw data
-function extractOscTitles(data: string): string[] {
-  const titles: string[] = [];
-  const re = /\x1B\](?:0|2);([^\x07\x1B]*?)(?:\x07|\x1B\\)/g;
-  let match;
-  while ((match = re.exec(data)) !== null) {
-    titles.push(match[1]);
-  }
-  return titles;
 }
 
 interface ProfileState {
   buffer: string;
-  rawBuffer: string; // keeps raw data for OSC extraction
+  rawBuffer: string;
   status: AgentStatus;
   debounceTimer: ReturnType<typeof setTimeout> | null;
   patterns: {
@@ -32,16 +21,17 @@ interface ProfileState {
     needsInput: RegExp[];
     working: RegExp[];
   };
+  lastDataTime: number;
 }
 
 const DEBOUNCE_MS = 800;
 
 export class StatusDetector {
   private states: Map<string, ProfileState> = new Map();
-  private onStatusChange: (profileId: string, status: AgentStatus) => void;
+  private onStatusChange: (profileId: string, status: AgentStatus, previousStatus: AgentStatus) => void;
 
   constructor(
-    onStatusChange: (profileId: string, status: AgentStatus) => void,
+    onStatusChange: (profileId: string, status: AgentStatus, previousStatus: AgentStatus) => void,
   ) {
     this.onStatusChange = onStatusChange;
   }
@@ -50,9 +40,9 @@ export class StatusDetector {
     const readyPatterns = profile.statusPatterns?.ready?.map(
       (p) => new RegExp(p),
     ) ?? [
-      /for\s*shortcuts/,          // Claude Code idle hint (spaces may be stripped)
-      /❯/,                        // Claude Code prompt character
-      /\$\s*$/,                   // Shell prompt at end of buffer
+      /for\s*shortcuts/,
+      /❯/,
+      /\$\s*$/,
     ];
 
     const needsInputPatterns = profile.statusPatterns?.needsInput?.map(
@@ -64,13 +54,14 @@ export class StatusDetector {
       /Allow\s*always/i,
       /Do\s*you\s*want/i,
       /approve|deny/i,
-      /Yes.*No.*Always/,            // Claude Code permission button row
+      /Yes.*No.*Always/,
       /Run\s*command/i,
       /Bash\s*command/i,
     ];
 
+    // Patterns checked on BOTH raw and stripped buffers to detect active work
     const workingPatterns = [
-      /⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏/,
+      /⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏/, // Spinner braille chars
     ];
 
     this.states.set(profileId, {
@@ -83,6 +74,7 @@ export class StatusDetector {
         needsInput: needsInputPatterns,
         working: workingPatterns,
       },
+      lastDataTime: 0,
     });
   }
 
@@ -96,7 +88,9 @@ export class StatusDetector {
     const state = this.states.get(profileId);
     if (!state) return;
 
-    // Keep raw data for OSC title extraction
+    state.lastDataTime = Date.now();
+
+    // Keep raw data for spinner detection
     state.rawBuffer += data;
     if (state.rawBuffer.length > 4000) {
       state.rawBuffer = state.rawBuffer.slice(-4000);
@@ -107,6 +101,17 @@ export class StatusDetector {
     state.buffer += stripped;
     if (state.buffer.length > 2000) {
       state.buffer = state.buffer.slice(-2000);
+    }
+
+    // If currently ready/offline and we're receiving data, check raw for spinners
+    // to transition to working immediately (don't wait for debounce)
+    if (state.status === 'ready' || state.status === 'offline') {
+      for (const pattern of state.patterns.working) {
+        if (pattern.test(data)) {
+          this.updateStatus(profileId, 'working');
+          break;
+        }
+      }
     }
 
     if (state.debounceTimer) clearTimeout(state.debounceTimer);
@@ -128,6 +133,7 @@ export class StatusDetector {
     if (!state) return;
 
     const lastChunk = state.buffer.slice(-500);
+    const rawChunk = state.rawBuffer.slice(-1000);
 
     // Check needs-input (highest priority)
     for (const pattern of state.patterns.needsInput) {
@@ -137,30 +143,30 @@ export class StatusDetector {
       }
     }
 
-    // 3. If working, check spinner to stay working
-    if (state.status === 'working') {
-      for (const pattern of state.patterns.working) {
-        if (pattern.test(lastChunk)) {
-          return;
-        }
+    // Check spinners in raw buffer (they may be stripped from the clean buffer)
+    for (const pattern of state.patterns.working) {
+      if (pattern.test(rawChunk)) {
+        this.updateStatus(profileId, 'working');
+        return;
       }
     }
 
-    // 4. Check ready patterns on stripped text
+    // Check ready patterns on stripped text
     for (const pattern of state.patterns.ready) {
       if (pattern.test(lastChunk)) {
         this.updateStatus(profileId, 'ready');
         return;
       }
     }
-
   }
 
   private updateStatus(profileId: string, newStatus: AgentStatus): void {
     const state = this.states.get(profileId);
     if (!state || state.status === newStatus) return;
 
+    const oldStatus = state.status;
     state.status = newStatus;
-    this.onStatusChange(profileId, newStatus);
+    // Include the previous status so the notification handler can decide
+    this.onStatusChange(profileId, newStatus, oldStatus);
   }
 }

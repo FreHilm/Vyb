@@ -31,21 +31,34 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     isQuitting = true;
   });
 
-  statusDetector = new StatusDetector((profileId, status) => {
+  statusDetector = new StatusDetector((profileId, status, previousStatus) => {
     safeSend(IPC_CHANNELS.PROFILE_STATUS_CHANGE, { profileId, status });
 
-    // Send OS notification — skip if window is focused and this is the active profile
+    // Only notify on meaningful transitions:
+    // - working → ready (task completed)
+    // - working → needs-input (permission needed)
+    // - ready → needs-input (permission needed)
+    // Skip: offline → ready (agent just loaded, not a completed task)
     if (isQuitting) return;
+    const isNotifiable =
+      (status === 'ready' && previousStatus === 'working') ||
+      (status === 'needs-input' && (previousStatus === 'working' || previousStatus === 'ready'));
+    if (!isNotifiable) return;
+
     const isFocusedOnThis =
       mainWindow.isFocused() && profileId === activeProfileId;
     if (isFocusedOnThis) return;
 
     const profile = profiles.find((p) => p.id === profileId);
-    if (profile && (status === 'ready' || status === 'needs-input')) {
-      const notification = new Notification({
+    if (profile) {
+      const opts: Electron.NotificationConstructorOptions = {
         title: profile.name,
         body: status === 'ready' ? 'Task completed' : 'Needs your input',
-      });
+      };
+      if (profile.icon && fs.existsSync(profile.icon)) {
+        opts.icon = profile.icon;
+      }
+      const notification = new Notification(opts);
       notification.show();
     }
   });
@@ -213,58 +226,187 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     saveLayout(layout);
   });
 
+  ipcMain.handle(IPC_CHANNELS.README_LOAD, (_, workingDirectory: string): string | null => {
+    const names = ['README.md', 'readme.md', 'Readme.md', 'README.MD'];
+    for (const name of names) {
+      const filePath = path.join(workingDirectory, name);
+      if (fs.existsSync(filePath)) {
+        return fs.readFileSync(filePath, 'utf-8');
+      }
+    }
+    return null;
+  });
+
   ipcMain.handle(
     IPC_CHANNELS.GENERATE_ICON,
     async (_, profileId: string, projectName: string): Promise<string | null> => {
       const settings = loadSettings();
-      if (!settings.geminiApiKey) {
-        throw new Error('Gemini API key not configured. Set it in Settings.');
-      }
-
       const prompt = `Make a project icon for the project "${projectName}" that matches the following universe: ${settings.iconPromptPrefix}`;
 
-      const model = 'gemini-2.5-flash-image';
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+      // Load reference image if configured
+      let refImageBase64: string | null = null;
+      let refMimeType = 'image/png';
+      if (settings.iconReferenceImage && fs.existsSync(settings.iconReferenceImage)) {
+        const refBuf = fs.readFileSync(settings.iconReferenceImage);
+        refImageBase64 = refBuf.toString('base64');
+        const refExt = path.extname(settings.iconReferenceImage).toLowerCase();
+        if (refExt === '.jpg' || refExt === '.jpeg') refMimeType = 'image/jpeg';
+        else if (refExt === '.webp') refMimeType = 'image/webp';
+      }
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': settings.geminiApiKey,
-        },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            responseModalities: ['TEXT', 'IMAGE'],
+      let imageBase64: string;
+      let ext = 'png';
+
+      if (settings.iconProvider === 'openai') {
+        // --- OpenAI ---
+        if (!settings.openaiApiKey) {
+          throw new Error('OpenAI API key not configured. Set it in Settings.');
+        }
+
+        if (refImageBase64) {
+          // Use edits endpoint with reference image
+          const boundary = `----formdata${Date.now()}`;
+          const refBuffer = fs.readFileSync(settings.iconReferenceImage);
+
+          // Build multipart form data manually
+          const parts: Buffer[] = [];
+          const addField = (name: string, value: string) => {
+            parts.push(Buffer.from(
+              `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+            ));
+          };
+          addField('model', settings.openaiModel || 'gpt-image-1');
+          addField('prompt', prompt + ' Use the provided image as a style reference. Generate a new icon in the same visual style.');
+          addField('n', '1');
+          addField('size', '1024x1024');
+
+          // Add image file
+          const imgExt = path.extname(settings.iconReferenceImage).toLowerCase();
+          const imgMime = imgExt === '.png' ? 'image/png' : 'image/jpeg';
+          parts.push(Buffer.from(
+            `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="ref${imgExt}"\r\nContent-Type: ${imgMime}\r\n\r\n`,
+          ));
+          parts.push(refBuffer);
+          parts.push(Buffer.from('\r\n'));
+          parts.push(Buffer.from(`--${boundary}--\r\n`));
+
+          const body = Buffer.concat(parts);
+
+          const response = await fetch('https://api.openai.com/v1/images/edits', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${settings.openaiApiKey}`,
+              'Content-Type': `multipart/form-data; boundary=${boundary}`,
+            },
+            body,
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`OpenAI API error (${response.status}): ${errorText}`);
+          }
+
+          const data = await response.json();
+          const imageData = data?.data?.[0]?.b64_json;
+          if (!imageData) {
+            throw new Error('No image returned from OpenAI API');
+          }
+          imageBase64 = imageData;
+        } else {
+          // No reference — use generations endpoint
+          const response = await fetch('https://api.openai.com/v1/images/generations', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${settings.openaiApiKey}`,
+            },
+            body: JSON.stringify({
+              model: settings.openaiModel || 'gpt-image-1',
+              prompt,
+              n: 1,
+              size: '1024x1024',
+            }),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`OpenAI API error (${response.status}): ${errorText}`);
+          }
+
+          const data = await response.json();
+          const imageData = data?.data?.[0]?.b64_json;
+          if (!imageData) {
+            throw new Error('No image returned from OpenAI API');
+          }
+          imageBase64 = imageData;
+        }
+      } else {
+        // --- Gemini ---
+        if (!settings.geminiApiKey) {
+          throw new Error('Gemini API key not configured. Set it in Settings.');
+        }
+
+        const model = settings.geminiModel || 'gemini-3.1-flash-image-preview';
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
+        // Build parts: text prompt + optional reference image
+        const contentParts: unknown[] = [
+          { text: refImageBase64
+            ? prompt + ' Use the provided image as a style reference. Generate a new icon in the same visual style.'
+            : prompt },
+        ];
+        if (refImageBase64) {
+          contentParts.push({
+            inline_data: {
+              mime_type: refMimeType,
+              data: refImageBase64,
+            },
+          });
+        }
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': settings.geminiApiKey,
           },
-        }),
-      });
+          body: JSON.stringify({
+            contents: [{ parts: contentParts }],
+            generationConfig: {
+              responseModalities: ['TEXT', 'IMAGE'],
+            },
+          }),
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Gemini API error (${response.status}): ${errorText}`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Gemini API error (${response.status}): ${errorText}`);
+        }
+
+        const data = await response.json();
+        const respParts = data?.candidates?.[0]?.content?.parts;
+        const imagePart = respParts?.find(
+          (p: { inlineData?: { mimeType: string; data: string } }) => p.inlineData,
+        );
+        if (!imagePart?.inlineData?.data) {
+          throw new Error('No image returned from Gemini API');
+        }
+        imageBase64 = imagePart.inlineData.data;
+        ext = imagePart.inlineData.mimeType === 'image/jpeg' ? 'jpg' : 'png';
       }
 
-      const data = await response.json();
-
-      // Find the image part in the response
-      const parts = data?.candidates?.[0]?.content?.parts;
-      const imagePart = parts?.find(
-        (p: { inlineData?: { mimeType: string; data: string } }) => p.inlineData,
-      );
-      if (!imagePart?.inlineData?.data) {
-        throw new Error('No image returned from Gemini API');
-      }
-
-      // Save the image to userData/icons/
+      // Save the image to userData/icons/, removing any old icon for this profile
       const iconsDir = path.join(app.getPath('userData'), 'icons');
       if (!fs.existsSync(iconsDir)) {
         fs.mkdirSync(iconsDir, { recursive: true });
       }
+      for (const old of ['png', 'jpg', 'jpeg']) {
+        const oldPath = path.join(iconsDir, `${profileId}.${old}`);
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      }
 
-      const ext = imagePart.inlineData.mimeType === 'image/jpeg' ? 'jpg' : 'png';
       const iconPath = path.join(iconsDir, `${profileId}.${ext}`);
-      fs.writeFileSync(iconPath, Buffer.from(imagePart.inlineData.data, 'base64'));
+      fs.writeFileSync(iconPath, Buffer.from(imageBase64, 'base64'));
 
       return iconPath;
     },
