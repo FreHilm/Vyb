@@ -114,6 +114,8 @@ export const IPC_CHANNELS = {
   FILE_LIST_DIR: 'file:listDir',
   FILE_READ: 'file:read',
   FILE_SAVE: 'file:save',
+  BACKUP_EXPORT: 'backup:export',
+  BACKUP_IMPORT: 'backup:import',
 } as const;
 
 export interface FileEntry {

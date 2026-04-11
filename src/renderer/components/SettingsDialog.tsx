@@ -13,7 +13,82 @@ interface SettingsDialogProps {
   profilesWithoutIcons: number;
 }
 
-type SettingsTab = 'appearance' | 'icons' | 'apps' | 'integrations';
+type SettingsTab = 'appearance' | 'icons' | 'apps' | 'integrations' | 'backup';
+
+function BackupTab() {
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const handleExport = async () => {
+    setExporting(true);
+    setMessage('');
+    try {
+      const filePath = await window.api.exportBackup();
+      if (filePath) {
+        setMessage(`Exported to ${filePath}`);
+      }
+    } catch (err) {
+      setMessage(`Export failed: ${err}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleImport = async () => {
+    setImporting(true);
+    setMessage('');
+    try {
+      const success = await window.api.importBackup();
+      if (success) {
+        setMessage('Imported successfully. Restart the app to apply changes.');
+      }
+    } catch (err) {
+      setMessage(`Import failed: ${err}`);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <>
+      <span className="field-hint" style={{ marginBottom: 12 }}>
+        Export or import your profiles, settings, layout, and generated icons as a ZIP file.
+      </span>
+
+      <div className="backup-actions">
+        <button
+          className="backup-btn"
+          onClick={handleExport}
+          disabled={exporting || importing}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 1v9M5 7l3 3 3-3M2 12v2h12v-2" />
+          </svg>
+          {exporting ? 'Exporting...' : 'Export Backup'}
+        </button>
+        <button
+          className="backup-btn"
+          onClick={handleImport}
+          disabled={exporting || importing}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 10V1M5 4l3-3 3 3M2 12v2h12v-2" />
+          </svg>
+          {importing ? 'Importing...' : 'Import Backup'}
+        </button>
+      </div>
+
+      {message && (
+        <div className="backup-message">{message}</div>
+      )}
+
+      <div className="field-hint" style={{ marginTop: 12 }}>
+        <strong>Includes:</strong> profiles.json, settings.json, layout.json, and all generated icons.
+      </div>
+    </>
+  );
+}
 
 export function SettingsDialog({
   settings,
@@ -114,6 +189,12 @@ export function SettingsDialog({
             onClick={() => setTab('integrations')}
           >
             Integrations
+          </button>
+          <button
+            className={`settings-tab ${tab === 'backup' ? 'settings-tab-active' : ''}`}
+            onClick={() => setTab('backup')}
+          >
+            Backup
           </button>
         </div>
 
@@ -517,6 +598,10 @@ export function SettingsDialog({
                 )}
               </div>
             </>
+          )}
+
+          {tab === 'backup' && (
+            <BackupTab />
           )}
         </div>
 

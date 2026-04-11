@@ -256,6 +256,80 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     saveLayout(layout);
   });
 
+  ipcMain.handle(IPC_CHANNELS.BACKUP_EXPORT, async (): Promise<string | null> => {
+    const archiver = require('archiver');
+    const userDataPath = app.getPath('userData');
+
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export Backup',
+      defaultPath: `pacc-backup-${new Date().toISOString().slice(0, 10)}.zip`,
+      filters: [{ name: 'ZIP Archive', extensions: ['zip'] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+
+    return new Promise((resolve) => {
+      const output = fs.createWriteStream(result.filePath!);
+      const archive = archiver('zip', { zlib: { level: 9 } });
+
+      output.on('close', () => resolve(result.filePath!));
+      archive.on('error', (err: Error) => {
+        console.error('Backup export failed:', err);
+        resolve(null);
+      });
+
+      archive.pipe(output);
+
+      // Add config files
+      const files = ['profiles.json', 'settings.json', 'layout.json'];
+      for (const f of files) {
+        const p = path.join(userDataPath, f);
+        if (fs.existsSync(p)) archive.file(p, { name: f });
+      }
+
+      // Add icons directory
+      const iconsDir = path.join(userDataPath, 'icons');
+      if (fs.existsSync(iconsDir)) {
+        archive.directory(iconsDir, 'icons');
+      }
+
+      archive.finalize();
+    });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BACKUP_IMPORT, async (): Promise<boolean> => {
+    const AdmZip = require('adm-zip');
+    const userDataPath = app.getPath('userData');
+
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import Backup',
+      filters: [{ name: 'ZIP Archive', extensions: ['zip'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return false;
+
+    try {
+      const zip = new AdmZip(result.filePaths[0]);
+      const entries = zip.getEntries();
+
+      for (const entry of entries) {
+        if (entry.isDirectory) {
+          const dirPath = path.join(userDataPath, entry.entryName);
+          if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+        } else {
+          const targetPath = path.join(userDataPath, entry.entryName);
+          const targetDir = path.dirname(targetPath);
+          if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+          fs.writeFileSync(targetPath, entry.getData());
+        }
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Backup import failed:', err);
+      return false;
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.GIT_STATUS, (_, cwd: string): GitStatus => {
     const empty: GitStatus = {
       isGit: false, branch: '', modified: 0, staged: 0, untracked: 0,
