@@ -6,7 +6,8 @@ import { ProfileEditor } from './components/ProfileEditor';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ResizeHandle } from './components/ResizeHandle';
 import { ReadmeViewer } from './components/ReadmeViewer';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout } from '../shared/types';
+import { StatusBar } from './components/StatusBar';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -38,6 +39,7 @@ declare global {
       saveSettings: (settings: AppSettings) => Promise<void>;
       onOpenSettings: (callback: () => void) => () => void;
       platform: string;
+      getGitStatus: (cwd: string) => Promise<GitStatus>;
       loadReadme: (workingDirectory: string) => Promise<string | null>;
       setActiveProfile: (profileId: string | null) => void;
       generateIcon: (profileId: string, projectName: string) => Promise<string | null>;
@@ -318,6 +320,7 @@ export function App() {
           />
         </div>
       </div>
+      <StatusBar profile={activeProfile} />
       {editorOpen && (
         <ProfileEditor
           profile={editingProfile}
