@@ -164,6 +164,10 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_URL, (_, url: string) => {
+    shell.openExternal(url);
+  });
+
   ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_EXTERNAL, (_, command: string, folderPath: string) => {
     const resolved = command.replace(/\{path\}/g, folderPath);
     exec(resolved, (err) => {
@@ -238,7 +242,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.GIT_STATUS, (_, cwd: string): GitStatus => {
     const empty: GitStatus = {
       isGit: false, branch: '', modified: 0, staged: 0, untracked: 0,
-      ahead: 0, behind: 0, stashes: 0, lastCommit: '',
+      ahead: 0, behind: 0, stashes: 0, lastCommit: '', remoteUrl: '',
     };
     const run = (cmd: string): string => {
       try {
@@ -284,7 +288,20 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     // Last commit
     const lastCommit = run('git log -1 --pretty=format:%s');
 
-    return { isGit, branch, modified, staged, untracked, ahead, behind, stashes, lastCommit };
+    // Remote URL — convert SSH to HTTPS
+    let remoteUrl = run('git remote get-url origin');
+    if (remoteUrl) {
+      // git@github.com:user/repo.git → https://github.com/user/repo
+      remoteUrl = remoteUrl
+        .replace(/^git@([^:]+):/, 'https://$1/')
+        .replace(/\.git$/, '');
+      // Ensure it starts with https
+      if (!remoteUrl.startsWith('http')) {
+        remoteUrl = '';
+      }
+    }
+
+    return { isGit, branch, modified, staged, untracked, ahead, behind, stashes, lastCommit, remoteUrl };
   });
 
   ipcMain.handle(IPC_CHANNELS.FILE_LIST_DIR, (_, dirPath: string): FileEntry[] => {

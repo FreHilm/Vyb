@@ -13,6 +13,15 @@ import { FileEntry } from '../../shared/types';
 
 interface FileExplorerProps {
   workingDirectory: string;
+  closeRequested: boolean;
+  onCloseHandled: (proceed: boolean) => void;
+}
+
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp']);
+
+function isImageFile(filename: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  return IMAGE_EXTENSIONS.has(ext);
 }
 
 function getLanguageExtension(filename: string) {
@@ -100,14 +109,33 @@ function FileTreeNode({
   );
 }
 
-export function FileExplorer({ workingDirectory }: FileExplorerProps) {
+export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled }: FileExplorerProps) {
   const [rootEntries, setRootEntries] = useState<FileEntry[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selectedIsImage, setSelectedIsImage] = useState(false);
   const [modified, setModified] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pendingFile, setPendingFile] = useState<string | null>(null);
+  const [pendingClose, setPendingClose] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const currentFileRef = useRef<string | null>(null);
+  const modifiedRef = useRef(false);
+
+  // Keep modifiedRef in sync
+  useEffect(() => {
+    modifiedRef.current = modified;
+  }, [modified]);
+
+  // Handle close request from parent
+  useEffect(() => {
+    if (!closeRequested) return;
+    if (modifiedRef.current) {
+      setPendingClose(true);
+    } else {
+      onCloseHandled(true);
+    }
+  }, [closeRequested, onCloseHandled]);
 
   // Load root directory
   useEffect(() => {
@@ -127,17 +155,13 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
     const content = viewRef.current.state.doc.toString();
     await window.api.saveFile(currentFileRef.current, content);
     setModified(false);
+    modifiedRef.current = false;
     setSaving(false);
   }, []);
 
-  const handleSelectFile = useCallback(
+  const openFile = useCallback(
     async (filePath: string) => {
-      const content = await window.api.readFile(filePath);
-      if (content === null) return;
-
-      setSelectedFile(filePath);
-      currentFileRef.current = filePath;
-      setModified(false);
+      const fileName = filePath.split('/').pop() || '';
 
       // Destroy existing editor
       if (viewRef.current) {
@@ -145,9 +169,23 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
         viewRef.current = null;
       }
 
+      setSelectedFile(filePath);
+      currentFileRef.current = filePath;
+      setModified(false);
+      modifiedRef.current = false;
+
+      if (isImageFile(fileName)) {
+        setSelectedIsImage(true);
+        return;
+      }
+
+      setSelectedIsImage(false);
+
+      const content = await window.api.readFile(filePath);
+      if (content === null) return;
+
       if (!editorRef.current) return;
 
-      const fileName = filePath.split('/').pop() || '';
       const lang = getLanguageExtension(fileName);
 
       const state = EditorState.create({
@@ -168,6 +206,7 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               setModified(true);
+              modifiedRef.current = true;
             }
           }),
           EditorView.theme({
@@ -186,29 +225,84 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
     [handleSave],
   );
 
+  const handleSelectFile = useCallback(
+    (filePath: string) => {
+      if (filePath === currentFileRef.current) return;
+
+      if (modifiedRef.current) {
+        // Show unsaved changes dialog
+        setPendingFile(filePath);
+      } else {
+        openFile(filePath);
+      }
+    },
+    [openFile],
+  );
+
+  const handleDialogSave = useCallback(async () => {
+    await handleSave();
+    if (pendingClose) {
+      setPendingClose(false);
+      onCloseHandled(true);
+    } else if (pendingFile) {
+      openFile(pendingFile);
+      setPendingFile(null);
+    }
+  }, [handleSave, openFile, pendingFile, pendingClose, onCloseHandled]);
+
+  const handleDialogDiscard = useCallback(() => {
+    setModified(false);
+    modifiedRef.current = false;
+    if (pendingClose) {
+      setPendingClose(false);
+      onCloseHandled(true);
+    } else if (pendingFile) {
+      openFile(pendingFile);
+      setPendingFile(null);
+    }
+  }, [openFile, pendingFile, pendingClose, onCloseHandled]);
+
+  const handleDialogCancel = useCallback(() => {
+    setPendingFile(null);
+    if (pendingClose) {
+      setPendingClose(false);
+      onCloseHandled(false);
+    }
+  }, [pendingClose, onCloseHandled]);
+
   const fileName = selectedFile?.split('/').pop() || '';
 
   return (
     <div className="file-explorer">
       <div className="file-editor-pane">
-        {selectedFile ? (
-          <>
-            <div className="file-editor-header">
-              <span className="file-editor-name">
-                {fileName}
-                {modified && <span className="file-modified-dot" />}
-              </span>
+        {selectedFile && (
+          <div className="file-editor-header">
+            <span className="file-editor-name">
+              {fileName}
+              {modified && <span className="file-modified-dot" />}
+            </span>
+            {!selectedIsImage && modified && (
               <button
                 className="action-btn file-save-btn"
                 onClick={handleSave}
-                disabled={!modified || saving}
+                disabled={saving}
               >
                 {saving ? 'Saving...' : 'Save'}
               </button>
-            </div>
-            <div className="file-editor-content" ref={editorRef} />
-          </>
-        ) : (
+            )}
+          </div>
+        )}
+        {selectedFile && selectedIsImage && (
+          <div className="file-image-viewer">
+            <img src={`local-file://${selectedFile}`} alt={fileName} />
+          </div>
+        )}
+        <div
+          className="file-editor-content"
+          ref={editorRef}
+          style={{ display: selectedFile && !selectedIsImage ? 'block' : 'none' }}
+        />
+        {!selectedFile && (
           <div className="file-editor-empty">Select a file to view</div>
         )}
       </div>
@@ -226,6 +320,34 @@ export function FileExplorer({ workingDirectory }: FileExplorerProps) {
           ))}
         </div>
       </div>
+
+      {(pendingFile || pendingClose) && (
+        <div className="modal-overlay" onClick={handleDialogCancel}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Unsaved Changes</h3>
+            </div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, lineHeight: 1.5 }}>
+                <strong>{fileName}</strong> has unsaved changes. What would you like to do?
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="cancel-btn" onClick={handleDialogCancel}>
+                Stay on file
+              </button>
+              <div className="modal-footer-right">
+                <button className="delete-btn" onClick={handleDialogDiscard}>
+                  Discard
+                </button>
+                <button className="save-btn" onClick={handleDialogSave}>
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -94,6 +94,7 @@ export const IPC_CHANNELS = {
   SHELL_OPEN_VSCODE: 'shell:openVSCode',
   SHELL_OPEN_FORK: 'shell:openFork',
   SHELL_OPEN_EXTERNAL: 'shell:openExternal',
+  SHELL_OPEN_URL: 'shell:openUrl',
   DIALOG_SELECT_DIRECTORY: 'dialog:selectDirectory',
   DIALOG_SELECT_FILE: 'dialog:selectFile',
   SETTINGS_LOAD: 'settings:load',
@@ -126,4 +127,5 @@ export interface GitStatus {
   behind: number;
   stashes: number;
   lastCommit: string;
+  remoteUrl: string; // HTTPS URL to the repo (GitHub, GitLab, etc.)
 }

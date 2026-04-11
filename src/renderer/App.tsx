@@ -30,6 +30,7 @@ declare global {
       openInFinder: (folderPath: string) => Promise<void>;
       openInVSCode: (folderPath: string) => Promise<void>;
       openInFork: (folderPath: string) => Promise<void>;
+      openUrl: (url: string) => Promise<void>;
       openExternal: (command: string, folderPath: string) => Promise<void>;
       createShellTerminal: (terminalId: string, cwd: string) => Promise<void>;
       onShellExited: (
@@ -71,6 +72,7 @@ export function App() {
   const [layout, setLayout] = useState<SidebarLayout>({ items: [], folders: [] });
   const [readmeVisible, setReadmeVisible] = useState(false);
   const [filesVisible, setFilesVisible] = useState(false);
+  const [filesCloseRequested, setFilesCloseRequested] = useState(false);
   const [hasUpdates, setHasUpdates] = useState<Set<string>>(new Set());
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState('');
@@ -326,13 +328,21 @@ export function App() {
             });
           }}
           onToggleReadme={() => {
+            if (filesVisible) {
+              // Request close of file explorer (may show dialog)
+              setFilesCloseRequested(true);
+            }
             setReadmeVisible((v) => !v);
-            setFilesVisible(false);
           }}
           filesVisible={filesVisible}
           onToggleFiles={() => {
-            setFilesVisible((v) => !v);
-            setReadmeVisible(false);
+            if (filesVisible) {
+              // Request close — FileExplorer will handle unsaved check
+              setFilesCloseRequested(true);
+            } else {
+              setFilesVisible(true);
+              setReadmeVisible(false);
+            }
           }}
           externalApps={settings.externalApps || []}
         />
@@ -340,7 +350,16 @@ export function App() {
           <ReadmeViewer workingDirectory={activeProfile.workingDirectory} />
         )}
         {filesVisible && activeProfile && (
-          <FileExplorer workingDirectory={activeProfile.workingDirectory} />
+          <FileExplorer
+            workingDirectory={activeProfile.workingDirectory}
+            closeRequested={filesCloseRequested}
+            onCloseHandled={(proceed) => {
+              setFilesCloseRequested(false);
+              if (proceed) {
+                setFilesVisible(false);
+              }
+            }}
+          />
         )}
         <div style={{ display: readmeVisible || filesVisible ? 'none' : 'contents' }}>
           <TerminalPane

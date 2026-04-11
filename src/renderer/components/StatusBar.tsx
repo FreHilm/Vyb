@@ -77,6 +77,25 @@ export function StatusBar({ profile }: StatusBarProps) {
                 &#x2691;{git.stashes}
               </span>
             )}
+            {git.remoteUrl && (
+              <button
+                className="status-item status-remote"
+                onClick={() => window.api.openUrl(git.remoteUrl)}
+                title={git.remoteUrl}
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 0a8 8 0 100 16A8 8 0 008 0zM1.5 8a6.5 6.5 0 1113 0 6.5 6.5 0 01-13 0z" />
+                  <path d="M8 2.5C6.3 2.5 5 5 5 8s1.3 5.5 3 5.5 3-2.5 3-5.5S9.7 2.5 8 2.5zM2 8h12" />
+                </svg>
+                {git.remoteUrl.includes('github.com')
+                  ? 'GitHub'
+                  : git.remoteUrl.includes('gitlab')
+                    ? 'GitLab'
+                    : git.remoteUrl.includes('bitbucket')
+                      ? 'Bitbucket'
+                      : 'Remote'}
+              </button>
+            )}
           </>
         )}
         {git && !git.isGit && (
