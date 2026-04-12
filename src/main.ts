@@ -9,7 +9,7 @@ if (started) {
   app.quit();
 }
 
-const APP_NAME = 'Power Agent Command Center';
+const APP_NAME = 'AgentDispatch';
 
 // On macOS in dev mode, the menu shows "Electron" because the binary is Electron.app.
 // This overrides it by patching the dock and about panel name.

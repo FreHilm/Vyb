@@ -1,12 +1,12 @@
 {
-  "name": "poweragentterminal",
-  "productName": "Power Agent Command Center",
+  "name": "agentdispatch",
+  "productName": "AgentDispatch",
   "version": "1.0.0",
   "description": "Manage multiple AI agent terminal sessions in one place",
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {
-    "postinstall": "node -e \"const{execSync}=require('child_process');const path=require('path');const fs=require('fs');const eBase=path.join(require('electron'),'../../..');const p=path.join(eBase,'Contents','Info.plist');try{execSync('/usr/libexec/PlistBuddy -c \\'Set :CFBundleName Power Agent Command Center\\' \\''+p+'\\'');execSync('/usr/libexec/PlistBuddy -c \\'Set :CFBundleDisplayName Power Agent Command Center\\' \\''+p+'\\'');}catch(e){}const src=path.join(__dirname,'build','icon.icns');const dst=path.join(eBase,'Contents','Resources','electron.icns');if(fs.existsSync(src))fs.copyFileSync(src,dst);\"",
+    "postinstall": "node -e \"const{execSync}=require('child_process');const path=require('path');const fs=require('fs');const eBase=path.join(require('electron'),'../../..');const p=path.join(eBase,'Contents','Info.plist');try{execSync('/usr/libexec/PlistBuddy -c \\'Set :CFBundleName AgentDispatch\\' \\''+p+'\\'');execSync('/usr/libexec/PlistBuddy -c \\'Set :CFBundleDisplayName AgentDispatch\\' \\''+p+'\\'');}catch(e){}const src=path.join(__dirname,'build','icon.icns');const dst=path.join(eBase,'Contents','Resources','electron.icns');if(fs.existsSync(src))fs.copyFileSync(src,dst);\"",
     "start": "electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make",
