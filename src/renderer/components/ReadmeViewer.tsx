@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -9,6 +9,7 @@ interface ReadmeViewerProps {
 export function ReadmeViewer({ workingDirectory }: ReadmeViewerProps) {
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const viewerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -17,6 +18,13 @@ export function ReadmeViewer({ workingDirectory }: ReadmeViewerProps) {
       setLoading(false);
     });
   }, [workingDirectory]);
+
+  // Focus the viewer so it receives keyboard events for scrolling
+  useEffect(() => {
+    if (!loading && content && viewerRef.current) {
+      viewerRef.current.focus();
+    }
+  }, [loading, content]);
 
   if (loading) {
     return (
@@ -35,7 +43,7 @@ export function ReadmeViewer({ workingDirectory }: ReadmeViewerProps) {
   }
 
   return (
-    <div className="readme-viewer">
+    <div className="readme-viewer" ref={viewerRef} tabIndex={-1}>
       <div className="readme-content">
         <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
       </div>

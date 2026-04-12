@@ -1511,6 +1511,7 @@
   overflow-y: auto;
   padding: 32px 48px;
   background: var(--c-base);
+  outline: none;
 }
 
 .readme-loading,
