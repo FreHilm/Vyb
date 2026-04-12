@@ -19,6 +19,7 @@ interface TerminalPaneProps {
   settings: AppSettings;
   onSplitChange: (percent: number) => void;
   focusedPane: { pane: 'agent' | 'shell'; shellIndex: number };
+  navActive: boolean;
   onShellCountChange?: (count: number) => void;
 }
 
@@ -91,6 +92,7 @@ export function TerminalPane({
   settings,
   onSplitChange,
   focusedPane,
+  navActive,
   onShellCountChange,
 }: TerminalPaneProps) {
   const splitRef = useRef<HTMLDivElement>(null);
@@ -271,6 +273,11 @@ export function TerminalPane({
         {!activeProfileId && (
           <div className="terminal-placeholder">Select a profile to start</div>
         )}
+        {navActive && shellOpen && focusedPane.pane === 'agent' && (
+          <div className="nav-pane-hint right">
+            <span className="nav-arrow">&#x2192;</span>
+          </div>
+        )}
       </div>
       {shellOpen && (
         <ResizeHandle direction="vertical" onResize={handleTerminalSplitResize} />
@@ -293,6 +300,8 @@ export function TerminalPane({
                 onAllClosed={onShellExited}
                 focused={isVisible && focusedPane.pane === 'shell'}
                 focusedIndex={focusedPane.shellIndex}
+                navActive={navActive && isVisible}
+                navFocusedPane={focusedPane}
                 onShellCountChange={onShellCountChange}
               />
             </div>
