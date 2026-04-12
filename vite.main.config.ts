@@ -4,7 +4,7 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   build: {
     rollupOptions: {
-      external: ['node-pty', '@slack/web-api', 'archiver', 'adm-zip'],
+      external: ['node-pty', 'archiver', 'adm-zip'],
     },
   },
 });

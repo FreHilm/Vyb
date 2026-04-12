@@ -125,8 +125,6 @@ export function SettingsDialog({
   const [navModifierKey, setNavModifierKey] = useState(settings.navModifierKey);
   const [dictationMode, setDictationMode] = useState(settings.dictationMode);
   const [dictationLang, setDictationLang] = useState(settings.dictationLang);
-  const [slackEnabled, setSlackEnabled] = useState(settings.slackEnabled);
-  const [slackBotToken, setSlackBotToken] = useState(settings.slackBotToken);
   const [flameIntensity, setFlameIntensity] = useState(settings.flameIntensity);
   const [flameSpread, setFlameSpread] = useState(settings.flameSpread);
   const [flameLength, setFlameLength] = useState(settings.flameLength);
@@ -153,8 +151,6 @@ export function SettingsDialog({
       navModifierKey,
       dictationMode,
       dictationLang,
-      slackEnabled,
-      slackBotToken,
       flameIntensity,
       flameSpread,
       flameLength,
@@ -773,45 +769,6 @@ export function SettingsDialog({
                     Used for: icon generation (Nano Banana), dictation fallback. Get one at ai.google.dev
                   </span>
                 </label>
-              </div>
-
-              <div className="integration-section">
-                <div className="integration-header">
-                  <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" style={{ opacity: 0.7 }}>
-                    <path d="M6.5 1.5a1 1 0 00-2 0v1.25a.75.75 0 01-.75.75H2.5a1 1 0 000 2h1.25a.75.75 0 01.75.75V7.5a1 1 0 002 0V6.25a.75.75 0 01.75-.75H8.5a1 1 0 000-2H7.25a.75.75 0 01-.75-.75V1.5zM11.5 8.5a1 1 0 00-2 0v1.25a.75.75 0 01-.75.75H7.5a1 1 0 000 2h1.25a.75.75 0 01.75.75v1.25a1 1 0 002 0v-1.25a.75.75 0 01.75-.75h1.25a1 1 0 000-2h-1.25a.75.75 0 01-.75-.75V8.5z" />
-                  </svg>
-                  <span className="integration-title">Slack</span>
-                  <label className="integration-toggle">
-                    <input
-                      type="checkbox"
-                      checked={slackEnabled}
-                      onChange={(e) => setSlackEnabled(e.target.checked)}
-                    />
-                    <span className="toggle-slider" />
-                  </label>
-                </div>
-                <span className="field-hint" style={{ marginBottom: 8 }}>
-                  Two-way integration: status updates posted to Slack, messages from Slack forwarded to agents.
-                  Map each profile to a channel in its profile settings.
-                </span>
-
-                {slackEnabled && (
-                  <label className="field">
-                    <span className="field-label">Bot Token</span>
-                    <input
-                      type="text"
-                      value={slackBotToken}
-                      onChange={(e) => setSlackBotToken(e.target.value)}
-                      placeholder="xoxb-..."
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                    <span className="field-hint">
-                      Create a Slack app at api.slack.com/apps, add Bot Token Scopes:
-                      chat:write, channels:history, channels:read.
-                      Install to workspace and copy the Bot User OAuth Token.
-                    </span>
-                  </label>
-                )}
               </div>
             </>
           )}
