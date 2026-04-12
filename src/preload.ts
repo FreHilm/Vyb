@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry } from './shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
   getProfiles: (): Promise<Profile[]> =>
@@ -117,6 +117,12 @@ contextBridge.exposeInMainWorld('api', {
 
   transcribeAudio: (audioBase64: string, lang: string): Promise<string> =>
     ipcRenderer.invoke(IPC_CHANNELS.TRANSCRIBE_AUDIO, audioBase64, lang),
+
+  loadProfileMemory: (): Promise<ProfileMemoryMap> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROFILE_MEMORY_LOAD),
+
+  saveProfileMemory: (memory: ProfileMemoryMap): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROFILE_MEMORY_SAVE, memory),
 
   loadReadme: (workingDirectory: string): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.README_LOAD, workingDirectory),

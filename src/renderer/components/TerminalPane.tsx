@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import '@xterm/xterm/css/xterm.css';
-import { Profile, AppSettings } from '../../shared/types';
+import { Profile, AppSettings, ProfileMemoryMap } from '../../shared/types';
 import { getTerminalTheme } from '../theme';
 import { ResizeHandle } from './ResizeHandle';
 import { ShellPane } from './ShellPane';
@@ -20,7 +20,8 @@ interface TerminalPaneProps {
   onSplitChange: (percent: number) => void;
   focusedPane: { pane: 'agent' | 'shell'; shellIndex: number };
   navActive: boolean;
-  onShellCountChange?: (count: number) => void;
+  onShellCountChange?: (profileId: string, count: number) => void;
+  profileMemory: ProfileMemoryMap;
 }
 
 interface TerminalInstance {
@@ -94,6 +95,7 @@ export function TerminalPane({
   focusedPane,
   navActive,
   onShellCountChange,
+  profileMemory,
 }: TerminalPaneProps) {
   const splitRef = useRef<HTMLDivElement>(null);
   const agentContainerRef = useRef<HTMLDivElement>(null);
@@ -302,7 +304,8 @@ export function TerminalPane({
                 focusedIndex={focusedPane.shellIndex}
                 navActive={navActive && isVisible}
                 navFocusedPane={focusedPane}
-                onShellCountChange={onShellCountChange}
+                onShellCountChange={(count) => onShellCountChange?.(p.id, count)}
+                initialShellCount={profileMemory[p.id]?.shellCount || 1}
               />
             </div>
           );

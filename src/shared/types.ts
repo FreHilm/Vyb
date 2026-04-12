@@ -16,6 +16,15 @@ export interface Profile {
   slackChannel?: string; // Slack channel ID or name for this profile
 }
 
+export interface ProfileMemory {
+  shellOpen: boolean;
+  shellCount: number;
+}
+
+export interface ProfileMemoryMap {
+  [profileId: string]: ProfileMemory;
+}
+
 export interface AppSettings {
   baseHue: number; // 0-360, default 240 (purple), 360 = grayscale
   darkness: number; // 0-100, default 0. Scales lightness down toward black.
@@ -123,6 +132,8 @@ export const IPC_CHANNELS = {
   BACKUP_EXPORT: 'backup:export',
   BACKUP_IMPORT: 'backup:import',
   TRANSCRIBE_AUDIO: 'audio:transcribe',
+  PROFILE_MEMORY_LOAD: 'profileMemory:load',
+  PROFILE_MEMORY_SAVE: 'profileMemory:save',
 } as const;
 
 export interface FileEntry {

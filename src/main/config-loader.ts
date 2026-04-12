@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Profile, AppSettings, DEFAULT_SETTINGS, SidebarLayout } from '../shared/types';
+import { Profile, AppSettings, DEFAULT_SETTINGS, SidebarLayout, ProfileMemoryMap } from '../shared/types';
 
 export function loadProfiles(): Profile[] {
   const userDataPath = app.getPath('userData');
@@ -92,4 +92,19 @@ export function loadLayout(): SidebarLayout {
 export function saveLayout(layout: SidebarLayout): void {
   const layoutPath = path.join(app.getPath('userData'), 'layout.json');
   fs.writeFileSync(layoutPath, JSON.stringify(layout, null, 2));
+}
+
+export function loadProfileMemory(): ProfileMemoryMap {
+  const memPath = path.join(app.getPath('userData'), 'profile-memory.json');
+  if (!fs.existsSync(memPath)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(memPath, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+export function saveProfileMemory(memory: ProfileMemoryMap): void {
+  const memPath = path.join(app.getPath('userData'), 'profile-memory.json');
+  fs.writeFileSync(memPath, JSON.stringify(memory, null, 2));
 }
