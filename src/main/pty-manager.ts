@@ -1,6 +1,28 @@
 import * as pty from 'node-pty';
 import * as os from 'os';
+import * as fs from 'fs';
 import { Profile } from '../shared/types';
+
+// Packaged Electron apps launched from Finder have a minimal PATH.
+// Add common bin directories where CLI tools get installed.
+let fullPath = process.env.PATH || '';
+try {
+  if (os.platform() !== 'win32') {
+    const home = os.homedir();
+    const commonPaths = [
+      `${home}/.local/bin`,
+      '/usr/local/bin',
+      '/opt/homebrew/bin',
+      '/opt/homebrew/sbin',
+    ];
+    const extra = commonPaths.filter((p) => fs.existsSync(p) && !fullPath.includes(p));
+    if (extra.length > 0) {
+      fullPath = extra.join(':') + ':' + fullPath;
+    }
+  }
+} catch {
+  // keep default PATH
+}
 
 interface PtyInstance {
   process: pty.IPty;
@@ -30,30 +52,59 @@ export class PtyManager {
       this.destroy(profileId);
     }
 
-    let shell: string;
-    let args: string[];
-
+    // Build the agent command (if any)
+    let agentCmd: string | null = null;
     if (profile.command) {
-      // Split command string if args are empty and command contains spaces
       if ((!profile.args || profile.args.length === 0) && profile.command.includes(' ')) {
-        const parts = profile.command.split(/\s+/);
-        shell = parts[0];
-        args = parts.slice(1);
+        agentCmd = profile.command;
       } else {
-        shell = profile.command;
-        args = profile.args || [];
+        agentCmd = [profile.command, ...(profile.args || [])].join(' ');
       }
-    } else {
-      shell = os.platform() === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/bash';
-      args = [];
     }
 
-    const ptyProcess = pty.spawn(shell, args, {
+    let spawnCmd: string;
+    let spawnArgs: string[];
+
+    if (agentCmd) {
+      // Split command into cmd + args and spawn directly
+      const parts = agentCmd.split(/\s+/);
+      spawnCmd = parts[0];
+      spawnArgs = parts.slice(1);
+    } else {
+      // No command — open an interactive shell
+      spawnCmd = os.platform() === 'win32' ? 'powershell.exe' : '/bin/zsh';
+      spawnArgs = [];
+    }
+
+    let cwd = profile.workingDirectory || os.homedir();
+    if (cwd.startsWith('~')) {
+      cwd = cwd.replace(/^~/, os.homedir());
+    }
+
+    // Build clean env for child processes
+    const spawnEnv: Record<string, string> = {
+      ...(process.env as Record<string, string>),
+      PATH: fullPath,
+      HOME: os.homedir(),
+      USER: process.env.USER || os.userInfo().username,
+      LOGNAME: process.env.LOGNAME || os.userInfo().username,
+      SHELL: '/bin/zsh',
+      LANG: process.env.LANG || 'en_US.UTF-8',
+      TERM: 'xterm-256color',
+      TMPDIR: process.env.TMPDIR || '/tmp',
+    };
+    // Remove vars that interfere with child CLI tools
+    delete spawnEnv.NODE_ENV;
+    delete spawnEnv.ELECTRON_RUN_AS_NODE;
+    delete spawnEnv.__CFBundleIdentifier;
+    spawnEnv.XPC_SERVICE_NAME = '0';
+
+    const ptyProcess = pty.spawn(spawnCmd, spawnArgs, {
       name: 'xterm-256color',
       cols,
       rows,
-      cwd: profile.workingDirectory || os.homedir(),
-      env: { ...process.env } as { [key: string]: string },
+      cwd,
+      env: spawnEnv,
     });
 
     ptyProcess.onData((data) => {

@@ -27,7 +27,7 @@ export function ProfileEditor({
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('');
   const [workingDirectory, setWorkingDirectory] = useState('');
-  const [command, setCommand] = useState('claude --continue');
+  const [command, setCommand] = useState('claude');
   const [args, setArgs] = useState('');
   const [slackChannel, setSlackChannel] = useState('');
   const [generating, setGenerating] = useState(false);
@@ -82,7 +82,7 @@ export function ProfileEditor({
       name: name.trim(),
       icon,
       workingDirectory: workingDirectory.trim(),
-      command: command.trim() || 'claude --continue',
+      command: command.trim() || 'claude',
       args: args
         .trim()
         .split(/\s+/)
@@ -153,7 +153,7 @@ export function ProfileEditor({
               type="text"
               value={command}
               onChange={(e) => setCommand(e.target.value)}
-              placeholder="claude --continue"
+              placeholder="claude"
             />
           </label>
 
