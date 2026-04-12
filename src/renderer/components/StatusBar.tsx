@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { GitStatus, Profile } from '../../shared/types';
 
 interface StatusBarProps {
@@ -9,6 +9,7 @@ const POLL_INTERVAL = 10000; // 10 seconds
 
 export function StatusBar({ profile }: StatusBarProps) {
   const [git, setGit] = useState<GitStatus | null>(null);
+  const [fetching, setFetching] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -28,6 +29,18 @@ export function StatusBar({ profile }: StatusBarProps) {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [profile?.id, profile?.workingDirectory]);
+
+  const handleFetch = useCallback(async () => {
+    if (!profile || fetching) return;
+    setFetching(true);
+    try {
+      await window.api.gitFetch(profile.workingDirectory);
+      const updated = await window.api.getGitStatus(profile.workingDirectory);
+      setGit(updated);
+    } finally {
+      setFetching(false);
+    }
+  }, [profile, fetching]);
 
   if (!profile) return <div className="status-bar" />;
 
@@ -72,6 +85,17 @@ export function StatusBar({ profile }: StatusBarProps) {
                 {git.behind > 0 && <span>&#x2193;{git.behind}</span>}
               </span>
             )}
+            <button
+              className={`status-item status-fetch ${fetching ? 'status-fetching' : ''}`}
+              onClick={handleFetch}
+              disabled={fetching}
+              title="Fetch from origin"
+            >
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 2.5a5.5 5.5 0 00-4.75 8.26l-1.3.75A7 7 0 1115 8h-1.5A5.5 5.5 0 008 2.5z" />
+                <path d="M15 4v4h-4l1.5-1.5L11 5z" />
+              </svg>
+            </button>
             {git.stashes > 0 && (
               <span className="status-item status-stash" title={`${git.stashes} stash${git.stashes > 1 ? 'es' : ''}`}>
                 &#x2691;{git.stashes}

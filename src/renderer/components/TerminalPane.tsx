@@ -31,6 +31,7 @@ interface TerminalInstance {
   opened: boolean;
   ptyCreated: boolean;
   kind: 'agent' | 'shell';
+  webglAddon?: WebglAddon;
 }
 
 function shellId(profileId: string): string {
@@ -76,10 +77,28 @@ function openTerminal(instance: TerminalInstance): void {
   instance.opened = true;
   instance.element.style.display = 'block';
   instance.terminal.open(instance.element);
+  activateWebgl(instance);
+}
+
+function activateWebgl(instance: TerminalInstance): void {
+  if (instance.webglAddon) return;
   try {
-    instance.terminal.loadAddon(new WebglAddon());
+    const addon = new WebglAddon();
+    addon.onContextLoss(() => {
+      addon.dispose();
+      instance.webglAddon = undefined;
+    });
+    instance.terminal.loadAddon(addon);
+    instance.webglAddon = addon;
   } catch {
     // canvas fallback
+  }
+}
+
+function deactivateWebgl(instance: TerminalInstance): void {
+  if (instance.webglAddon) {
+    instance.webglAddon.dispose();
+    instance.webglAddon = undefined;
   }
 }
 
@@ -154,6 +173,7 @@ export function TerminalPane({
     if (hidden) {
       agentTerminalsRef.current.forEach((instance) => {
         instance.element.style.display = 'none';
+        deactivateWebgl(instance);
       });
       return;
     }
@@ -162,6 +182,7 @@ export function TerminalPane({
       if (id === activeProfileId) {
         openTerminal(instance);
         instance.element.style.display = 'block';
+        activateWebgl(instance);
 
         requestAnimationFrame(() => {
           instance.fitAddon.fit();
@@ -181,6 +202,7 @@ export function TerminalPane({
         });
       } else {
         instance.element.style.display = 'none';
+        deactivateWebgl(instance);
       }
     });
   }, [activeProfileId, initialized, shellOpen, hidden, profiles]);
