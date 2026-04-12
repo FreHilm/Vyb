@@ -28,7 +28,7 @@ export function ProfileEditor({
   const [icon, setIcon] = useState('');
   const [workingDirectory, setWorkingDirectory] = useState('');
   const [command, setCommand] = useState('claude');
-  const [args, setArgs] = useState('');
+  const [args, setArgs] = useState('--continue');
   const [slackChannel, setSlackChannel] = useState('');
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState('');

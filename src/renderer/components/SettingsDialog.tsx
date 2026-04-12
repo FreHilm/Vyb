@@ -13,7 +13,7 @@ interface SettingsDialogProps {
   profilesWithoutIcons: number;
 }
 
-type SettingsTab = 'appearance' | 'icons' | 'apps' | 'integrations' | 'backup';
+type SettingsTab = 'appearance' | 'flames' | 'icons' | 'apps' | 'integrations' | 'backup';
 
 function BackupTab() {
   const [exporting, setExporting] = useState(false);
@@ -127,6 +127,11 @@ export function SettingsDialog({
   const [dictationLang, setDictationLang] = useState(settings.dictationLang);
   const [slackEnabled, setSlackEnabled] = useState(settings.slackEnabled);
   const [slackBotToken, setSlackBotToken] = useState(settings.slackBotToken);
+  const [flameIntensity, setFlameIntensity] = useState(settings.flameIntensity);
+  const [flameSpread, setFlameSpread] = useState(settings.flameSpread);
+  const [flameLength, setFlameLength] = useState(settings.flameLength);
+  const [flameSpeed, setFlameSpeed] = useState(settings.flameSpeed);
+  const [flamePreviewMode, setFlamePreviewMode] = useState<'working' | 'ready' | 'needs-input'>('working');
 
   const handleSave = () => {
     onSave({
@@ -150,6 +155,10 @@ export function SettingsDialog({
       dictationLang,
       slackEnabled,
       slackBotToken,
+      flameIntensity,
+      flameSpread,
+      flameLength,
+      flameSpeed,
     });
   };
 
@@ -177,6 +186,12 @@ export function SettingsDialog({
             onClick={() => setTab('appearance')}
           >
             Appearance
+          </button>
+          <button
+            className={`settings-tab ${tab === 'flames' ? 'settings-tab-active' : ''}`}
+            onClick={() => setTab('flames')}
+          >
+            Flames
           </button>
           <button
             className={`settings-tab ${tab === 'icons' ? 'settings-tab-active' : ''}`}
@@ -360,6 +375,118 @@ export function SettingsDialog({
                   <option value="zh-CN">Chinese (Simplified)</option>
                   <option value="ko-KR">Korean</option>
                 </select>
+              </label>
+            </>
+          )}
+
+          {tab === 'flames' && (
+            <>
+              <div className="flame-preview-container">
+                <div className="flame-preview-bar">
+                  {(['working', 'ready', 'needs-input'] as const).map((mode) => {
+                    const colors = { working: '#3b82f6', ready: '#22c55e', 'needs-input': '#eab308' };
+                    const isAnimated = mode === 'working' || mode === 'needs-input';
+                    const isCalm = mode === 'ready';
+                    const intensityVal = 0.2 + (flameIntensity / 100) * 1.8;
+                    const spreadVal = 0.2 + (flameSpread / 100) * 2.3;
+                    const lengthVal = Math.round(6 + (flameLength / 100) * 54);
+                    const speedVal = flameSpeed <= 50
+                      ? 1 + (50 - flameSpeed) / 50 * 2
+                      : 1 - (flameSpeed - 50) / 50 * 0.85;
+                    return (
+                      <div
+                        key={mode}
+                        className={`flame-preview-item ${flamePreviewMode === mode ? 'flame-preview-active' : ''}`}
+                        onClick={() => setFlamePreviewMode(mode)}
+                      >
+                        <div className="flame-preview-profile">
+                          <div
+                            className={`flame-indicator ${isAnimated ? 'flame-animated' : isCalm ? 'flame-calm' : ''}`}
+                            style={{
+                              '--flame-color': colors[mode],
+                              width: `${lengthVal}px`,
+                              opacity: intensityVal,
+                              '--flame-speed': `${speedVal}`,
+                            } as React.CSSProperties}
+                          >
+                            <svg viewBox="0 0 24 60" preserveAspectRatio="none" fill="none"
+                              style={{ transform: `scaleX(${spreadVal})`, transformOrigin: 'left center' }}
+                            >
+                              <rect className="flame-base" x="0" y="0" width="3" height="60" />
+                              <path className="flame spike-1"  d="M3 0 L12 2 L3 5z" />
+                              <path className="flame spike-2"  d="M3 4 L7 6.5 L3 8z" />
+                              <path className="flame spike-3"  d="M3 7 L16 10 L3 14z" />
+                              <path className="flame spike-4"  d="M3 13 L9 15 L3 18z" />
+                              <path className="flame spike-5"  d="M3 17 L14 19.5 L3 23z" />
+                              <path className="flame spike-6"  d="M3 22 L8 24.5 L3 28z" />
+                              <path className="flame spike-7"  d="M3 26 L17 29.5 L3 33z" />
+                              <path className="flame spike-8"  d="M3 32 L11 35 L3 38z" />
+                              <path className="flame spike-9"  d="M3 37 L6 39 L3 42z" />
+                              <path className="flame spike-10" d="M3 40 L15 43 L3 47z" />
+                              <path className="flame spike-11" d="M3 46 L9 48.5 L3 52z" />
+                              <path className="flame spike-12" d="M3 50 L18 53 L3 57z" />
+                              <path className="flame spike-13" d="M3 56 L10 58 L3 60z" />
+                            </svg>
+                          </div>
+                          <div className="flame-preview-icon" style={{ borderColor: colors[mode] + '44' }}>
+                            <div className="flame-preview-dot" style={{ backgroundColor: colors[mode] }} />
+                          </div>
+                        </div>
+                        <span className="flame-preview-label">
+                          {mode === 'working' ? 'Working' : mode === 'ready' ? 'Ready' : 'Needs Input'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <label className="field">
+                <span className="field-label">Intensity</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={flameIntensity}
+                  onChange={(e) => setFlameIntensity(Number(e.target.value))}
+                />
+                <span className="field-hint">Brightness and opacity of the flames</span>
+              </label>
+
+              <label className="field">
+                <span className="field-label">Spread</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={flameSpread}
+                  onChange={(e) => setFlameSpread(Number(e.target.value))}
+                />
+                <span className="field-hint">How wide the flame spikes extend horizontally</span>
+              </label>
+
+              <label className="field">
+                <span className="field-label">Length</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={flameLength}
+                  onChange={(e) => setFlameLength(Number(e.target.value))}
+                />
+                <span className="field-hint">Width of the flame zone along the profile edge</span>
+              </label>
+
+              <label className="field">
+                <span className="field-label">Speed</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={flameSpeed}
+                  onChange={(e) => setFlameSpeed(Number(e.target.value))}
+                />
+                <span className="field-hint">Animation speed — slow breathing to rapid flicker</span>
               </label>
             </>
           )}

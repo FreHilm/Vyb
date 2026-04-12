@@ -45,6 +45,7 @@ declare global {
       onOpenSettings: (callback: () => void) => () => void;
       platform: string;
       getGitStatus: (cwd: string) => Promise<GitStatus>;
+      gitFetch: (cwd: string) => Promise<boolean>;
       listDir: (dirPath: string) => Promise<FileEntry[]>;
       readFile: (filePath: string) => Promise<string | null>;
       saveFile: (filePath: string, content: string) => Promise<boolean>;
@@ -93,7 +94,12 @@ export function App() {
     window.api.loadSettings().then((loaded) => {
       setSettings(loaded);
       setSidebarWidth(loaded.sidebarWidth);
-      applyTheme(loaded.baseHue, loaded.darkness, loaded.textLightness, loaded.profileFontSize);
+      applyTheme(loaded.baseHue, loaded.darkness, loaded.textLightness, loaded.profileFontSize, {
+        intensity: loaded.flameIntensity,
+        spread: loaded.flameSpread,
+        length: loaded.flameLength,
+        speed: loaded.flameSpeed,
+      });
     });
 
     window.api.loadLayout().then(setLayout);
@@ -149,7 +155,12 @@ export function App() {
 
   // Apply theme whenever settings change
   useEffect(() => {
-    applyTheme(settings.baseHue, settings.darkness, settings.textLightness, settings.profileFontSize);
+    applyTheme(settings.baseHue, settings.darkness, settings.textLightness, settings.profileFontSize, {
+      intensity: settings.flameIntensity,
+      spread: settings.flameSpread,
+      length: settings.flameLength,
+      speed: settings.flameSpeed,
+    });
   }, [settings]);
 
   // Sync active profile to main process for notification suppression

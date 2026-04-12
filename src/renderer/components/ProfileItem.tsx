@@ -78,11 +78,19 @@ export function ProfileItem({
         >
           <svg viewBox="0 0 24 60" preserveAspectRatio="none" fill="none">
             <rect className="flame-base" x="0" y="0" width="3" height="60" />
-            <path className="flame flame-1" d="M3 2 L10 5 L6 9 L14 12 L5 16 L12 19 L7 23 L11 26 L3 30z" />
-            <path className="flame flame-2" d="M3 12 L18 16 L8 20 L16 25 L6 29 L13 33 L3 38z" />
-            <path className="flame flame-3" d="M3 28 L12 31 L7 35 L17 38 L9 42 L14 46 L5 50 L10 53 L3 56z" />
-            <path className="flame flame-4" d="M3 0 L9 3 L5 6 L11 8 L3 12z" />
-            <path className="flame flame-5" d="M3 48 L15 51 L8 54 L12 57 L3 60z" />
+            <path className="flame spike-1"  d="M3 0 L12 2 L3 5z" />
+            <path className="flame spike-2"  d="M3 4 L7 6.5 L3 8z" />
+            <path className="flame spike-3"  d="M3 7 L16 10 L3 14z" />
+            <path className="flame spike-4"  d="M3 13 L9 15 L3 18z" />
+            <path className="flame spike-5"  d="M3 17 L14 19.5 L3 23z" />
+            <path className="flame spike-6"  d="M3 22 L8 24.5 L3 28z" />
+            <path className="flame spike-7"  d="M3 26 L17 29.5 L3 33z" />
+            <path className="flame spike-8"  d="M3 32 L11 35 L3 38z" />
+            <path className="flame spike-9"  d="M3 37 L6 39 L3 42z" />
+            <path className="flame spike-10" d="M3 40 L15 43 L3 47z" />
+            <path className="flame spike-11" d="M3 46 L9 48.5 L3 52z" />
+            <path className="flame spike-12" d="M3 50 L18 53 L3 57z" />
+            <path className="flame spike-13" d="M3 56 L10 58 L3 60z" />
           </svg>
         </div>
       )}

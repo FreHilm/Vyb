@@ -47,6 +47,10 @@ export interface AppSettings {
   dictationLang: string; // BCP 47 language code e.g. 'en-US'
   slackEnabled: boolean;
   slackBotToken: string; // xoxb-...
+  flameIntensity: number; // 0-100, default 50. Controls flame brightness/opacity.
+  flameSpread: number; // 0-100, default 50. Controls horizontal spread of flame spikes.
+  flameLength: number; // 0-100, default 50. Controls how far flames extend from edge.
+  flameSpeed: number; // 0-100, default 50. Controls animation speed.
 }
 
 export interface ExternalApp {
@@ -81,6 +85,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dictationLang: 'en-US',
   slackEnabled: false,
   slackBotToken: '',
+  flameIntensity: 50,
+  flameSpread: 50,
+  flameLength: 50,
+  flameSpeed: 50,
 };
 
 export interface SidebarFolder {
@@ -126,6 +134,7 @@ export const IPC_CHANNELS = {
   LAYOUT_SAVE: 'layout:save',
   README_LOAD: 'readme:load',
   GIT_STATUS: 'git:status',
+  GIT_FETCH: 'git:fetch',
   FILE_LIST_DIR: 'file:listDir',
   FILE_READ: 'file:read',
   FILE_SAVE: 'file:save',

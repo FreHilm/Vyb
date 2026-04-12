@@ -68,11 +68,19 @@ function textLight(_defaultL: number, textLightness: number): number {
   return 100 - textLightness;
 }
 
+export interface FlameSettings {
+  intensity: number; // 0-100
+  spread: number;    // 0-100
+  length: number;    // 0-100
+  speed: number;     // 0-100
+}
+
 export function applyTheme(
   baseHue: number,
   darkness: number,
   textLightness: number,
   profileFontSize: number,
+  flame?: FlameSettings,
 ): void {
   const shift = baseHue >= 360 ? 0 : baseHue - BASE_HUE;
   const root = document.documentElement;
@@ -108,6 +116,25 @@ export function applyTheme(
     '--profile-font-size-small',
     `${Math.round(profileFontSize * 0.846)}px`,
   );
+
+  // Flame settings — map 0-100 sliders to CSS variable ranges
+  if (flame) {
+    // intensity 0→0.2, 50→1.0, 100→2.0
+    const intensity = 0.2 + (flame.intensity / 100) * 1.8;
+    // spread 0→0.2, 50→1.0, 100→2.5
+    const spread = 0.2 + (flame.spread / 100) * 2.3;
+    // length 0→6px, 50→24px, 100→60px
+    const length = Math.round(6 + (flame.length / 100) * 54);
+    // speed: 0→slow(3x duration), 50→normal(1x), 100→fast(0.15x)
+    // Higher slider = faster, so invert: duration multiplier
+    const speed = flame.speed <= 50
+      ? 1 + (50 - flame.speed) / 50 * 2      // 50→1.0, 0→3.0
+      : 1 - (flame.speed - 50) / 50 * 0.85;  // 50→1.0, 100→0.15
+    root.style.setProperty('--flame-intensity', `${intensity}`);
+    root.style.setProperty('--flame-spread', `${spread}`);
+    root.style.setProperty('--flame-length', `${length}px`);
+    root.style.setProperty('--flame-speed', `${speed}`);
+  }
 }
 
 export function getTerminalTheme(baseHue: number, darkness: number) {

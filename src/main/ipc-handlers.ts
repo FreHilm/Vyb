@@ -509,6 +509,15 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     return { isGit, branch, modified, staged, untracked, ahead, behind, stashes, lastCommit, remoteUrl };
   });
 
+  ipcMain.handle(IPC_CHANNELS.GIT_FETCH, (_, cwd: string): boolean => {
+    try {
+      execSync('git fetch --quiet', { cwd, timeout: 15000, encoding: 'utf-8' });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.FILE_LIST_DIR, (_, dirPath: string): FileEntry[] => {
     try {
       const entries = fs.readdirSync(dirPath, { withFileTypes: true });

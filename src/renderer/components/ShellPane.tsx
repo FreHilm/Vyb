@@ -44,7 +44,7 @@ export function ShellPane({
 }: ShellPaneProps) {
   const [shells, setShells] = useState<ShellInfo[]>([]);
   const [widths, setWidths] = useState<number[]>([]);
-  const terminalsRef = useRef<Map<string, { terminal: Terminal; fitAddon: FitAddon }>>(new Map());
+  const terminalsRef = useRef<Map<string, { terminal: Terminal; fitAddon: FitAddon; webglAddon?: WebglAddon }>>(new Map());
   const panelRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
 
   // Listen for shell exits
@@ -52,6 +52,7 @@ export function ShellPane({
     const unsub = window.api.onShellExited(({ terminalId }) => {
       const entry = terminalsRef.current.get(terminalId);
       if (entry) {
+        if (entry.webglAddon) entry.webglAddon.dispose();
         entry.terminal.dispose();
         terminalsRef.current.delete(terminalId);
       }
@@ -69,6 +70,28 @@ export function ShellPane({
 
     return () => unsub();
   }, [onAllClosed]);
+
+  // Release WebGL contexts when hidden, reactivate when visible
+  useEffect(() => {
+    terminalsRef.current.forEach((entry) => {
+      if (hidden) {
+        if (entry.webglAddon) {
+          entry.webglAddon.dispose();
+          entry.webglAddon = undefined;
+        }
+      } else if (!entry.webglAddon) {
+        try {
+          const addon = new WebglAddon();
+          addon.onContextLoss(() => {
+            addon.dispose();
+            entry.webglAddon = undefined;
+          });
+          entry.terminal.loadAddon(addon);
+          entry.webglAddon = addon;
+        } catch { /* canvas fallback */ }
+      }
+    });
+  }, [hidden]);
 
   // Mount/remount terminal UIs into panel divs whenever visibility changes
   useEffect(() => {
@@ -120,15 +143,22 @@ export function ShellPane({
       panelDiv.appendChild(termEl);
       terminal.open(termEl);
 
+      let webglAddon: WebglAddon | undefined;
       try {
-        terminal.loadAddon(new WebglAddon());
+        webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => {
+          webglAddon?.dispose();
+          const e = terminalsRef.current.get(shell.id);
+          if (e) e.webglAddon = undefined;
+        });
+        terminal.loadAddon(webglAddon);
       } catch { /* canvas fallback */ }
 
       terminal.onData((data) => {
         window.api.sendInput(shell.id, data);
       });
 
-      terminalsRef.current.set(shell.id, { terminal, fitAddon });
+      terminalsRef.current.set(shell.id, { terminal, fitAddon, webglAddon });
 
       // Create PTY if not yet created
       if (!shell.ptyCreated) {

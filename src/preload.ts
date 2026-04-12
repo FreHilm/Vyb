@@ -99,6 +99,8 @@ contextBridge.exposeInMainWorld('api', {
 
   getGitStatus: (cwd: string): Promise<GitStatus> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_STATUS, cwd),
+  gitFetch: (cwd: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_FETCH, cwd),
 
   listDir: (dirPath: string): Promise<FileEntry[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_DIR, dirPath),
