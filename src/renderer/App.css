@@ -985,6 +985,29 @@
 /* Settings tabs */
 .settings-modal {
   width: 520px;
+  height: 75vh;
+  display: flex;
+  flex-direction: column;
+  overflow-y: hidden;
+}
+
+.settings-modal .modal-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.settings-modal .modal-header {
+  flex-shrink: 0;
+}
+
+.settings-modal .settings-tabs {
+  flex-shrink: 0;
+}
+
+.settings-modal .modal-footer {
+  border-top: 1px solid var(--c-surface0);
+  flex-shrink: 0;
 }
 
 .settings-tabs {
