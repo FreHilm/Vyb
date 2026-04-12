@@ -15,6 +15,7 @@ interface SidebarProps {
   layout: SidebarLayout;
   iconRevision: number;
   hasUpdates: Set<string>;
+  navActive: boolean;
   onLayoutChange: (layout: SidebarLayout) => void;
   onSelectProfile: (profileId: string) => void;
   onEditProfile: (profile: Profile) => void;
@@ -77,6 +78,7 @@ export function Sidebar({
   onAddProfile,
   iconRevision,
   hasUpdates,
+  navActive,
 }: SidebarProps) {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [folderNameInput, setFolderNameInput] = useState('');
@@ -444,6 +446,16 @@ export function Sidebar({
           <div className="sidebar-empty" onClick={onAddProfile}>
             Click + to add an agent profile
           </div>
+        )}
+        {navActive && (
+          <>
+            <div className="nav-arrows-profile nav-arrow-up">
+              <span className="nav-arrow">&#x2191;</span>
+            </div>
+            <div className="nav-arrows-profile nav-arrow-down">
+              <span className="nav-arrow">&#x2193;</span>
+            </div>
+          </>
         )}
       </div>
       {confirmDeleteFolderId && (

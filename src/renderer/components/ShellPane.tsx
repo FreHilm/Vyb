@@ -14,6 +14,9 @@ interface ShellPaneProps {
   hidden: boolean;
   settings: AppSettings;
   onAllClosed: () => void;
+  focused: boolean;
+  focusedIndex: number;
+  onShellCountChange?: (count: number) => void;
 }
 
 interface ShellInfo {
@@ -29,6 +32,9 @@ export function ShellPane({
   hidden,
   settings,
   onAllClosed,
+  focused,
+  focusedIndex,
+  onShellCountChange,
 }: ShellPaneProps) {
   const [shells, setShells] = useState<ShellInfo[]>([]);
   const [widths, setWidths] = useState<number[]>([]);
@@ -201,6 +207,46 @@ export function ShellPane({
     };
   }, [shells, hidden, profileId]);
 
+  // Focus the shell terminal at focusedIndex when pane receives focus
+  useEffect(() => {
+    if (focused && shells.length > 0) {
+      const idx = Math.min(focusedIndex, shells.length - 1);
+      const target = terminalsRef.current.get(shells[idx].id);
+      if (target) target.terminal.focus();
+    }
+  }, [focused, focusedIndex, shells]);
+
+  // Report shell count changes to parent
+  useEffect(() => {
+    onShellCountChange?.(shells.length);
+  }, [shells.length, onShellCountChange]);
+
+  const handleClose = useCallback((shellId: string) => {
+    window.api.sendInput(shellId, 'exit\r');
+  }, []);
+
+  // Ctrl+Cmd+Plus to split, Ctrl+Cmd+Minus to close focused shell
+  useEffect(() => {
+    if (hidden) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || !e.metaKey) return;
+
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        createShell();
+      } else if (e.key === '-') {
+        e.preventDefault();
+        if (shells.length > 0) {
+          handleClose(shells[shells.length - 1].id);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [hidden, shells, createShell, handleClose]);
+
   // Apply settings to existing terminals
   useEffect(() => {
     const theme = getTerminalTheme(settings.baseHue, settings.darkness);
@@ -210,10 +256,6 @@ export function ShellPane({
       if (!hidden) entry.fitAddon.fit();
     });
   }, [settings.baseHue, settings.darkness, settings.shellFontSize, hidden]);
-
-  const handleClose = useCallback((shellId: string) => {
-    window.api.sendInput(shellId, 'exit\r');
-  }, []);
 
   const handleResize = useCallback((index: number, delta: number) => {
     const container = document.querySelector(`[data-shell-profile="${profileId}"]`);

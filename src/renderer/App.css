@@ -229,6 +229,7 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding: 4px 6px;
+  position: relative;
 }
 
 /* Profile Item */
@@ -560,6 +561,7 @@
   font-size: 12px;
   cursor: pointer;
   transition: background 0.15s;
+  position: relative;
   font-family: inherit;
 }
 
@@ -1337,6 +1339,86 @@
 .file-tree-name {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Keyboard Navigation */
+.nav-badge {
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--c-blue);
+  color: var(--c-base);
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  animation: navBadgePop 0.15s ease-out;
+}
+
+.nav-arrow {
+  background: var(--c-blue);
+  color: var(--c-base);
+  font-size: 12px;
+  font-weight: 700;
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  animation: navArrowPop 0.15s ease-out;
+}
+
+@keyframes navArrowPop {
+  0% { transform: scale(0); }
+  100% { transform: scale(1); }
+}
+
+.nav-arrows-profile {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  pointer-events: none;
+}
+
+.nav-arrows-profile.nav-arrow-up {
+  top: 24px;
+}
+
+.nav-arrows-profile.nav-arrow-down {
+  bottom: 30px;
+}
+
+.nav-pane-hint {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 20;
+}
+
+.nav-pane-hint.left {
+  left: 8px;
+}
+
+.nav-pane-hint.right {
+  right: 8px;
+}
+
+@keyframes navBadgePop {
+  0% { transform: translateX(-50%) scale(0); }
+  100% { transform: translateX(-50%) scale(1); }
 }
 
 /* Shell Panels */

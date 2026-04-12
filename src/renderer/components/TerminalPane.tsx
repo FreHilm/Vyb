@@ -18,6 +18,8 @@ interface TerminalPaneProps {
   onShellExited: () => void;
   settings: AppSettings;
   onSplitChange: (percent: number) => void;
+  focusedPane: { pane: 'agent' | 'shell'; shellIndex: number };
+  onShellCountChange?: (count: number) => void;
 }
 
 interface TerminalInstance {
@@ -88,6 +90,8 @@ export function TerminalPane({
   onShellExited,
   settings,
   onSplitChange,
+  focusedPane,
+  onShellCountChange,
 }: TerminalPaneProps) {
   const splitRef = useRef<HTMLDivElement>(null);
   const agentContainerRef = useRef<HTMLDivElement>(null);
@@ -176,6 +180,16 @@ export function TerminalPane({
       }
     });
   }, [activeProfileId, initialized, shellOpen, hidden, profiles]);
+
+  // Focus the agent terminal when focusedPane switches to 'agent'
+  useEffect(() => {
+    if (focusedPane.pane === 'agent' && activeProfileId && !hidden) {
+      const agentInst = agentTerminalsRef.current.get(activeProfileId);
+      if (agentInst && agentInst.opened) {
+        agentInst.terminal.focus();
+      }
+    }
+  }, [focusedPane, activeProfileId, hidden]);
 
   // Refit when returning from hidden
   useEffect(() => {
@@ -277,6 +291,9 @@ export function TerminalPane({
                 hidden={!isVisible}
                 settings={settings}
                 onAllClosed={onShellExited}
+                focused={isVisible && focusedPane.pane === 'shell'}
+                focusedIndex={focusedPane.shellIndex}
+                onShellCountChange={onShellCountChange}
               />
             </div>
           );
