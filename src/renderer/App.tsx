@@ -10,7 +10,7 @@ import { FileExplorer } from './components/FileExplorer';
 import { StatusBar } from './components/StatusBar';
 import { useKeyNav } from './components/KeyNav';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp, FileEntry } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp, FileEntry, ProfileMemoryMap } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -51,6 +51,8 @@ declare global {
       exportBackup: () => Promise<string | null>;
       importBackup: () => Promise<boolean>;
       transcribeAudio: (audioBase64: string, lang: string) => Promise<string>;
+      loadProfileMemory: () => Promise<ProfileMemoryMap>;
+      saveProfileMemory: (memory: ProfileMemoryMap) => Promise<void>;
       loadReadme: (workingDirectory: string) => Promise<string | null>;
       setActiveProfile: (profileId: string | null) => void;
       generateIcon: (profileId: string, projectName: string) => Promise<string | null>;
@@ -77,7 +79,8 @@ export function App() {
   const [layout, setLayout] = useState<SidebarLayout>({ items: [], folders: [] });
   const [readmeVisible, setReadmeVisible] = useState(false);
   const [focusedPane, setFocusedPane] = useState<{ pane: 'agent' | 'shell'; shellIndex: number }>({ pane: 'agent', shellIndex: 0 });
-  const shellCountRef = useRef(1); // track how many shell terminals the active profile has
+  const shellCountRef = useRef(1);
+  const profileMemoryRef = useRef<ProfileMemoryMap>({});
   const [filesVisible, setFilesVisible] = useState(false);
   const [filesCloseRequested, setFilesCloseRequested] = useState(false);
   const [hasUpdates, setHasUpdates] = useState<Set<string>>(new Set());
@@ -93,6 +96,16 @@ export function App() {
     });
 
     window.api.loadLayout().then(setLayout);
+
+    // Restore shell open states from profile memory
+    window.api.loadProfileMemory().then((memory) => {
+      profileMemoryRef.current = memory;
+      const restored = new Set<string>();
+      for (const [pid, mem] of Object.entries(memory)) {
+        if (mem.shellOpen) restored.add(pid);
+      }
+      if (restored.size > 0) setShellOpenSet(restored);
+    });
 
     window.api.getProfiles().then((loadedProfiles) => {
       setProfiles(loadedProfiles);
@@ -356,6 +369,24 @@ export function App() {
     });
   }, [activeProfileId]);
 
+  // Persist profile memory when shell state changes
+  const memSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (memSaveTimerRef.current) clearTimeout(memSaveTimerRef.current);
+    memSaveTimerRef.current = setTimeout(() => {
+      const memory = { ...profileMemoryRef.current };
+      for (const p of profiles) {
+        if (!memory[p.id]) memory[p.id] = { shellOpen: false, shellCount: 1 };
+        memory[p.id].shellOpen = shellOpenSet.has(p.id);
+      }
+      profileMemoryRef.current = memory;
+      window.api.saveProfileMemory(memory);
+    }, 500);
+    return () => {
+      if (memSaveTimerRef.current) clearTimeout(memSaveTimerRef.current);
+    };
+  }, [shellOpenSet, profiles]);
+
   const openFolder = useCallback(() => {
     if (activeProfile) window.api.openInFinder(activeProfile.workingDirectory);
   }, [activeProfile]);
@@ -566,7 +597,18 @@ export function App() {
             onSplitChange={handleTerminalSplitChange}
             focusedPane={focusedPane}
             navActive={navActive}
-            onShellCountChange={(count) => { shellCountRef.current = count; }}
+            onShellCountChange={(pid, count) => {
+              if (pid === activeProfileId) shellCountRef.current = count;
+              // Save shell count to memory — but only if > 0 (0 means shells are being destroyed)
+              if (count > 0) {
+                const memory = { ...profileMemoryRef.current };
+                if (!memory[pid]) memory[pid] = { shellOpen: true, shellCount: 1 };
+                memory[pid].shellCount = count;
+                profileMemoryRef.current = memory;
+                window.api.saveProfileMemory(memory);
+              }
+            }}
+            profileMemory={profileMemoryRef.current}
           />
         </div>
       </div>

@@ -19,6 +19,7 @@ interface ShellPaneProps {
   navActive: boolean;
   navFocusedPane: { pane: 'agent' | 'shell'; shellIndex: number };
   onShellCountChange?: (count: number) => void;
+  initialShellCount: number;
 }
 
 interface ShellInfo {
@@ -39,6 +40,7 @@ export function ShellPane({
   navActive,
   navFocusedPane,
   onShellCountChange,
+  initialShellCount,
 }: ShellPaneProps) {
   const [shells, setShells] = useState<ShellInfo[]>([]);
   const [widths, setWidths] = useState<number[]>([]);
@@ -177,10 +179,13 @@ export function ShellPane({
     });
   }, [profileId, hidden]);
 
-  // Create first shell
+  // Create initial shells based on memory
   useEffect(() => {
     if (!hidden && shells.length === 0) {
-      createShell();
+      const count = Math.max(1, initialShellCount);
+      for (let i = 0; i < count; i++) {
+        createShell();
+      }
     }
   }, [hidden]); // eslint-disable-line react-hooks/exhaustive-deps
 

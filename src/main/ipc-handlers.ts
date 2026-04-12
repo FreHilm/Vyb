@@ -3,10 +3,10 @@ import { exec, execSync } from 'child_process';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry } from '../shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap } from '../shared/types';
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
-import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout } from './config-loader';
+import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout, loadProfileMemory, saveProfileMemory } from './config-loader';
 import { initSlack, stopSlack, postStatus, setMessageHandler } from './slack-integration';
 
 let ptyManager: PtyManager;
@@ -414,6 +414,14 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       throw new Error('No API key configured. Set an OpenAI or Gemini API key in Settings → Icons.');
     },
   );
+
+  ipcMain.handle(IPC_CHANNELS.PROFILE_MEMORY_LOAD, () => {
+    return loadProfileMemory();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PROFILE_MEMORY_SAVE, (_, memory: ProfileMemoryMap) => {
+    saveProfileMemory(memory);
+  });
 
   ipcMain.handle(IPC_CHANNELS.GIT_STATUS, (_, cwd: string): GitStatus => {
     const empty: GitStatus = {
