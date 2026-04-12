@@ -34,6 +34,8 @@ export interface AppSettings {
   terminalSplitPercent: number; // agent pane %, default 67
   externalApps: ExternalApp[];
   navModifierKey: 'meta' | 'alt'; // Modifier key for quick navigation
+  dictationMode: 'toggle' | 'hold'; // toggle = click start/stop, hold = hold button to dictate
+  dictationLang: string; // BCP 47 language code e.g. 'en-US'
   slackEnabled: boolean;
   slackBotToken: string; // xoxb-...
 }
@@ -66,6 +68,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     { id: 'fork', name: 'Fork', icon: 'gitBranch', command: 'open -a Fork "{path}"' },
   ],
   navModifierKey: 'meta',
+  dictationMode: 'toggle',
+  dictationLang: 'en-US',
   slackEnabled: false,
   slackBotToken: '',
 };
@@ -118,6 +122,7 @@ export const IPC_CHANNELS = {
   FILE_SAVE: 'file:save',
   BACKUP_EXPORT: 'backup:export',
   BACKUP_IMPORT: 'backup:import',
+  TRANSCRIBE_AUDIO: 'audio:transcribe',
 } as const;
 
 export interface FileEntry {

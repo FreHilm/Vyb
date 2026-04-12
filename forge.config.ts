@@ -7,12 +7,40 @@ import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-nati
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import * as path from 'path';
+import * as fs from 'fs';
+
+// Modules that are externalized in vite.main.config.ts and need to be
+// copied into the packaged app's node_modules so require() finds them.
+const externalModules = ['node-pty', '@slack/web-api', 'archiver', 'adm-zip'];
+
+function copyModuleWithDeps(moduleName: string, srcBase: string, destBase: string) {
+  const srcDir = path.join(srcBase, 'node_modules', moduleName);
+  const destDir = path.join(destBase, 'node_modules', moduleName);
+  if (!fs.existsSync(srcDir)) return;
+  if (fs.existsSync(destDir)) return; // already copied
+
+  fs.cpSync(srcDir, destDir, { recursive: true });
+
+  // Also copy this module's production dependencies
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(srcDir, 'package.json'), 'utf-8'));
+    for (const dep of Object.keys(pkg.dependencies || {})) {
+      copyModuleWithDeps(dep, srcBase, destBase);
+    }
+  } catch {
+    // ignore
+  }
+}
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
+    asar: {
+      unpack: '**/node_modules/{node-pty,@slack}/**/*.node',
+    },
     name: 'AgentDispatch',
     icon: './build/icon',
+    extraResource: [],
   },
   rebuildConfig: {},
   makers: [
@@ -21,14 +49,20 @@ const config: ForgeConfig = {
     new MakerRpm({}),
     new MakerDeb({}),
   ],
+  hooks: {
+    packageAfterCopy: async (_config, buildPath) => {
+      // Copy externalized modules into the packaged app so require() can find them
+      const projectRoot = process.cwd();
+      for (const mod of externalModules) {
+        copyModuleWithDeps(mod, projectRoot, buildPath);
+      }
+    },
+  },
   plugins: [
     new AutoUnpackNativesPlugin({}),
     new VitePlugin({
-      // `build` can specify multiple entry builds, which can be Main process, Preload scripts, Worker process, etc.
-      // If you are familiar with Vite configuration, it will look really familiar.
       build: [
         {
-          // `entry` is just an alias for `build.lib.entry` in the corresponding file of `config`.
           entry: 'src/main.ts',
           config: 'vite.main.config.ts',
           target: 'main',
@@ -46,16 +80,14 @@ const config: ForgeConfig = {
         },
       ],
     }),
-    // Fuses are used to enable/disable various Electron functionality
-    // at package time, before code signing the application
     new FusesPlugin({
       version: FuseVersion.V1,
       [FuseV1Options.RunAsNode]: false,
       [FuseV1Options.EnableCookieEncryption]: true,
       [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
       [FuseV1Options.EnableNodeCliInspectArguments]: false,
-      [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
-      [FuseV1Options.OnlyLoadAppFromAsar]: true,
+      [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: false,
+      [FuseV1Options.OnlyLoadAppFromAsar]: false,
     }),
   ],
 };
