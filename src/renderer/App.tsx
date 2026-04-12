@@ -207,11 +207,23 @@ export function App() {
     [initializeProfile],
   );
 
+  // Auto-init active profile — debounced so rapid keyboard nav doesn't init every profile
+  const autoInitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (activeProfileId && profiles.length > 0) {
+    if (!activeProfileId || profiles.length === 0) return;
+
+    // If already initialized, no need to debounce
+    if (initialized.has(activeProfileId)) return;
+
+    if (autoInitRef.current) clearTimeout(autoInitRef.current);
+    autoInitRef.current = setTimeout(() => {
       initializeProfile(activeProfileId);
-    }
-  }, [activeProfileId, profiles, initializeProfile]);
+    }, 500);
+
+    return () => {
+      if (autoInitRef.current) clearTimeout(autoInitRef.current);
+    };
+  }, [activeProfileId, profiles, initializeProfile, initialized]);
 
   const handleAddProfile = () => {
     setEditingProfile(null);
@@ -360,17 +372,30 @@ export function App() {
     return { actions, labels };
   }, [toggleReadme, toggleFiles, toggleShell, openFolder, settings.externalApps, activeProfile]);
 
+  // Keyboard profile navigation — only updates visual selection.
+  // The auto-init effect (2s debounce) handles terminal initialization.
+  const navSelectProfile = useCallback((profileId: string) => {
+    setActiveProfileId(profileId);
+    window.api.setActiveProfile(profileId);
+    setHasUpdates((prev) => {
+      if (!prev.has(profileId)) return prev;
+      const next = new Set(prev);
+      next.delete(profileId);
+      return next;
+    });
+  }, []);
+
   const navActive = useKeyNav({
     settings,
     commandBarActions: navActions.actions,
     commandBarLabels: navActions.labels,
     onProfileUp: () => {
       const idx = effectiveLayout.indexOf(activeProfileId || '');
-      if (idx > 0) handleSelectProfile(effectiveLayout[idx - 1]);
+      if (idx > 0) navSelectProfile(effectiveLayout[idx - 1]);
     },
     onProfileDown: () => {
       const idx = effectiveLayout.indexOf(activeProfileId || '');
-      if (idx < effectiveLayout.length - 1) handleSelectProfile(effectiveLayout[idx + 1]);
+      if (idx < effectiveLayout.length - 1) navSelectProfile(effectiveLayout[idx + 1]);
     },
     onPaneLeft: () => {
       if (!activeProfileId) return;
