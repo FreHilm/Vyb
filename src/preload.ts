@@ -124,6 +124,9 @@ contextBridge.exposeInMainWorld('api', {
   saveProfileMemory: (memory: ProfileMemoryMap): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.PROFILE_MEMORY_SAVE, memory),
 
+  loadScrollback: (profileId: string): Promise<string | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SCROLLBACK_LOAD, profileId),
+
   loadReadme: (workingDirectory: string): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.README_LOAD, workingDirectory),
 

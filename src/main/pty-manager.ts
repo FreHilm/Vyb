@@ -30,13 +30,25 @@ export class PtyManager {
       this.destroy(profileId);
     }
 
-    const shell =
-      profile.command ||
-      (os.platform() === 'win32'
-        ? 'powershell.exe'
-        : process.env.SHELL || '/bin/bash');
+    let shell: string;
+    let args: string[];
 
-    const ptyProcess = pty.spawn(shell, profile.args || [], {
+    if (profile.command) {
+      // Split command string if args are empty and command contains spaces
+      if ((!profile.args || profile.args.length === 0) && profile.command.includes(' ')) {
+        const parts = profile.command.split(/\s+/);
+        shell = parts[0];
+        args = parts.slice(1);
+      } else {
+        shell = profile.command;
+        args = profile.args || [];
+      }
+    } else {
+      shell = os.platform() === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/bash';
+      args = [];
+    }
+
+    const ptyProcess = pty.spawn(shell, args, {
       name: 'xterm-256color',
       cols,
       rows,

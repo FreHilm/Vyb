@@ -108,3 +108,55 @@ export function saveProfileMemory(memory: ProfileMemoryMap): void {
   const memPath = path.join(app.getPath('userData'), 'profile-memory.json');
   fs.writeFileSync(memPath, JSON.stringify(memory, null, 2));
 }
+
+const MAX_SCROLLBACK_SIZE = 512 * 1024; // 512KB cap per profile
+
+export function loadScrollback(profileId: string): string | null {
+  const dir = path.join(app.getPath('userData'), 'scrollback');
+  const filePath = path.join(dir, `${profileId}.log`);
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
+export function saveScrollback(profileId: string, data: string): void {
+  const dir = path.join(app.getPath('userData'), 'scrollback');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  // Strip ANSI codes to count meaningful content
+  const stripped = data
+    .replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, '')
+    .replace(/\x1B\][^\x07]*\x07/g, '')
+    .replace(/[\x00-\x09\x0B\x0C\x0E-\x1F]/g, '')
+    .replace(/\r/g, '');
+
+  // Count non-empty lines
+  const meaningfulLines = stripped.split('\n').filter((l) => l.trim().length > 0);
+  if (meaningfulLines.length < 10) return;
+
+  // Strip screen-clearing and cursor-positioning escape sequences
+  // that would mess up replay, but keep colors and text formatting
+  let cleaned = data
+    .replace(/\x1B\[2J/g, '')        // clear screen
+    .replace(/\x1B\[H/g, '')         // cursor home
+    .replace(/\x1B\[\d+;\d+H/g, '')  // cursor position
+    .replace(/\x1B\[J/g, '')         // clear to end of screen
+    .replace(/\x1B\[\?25[hl]/g, '')  // show/hide cursor
+    .replace(/\x1B\[\?1049[hl]/g, '') // alternate screen buffer
+    .replace(/\x1B\[\?1047[hl]/g, '') // alternate screen buffer
+    .replace(/\x1B\[s/g, '')         // save cursor
+    .replace(/\x1B\[u/g, '')         // restore cursor
+    .replace(/\x1B\[\d+A/g, '')      // cursor up
+    .replace(/\x1B\[\d+B/g, '')      // cursor down
+    .replace(/\x1B\[\d+C/g, '')      // cursor forward
+    .replace(/\x1B\[\d+D/g, '');     // cursor back
+
+  // Cap size — keep the tail
+  if (cleaned.length > MAX_SCROLLBACK_SIZE) {
+    cleaned = cleaned.slice(-MAX_SCROLLBACK_SIZE);
+  }
+  fs.writeFileSync(path.join(dir, `${profileId}.log`), cleaned);
+}

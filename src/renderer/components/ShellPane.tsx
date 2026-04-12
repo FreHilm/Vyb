@@ -136,8 +136,16 @@ export function ShellPane({
         requestAnimationFrame(() => {
           fitAddon.fit();
           terminal.focus();
-          window.api.createShellTerminal(shell.id, workingDirectory).then(() => {
-            window.api.resizeTerminal(shell.id, terminal.cols, terminal.rows);
+          // Restore scrollback then start shell
+          window.api.loadScrollback(shell.id).then((scrollback) => {
+            if (scrollback && scrollback.trim()) {
+              terminal.write('\x1B[90m--- Previous session ---\x1B[0m\r\n');
+              terminal.write(scrollback);
+              terminal.write('\r\n');
+            }
+            window.api.createShellTerminal(shell.id, workingDirectory).then(() => {
+              window.api.resizeTerminal(shell.id, terminal.cols, terminal.rows);
+            });
           });
         });
       } else {

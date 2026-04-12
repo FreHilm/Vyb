@@ -134,6 +134,8 @@ export const IPC_CHANNELS = {
   TRANSCRIBE_AUDIO: 'audio:transcribe',
   PROFILE_MEMORY_LOAD: 'profileMemory:load',
   PROFILE_MEMORY_SAVE: 'profileMemory:save',
+  SCROLLBACK_LOAD: 'scrollback:load',
+  SCROLLBACK_SAVE: 'scrollback:save',
 } as const;
 
 export interface FileEntry {
