@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { CommandBar } from './components/CommandBar';
 import { TerminalPane } from './components/TerminalPane';
@@ -8,6 +8,7 @@ import { ResizeHandle } from './components/ResizeHandle';
 import { ReadmeViewer } from './components/ReadmeViewer';
 import { FileExplorer } from './components/FileExplorer';
 import { StatusBar } from './components/StatusBar';
+import { useKeyNav } from './components/KeyNav';
 import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp, FileEntry } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
@@ -73,6 +74,8 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [layout, setLayout] = useState<SidebarLayout>({ items: [], folders: [] });
   const [readmeVisible, setReadmeVisible] = useState(false);
+  const [focusedPane, setFocusedPane] = useState<{ pane: 'agent' | 'shell'; shellIndex: number }>({ pane: 'agent', shellIndex: 0 });
+  const shellCountRef = useRef(1); // track how many shell terminals the active profile has
   const [filesVisible, setFilesVisible] = useState(false);
   const [filesCloseRequested, setFilesCloseRequested] = useState(false);
   const [hasUpdates, setHasUpdates] = useState<Set<string>>(new Set());
@@ -290,6 +293,117 @@ export function App() {
     [savePaneSizes],
   );
 
+  // Build ordered list of profile IDs for keyboard navigation
+  const effectiveLayout = useMemo(() => {
+    const ids: string[] = [];
+    // Flatten layout into ordered profile IDs (top-level + folder contents)
+    if (layout.items) {
+      const folderMap = new Map((layout.folders || []).map((f) => [f.id, f]));
+      for (const item of layout.items) {
+        if (item.type === 'profile') {
+          ids.push(item.profileId);
+        } else if (item.type === 'folder') {
+          const folder = folderMap.get(item.folderId);
+          if (folder) {
+            for (const pid of folder.profileIds) ids.push(pid);
+          }
+        }
+      }
+    }
+    // Add any profiles not in layout
+    for (const p of profiles) {
+      if (!ids.includes(p.id)) ids.push(p.id);
+    }
+    return ids;
+  }, [layout, profiles]);
+
+  // Command bar action builders
+  const toggleReadme = useCallback(() => {
+    if (filesVisible) setFilesCloseRequested(true);
+    setReadmeVisible((v) => !v);
+  }, [filesVisible]);
+
+  const toggleFiles = useCallback(() => {
+    if (filesVisible) {
+      setFilesCloseRequested(true);
+    } else {
+      setFilesVisible(true);
+      setReadmeVisible(false);
+    }
+  }, [filesVisible]);
+
+  const toggleShell = useCallback(() => {
+    if (!activeProfileId) return;
+    setShellOpenSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(activeProfileId)) next.delete(activeProfileId);
+      else next.add(activeProfileId);
+      return next;
+    });
+  }, [activeProfileId]);
+
+  const openFolder = useCallback(() => {
+    if (activeProfile) window.api.openInFinder(activeProfile.workingDirectory);
+  }, [activeProfile]);
+
+  const navActions = useMemo(() => {
+    const actions = [toggleReadme, toggleFiles, toggleShell, openFolder];
+    const labels = ['README', 'Files', 'Terminal', 'Folder'];
+    for (const app of settings.externalApps || []) {
+      const cmd = app.command;
+      const wd = activeProfile?.workingDirectory || '';
+      actions.push(() => window.api.openExternal(cmd, wd));
+      labels.push(app.name);
+    }
+    return { actions, labels };
+  }, [toggleReadme, toggleFiles, toggleShell, openFolder, settings.externalApps, activeProfile]);
+
+  const navActive = useKeyNav({
+    settings,
+    commandBarActions: navActions.actions,
+    commandBarLabels: navActions.labels,
+    onProfileUp: () => {
+      const idx = effectiveLayout.indexOf(activeProfileId || '');
+      if (idx > 0) handleSelectProfile(effectiveLayout[idx - 1]);
+    },
+    onProfileDown: () => {
+      const idx = effectiveLayout.indexOf(activeProfileId || '');
+      if (idx < effectiveLayout.length - 1) handleSelectProfile(effectiveLayout[idx + 1]);
+    },
+    onPaneLeft: () => {
+      if (!activeProfileId) return;
+      const shellOpen = shellOpenSet.has(activeProfileId);
+      if (!shellOpen) return;
+      const count = shellCountRef.current;
+
+      if (focusedPane.pane === 'shell') {
+        if (focusedPane.shellIndex > 0) {
+          // Move to previous shell terminal
+          setFocusedPane({ pane: 'shell', shellIndex: focusedPane.shellIndex - 1 });
+        } else {
+          // At first shell, go to agent
+          setFocusedPane({ pane: 'agent', shellIndex: 0 });
+        }
+      }
+    },
+    onPaneRight: () => {
+      if (!activeProfileId) return;
+      const shellOpen = shellOpenSet.has(activeProfileId);
+      if (!shellOpen) return;
+      const count = shellCountRef.current;
+
+      if (focusedPane.pane === 'agent') {
+        // Go to first shell
+        setFocusedPane({ pane: 'shell', shellIndex: 0 });
+      } else if (focusedPane.pane === 'shell') {
+        if (focusedPane.shellIndex < count - 1) {
+          // Move to next shell terminal
+          setFocusedPane({ pane: 'shell', shellIndex: focusedPane.shellIndex + 1 });
+        }
+      }
+    },
+  });
+
   return (
     <div className="app" style={{ gridTemplateColumns: `${sidebarWidth}px auto 1fr` }}>
       <div className="titlebar">
@@ -309,6 +423,7 @@ export function App() {
         layout={layout}
         iconRevision={iconRevision}
         hasUpdates={hasUpdates}
+        navActive={navActive}
         onLayoutChange={handleLayoutChange}
         onSelectProfile={handleSelectProfile}
         onEditProfile={handleEditProfile}
@@ -320,33 +435,12 @@ export function App() {
           profile={activeProfile}
           shellOpen={activeProfileId ? shellOpenSet.has(activeProfileId) : false}
           readmeVisible={readmeVisible}
-          onToggleShell={() => {
-            if (!activeProfileId) return;
-            setShellOpenSet((prev) => {
-              const next = new Set(prev);
-              if (next.has(activeProfileId)) next.delete(activeProfileId);
-              else next.add(activeProfileId);
-              return next;
-            });
-          }}
-          onToggleReadme={() => {
-            if (filesVisible) {
-              // Request close of file explorer (may show dialog)
-              setFilesCloseRequested(true);
-            }
-            setReadmeVisible((v) => !v);
-          }}
+          onToggleShell={toggleShell}
+          onToggleReadme={toggleReadme}
           filesVisible={filesVisible}
-          onToggleFiles={() => {
-            if (filesVisible) {
-              // Request close — FileExplorer will handle unsaved check
-              setFilesCloseRequested(true);
-            } else {
-              setFilesVisible(true);
-              setReadmeVisible(false);
-            }
-          }}
+          onToggleFiles={toggleFiles}
           externalApps={settings.externalApps || []}
+          navActive={navActive}
         />
         {readmeVisible && activeProfile && (
           <ReadmeViewer workingDirectory={activeProfile.workingDirectory} />
@@ -377,9 +471,12 @@ export function App() {
                 next.delete(activeProfileId);
                 return next;
               });
+              setFocusedPane({ pane: 'agent', shellIndex: 0 });
             }}
             settings={settings}
             onSplitChange={handleTerminalSplitChange}
+            focusedPane={focusedPane}
+            onShellCountChange={(count) => { shellCountRef.current = count; }}
           />
         </div>
       </div>

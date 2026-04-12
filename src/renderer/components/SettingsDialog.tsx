@@ -122,6 +122,7 @@ export function SettingsDialog({
   const [externalApps, setExternalApps] = useState<ExternalApp[]>(
     settings.externalApps || [],
   );
+  const [navModifierKey, setNavModifierKey] = useState(settings.navModifierKey);
   const [slackEnabled, setSlackEnabled] = useState(settings.slackEnabled);
   const [slackBotToken, setSlackBotToken] = useState(settings.slackBotToken);
 
@@ -142,6 +143,7 @@ export function SettingsDialog({
       iconPromptPrefix,
       iconReferenceImage,
       externalApps,
+      navModifierKey,
       slackEnabled,
       slackBotToken,
     });
@@ -292,6 +294,27 @@ export function SettingsDialog({
                   <span className="field-hint">Default: 14</span>
                 </div>
               </label>
+
+              <div className="field">
+                <span className="field-label">Quick Navigation Key</span>
+                <div className="field-row">
+                  <button
+                    className={`provider-btn ${navModifierKey === 'meta' ? 'provider-btn-active' : ''}`}
+                    onClick={() => setNavModifierKey('meta')}
+                  >
+                    {window.api.platform === 'darwin' ? 'Cmd' : 'Win'}
+                  </button>
+                  <button
+                    className={`provider-btn ${navModifierKey === 'alt' ? 'provider-btn-active' : ''}`}
+                    onClick={() => setNavModifierKey('alt')}
+                  >
+                    {window.api.platform === 'darwin' ? 'Option' : 'Alt'}
+                  </button>
+                </div>
+                <span className="field-hint">
+                  Hold to show navigation shortcuts over buttons
+                </span>
+              </div>
             </>
           )}
 

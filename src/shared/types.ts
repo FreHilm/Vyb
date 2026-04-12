@@ -33,6 +33,7 @@ export interface AppSettings {
   sidebarWidth: number; // pixels, default 250
   terminalSplitPercent: number; // agent pane %, default 67
   externalApps: ExternalApp[];
+  navModifierKey: 'meta' | 'alt'; // Modifier key for quick navigation
   slackEnabled: boolean;
   slackBotToken: string; // xoxb-...
 }
@@ -64,6 +65,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     { id: 'vscode', name: 'VS Code', icon: 'vscode', command: 'open -a "Visual Studio Code" "{path}"' },
     { id: 'fork', name: 'Fork', icon: 'gitBranch', command: 'open -a Fork "{path}"' },
   ],
+  navModifierKey: 'meta',
   slackEnabled: false,
   slackBotToken: '',
 };
