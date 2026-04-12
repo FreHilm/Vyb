@@ -12,6 +12,13 @@ interface CommandBarProps {
   onToggleFiles: () => void;
   externalApps: ExternalApp[];
   navActive: boolean;
+  dictationListening: boolean;
+  dictationSupported: boolean;
+  dictationInterim: string;
+  dictationMode: 'toggle' | 'hold';
+  onDictationToggle: () => void;
+  onDictationStart: () => void;
+  onDictationStop: () => void;
 }
 
 function NavNum({ active, idx }: { active: boolean; idx: number }) {
@@ -29,6 +36,13 @@ export function CommandBar({
   onToggleFiles,
   externalApps,
   navActive,
+  dictationListening,
+  dictationSupported,
+  dictationInterim,
+  dictationMode,
+  onDictationToggle,
+  onDictationStart,
+  onDictationStop,
 }: CommandBarProps) {
   if (!profile) return <div className="command-bar" />;
 
@@ -86,6 +100,30 @@ export function CommandBar({
           </svg>
           <span>Folder</span>
         </button>
+
+        {dictationSupported && (
+          <>
+            <div className="command-bar-separator" />
+            <button
+              className={`action-btn ${dictationListening ? 'dictation-active' : ''}`}
+              onClick={dictationMode === 'toggle' ? onDictationToggle : undefined}
+              onMouseDown={dictationMode === 'hold' ? onDictationStart : undefined}
+              onMouseUp={dictationMode === 'hold' ? onDictationStop : undefined}
+              onMouseLeave={dictationMode === 'hold' && dictationListening ? onDictationStop : undefined}
+              title={`Dictation (Ctrl+Shift+D) — ${dictationMode === 'hold' ? 'hold to talk' : 'click to toggle'}`}
+            >
+              {navActive && <NavBadge label="^⇧D" />}
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 1a2 2 0 00-2 2v4a2 2 0 104 0V3a2 2 0 00-2-2zM4 6.5a.5.5 0 00-1 0v.5A5 5 0 007.5 12H7v2H5.5a.5.5 0 000 1h5a.5.5 0 000-1H9v-2h-.5A5 5 0 0013 7v-.5a.5.5 0 00-1 0v.5a4 4 0 11-8 0v-.5z" />
+              </svg>
+              {dictationListening && dictationInterim && (
+                <span className="dictation-interim">{dictationInterim}</span>
+              )}
+              {!dictationListening && <span>Mic</span>}
+              {dictationListening && !dictationInterim && <span className="dictation-pulse">Listening...</span>}
+            </button>
+          </>
+        )}
 
         {externalApps.length > 0 && <div className="command-bar-separator" />}
 

@@ -115,6 +115,9 @@ contextBridge.exposeInMainWorld('api', {
   importBackup: (): Promise<boolean> =>
     ipcRenderer.invoke(IPC_CHANNELS.BACKUP_IMPORT),
 
+  transcribeAudio: (audioBase64: string, lang: string): Promise<string> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TRANSCRIBE_AUDIO, audioBase64, lang),
+
   loadReadme: (workingDirectory: string): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.README_LOAD, workingDirectory),
 

@@ -623,6 +623,38 @@
   font-size: 14px;
 }
 
+/* Dictation button */
+.dictation-active {
+  background: var(--c-red) !important;
+  border-color: var(--c-red) !important;
+  color: var(--c-base) !important;
+  animation: dictationGlow 1.5s ease-in-out infinite;
+}
+
+@keyframes dictationGlow {
+  0%, 100% { box-shadow: 0 0 4px var(--c-red); }
+  50% { box-shadow: 0 0 12px var(--c-red); }
+}
+
+.dictation-interim {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+.dictation-pulse {
+  font-size: 11px;
+  animation: dictationPulseText 1s ease-in-out infinite;
+}
+
+@keyframes dictationPulseText {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 .command-bar-separator {
   width: 1px;
   height: 20px;
@@ -944,14 +976,10 @@
   background: var(--c-sapphire);
 }
 
-.field-row .field-hint {
-  font-size: 11px;
+.field-hint {
+  font-size: 10px;
   color: var(--c-overlay0);
-}
-
-.field .field-hint {
-  font-size: 11px;
-  color: var(--c-overlay0);
+  line-height: 1.4;
 }
 
 /* Settings tabs */
@@ -1349,14 +1377,16 @@
   transform: translateX(-50%);
   background: var(--c-blue);
   color: var(--c-base);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   min-width: 16px;
   height: 16px;
+  padding: 0 4px;
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
+  white-space: nowrap;
   z-index: 20;
   pointer-events: none;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
@@ -1503,6 +1533,27 @@
   opacity: 1 !important;
   color: var(--c-blue);
   background: var(--c-surface1);
+}
+
+.shell-hotkey-badge {
+  background: var(--c-blue);
+  color: var(--c-base);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  animation: navArrowPop 0.15s ease-out;
+}
+
+.shell-close-hotkey {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 20;
+  pointer-events: none;
 }
 
 /* Readme Viewer */

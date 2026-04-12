@@ -123,6 +123,8 @@ export function SettingsDialog({
     settings.externalApps || [],
   );
   const [navModifierKey, setNavModifierKey] = useState(settings.navModifierKey);
+  const [dictationMode, setDictationMode] = useState(settings.dictationMode);
+  const [dictationLang, setDictationLang] = useState(settings.dictationLang);
   const [slackEnabled, setSlackEnabled] = useState(settings.slackEnabled);
   const [slackBotToken, setSlackBotToken] = useState(settings.slackBotToken);
 
@@ -144,6 +146,8 @@ export function SettingsDialog({
       iconReferenceImage,
       externalApps,
       navModifierKey,
+      dictationMode,
+      dictationLang,
       slackEnabled,
       slackBotToken,
     });
@@ -315,6 +319,48 @@ export function SettingsDialog({
                   Hold to show navigation shortcuts over buttons
                 </span>
               </div>
+
+              <div className="field">
+                <span className="field-label">Dictation Mode</span>
+                <div className="field-row">
+                  <button
+                    className={`provider-btn ${dictationMode === 'toggle' ? 'provider-btn-active' : ''}`}
+                    onClick={() => setDictationMode('toggle')}
+                  >
+                    Toggle
+                  </button>
+                  <button
+                    className={`provider-btn ${dictationMode === 'hold' ? 'provider-btn-active' : ''}`}
+                    onClick={() => setDictationMode('hold')}
+                  >
+                    Hold
+                  </button>
+                </div>
+                <span className="field-hint">
+                  Toggle: click to start/stop. Hold: press and hold to dictate. Hotkey: Ctrl+Shift+D
+                </span>
+              </div>
+
+              <label className="field">
+                <span className="field-label">Dictation Language</span>
+                <select
+                  className="field-select"
+                  value={dictationLang}
+                  onChange={(e) => setDictationLang(e.target.value)}
+                >
+                  <option value="en-US">English (US)</option>
+                  <option value="en-GB">English (UK)</option>
+                  <option value="sv-SE">Swedish</option>
+                  <option value="de-DE">German</option>
+                  <option value="fr-FR">French</option>
+                  <option value="es-ES">Spanish</option>
+                  <option value="it-IT">Italian</option>
+                  <option value="pt-BR">Portuguese (BR)</option>
+                  <option value="ja-JP">Japanese</option>
+                  <option value="zh-CN">Chinese (Simplified)</option>
+                  <option value="ko-KR">Korean</option>
+                </select>
+              </label>
             </>
           )}
 
@@ -339,59 +385,39 @@ export function SettingsDialog({
               </div>
 
               {iconProvider === 'gemini' && (
-                <>
-                  <label className="field">
-                    <span className="field-label">Model</span>
-                    <select
-                      className="field-select"
-                      value={geminiModel}
-                      onChange={(e) => setGeminiModel(e.target.value)}
-                    >
-                      <option value="gemini-3.1-flash-image-preview">Nano Banana 2 — Newest, fast</option>
-                      <option value="gemini-3-pro-image-preview">Nano Banana Pro — Best quality, 4K</option>
-                      <option value="gemini-2.5-flash-image">Nano Banana — Stable</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span className="field-label">API Key</span>
-                    <input
-                      type="text"
-                      value={geminiApiKey}
-                      onChange={(e) => setGeminiApiKey(e.target.value)}
-                      placeholder="AIza..."
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                    <span className="field-hint">Get one at ai.google.dev</span>
-                  </label>
-                </>
+                <label className="field">
+                  <span className="field-label">Model</span>
+                  <select
+                    className="field-select"
+                    value={geminiModel}
+                    onChange={(e) => setGeminiModel(e.target.value)}
+                  >
+                    <option value="gemini-3.1-flash-image-preview">Nano Banana 2 — Newest, fast</option>
+                    <option value="gemini-3-pro-image-preview">Nano Banana Pro — Best quality, 4K</option>
+                    <option value="gemini-2.5-flash-image">Nano Banana — Stable</option>
+                  </select>
+                </label>
               )}
 
               {iconProvider === 'openai' && (
-                <>
-                  <label className="field">
-                    <span className="field-label">Model</span>
-                    <select
-                      className="field-select"
-                      value={openaiModel}
-                      onChange={(e) => setOpenaiModel(e.target.value)}
-                    >
-                      <option value="gpt-image-1">GPT Image 1 — Newest, best quality</option>
-                      <option value="dall-e-3">DALL-E 3</option>
-                      <option value="dall-e-2">DALL-E 2</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span className="field-label">API Key</span>
-                    <input
-                      type="text"
-                      value={openaiApiKey}
-                      onChange={(e) => setOpenaiApiKey(e.target.value)}
-                      placeholder="sk-..."
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                    <span className="field-hint">Get one at platform.openai.com</span>
-                  </label>
-                </>
+                <label className="field">
+                  <span className="field-label">Model</span>
+                  <select
+                    className="field-select"
+                    value={openaiModel}
+                    onChange={(e) => setOpenaiModel(e.target.value)}
+                  >
+                    <option value="gpt-image-1">GPT Image 1 — Newest, best quality</option>
+                    <option value="dall-e-3">DALL-E 3</option>
+                    <option value="dall-e-2">DALL-E 2</option>
+                  </select>
+                </label>
+              )}
+
+              {!geminiApiKey && !openaiApiKey && (
+                <span className="field-hint" style={{ color: 'var(--c-yellow)' }}>
+                  No API key configured. Add one in the Integrations tab.
+                </span>
               )}
 
               <label className="field">
@@ -582,6 +608,46 @@ export function SettingsDialog({
 
           {tab === 'integrations' && (
             <>
+              <div className="integration-section">
+                <div className="integration-header">
+                  <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" style={{ opacity: 0.7 }}>
+                    <path d="M8 1a2 2 0 00-2 2v2a2 2 0 104 0V3a2 2 0 00-2-2zM3 6a2 2 0 00-2 2v1a2 2 0 104 0V8a2 2 0 00-2-2zm10 0a2 2 0 00-2 2v1a2 2 0 104 0V8a2 2 0 00-2-2zM5 11a2 2 0 012-2h2a2 2 0 110 4H7a2 2 0 01-2-2z" />
+                  </svg>
+                  <span className="integration-title">API Keys</span>
+                </div>
+                <span className="field-hint" style={{ marginBottom: 8 }}>
+                  Used for icon generation, dictation (speech-to-text), and other AI features.
+                </span>
+
+                <label className="field">
+                  <span className="field-label">OpenAI API Key</span>
+                  <input
+                    type="text"
+                    value={openaiApiKey}
+                    onChange={(e) => setOpenaiApiKey(e.target.value)}
+                    placeholder="sk-..."
+                    style={{ fontFamily: 'monospace' }}
+                  />
+                  <span className="field-hint">
+                    Used for: icon generation (GPT Image), dictation (Whisper). Get one at platform.openai.com
+                  </span>
+                </label>
+
+                <label className="field">
+                  <span className="field-label">Gemini API Key</span>
+                  <input
+                    type="text"
+                    value={geminiApiKey}
+                    onChange={(e) => setGeminiApiKey(e.target.value)}
+                    placeholder="AIza..."
+                    style={{ fontFamily: 'monospace' }}
+                  />
+                  <span className="field-hint">
+                    Used for: icon generation (Nano Banana), dictation fallback. Get one at ai.google.dev
+                  </span>
+                </label>
+              </div>
+
               <div className="integration-section">
                 <div className="integration-header">
                   <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" style={{ opacity: 0.7 }}>

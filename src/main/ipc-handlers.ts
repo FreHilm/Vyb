@@ -330,6 +330,91 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  ipcMain.handle(
+    IPC_CHANNELS.TRANSCRIBE_AUDIO,
+    async (_, audioBase64: string, lang: string): Promise<string> => {
+      const settings = loadSettings();
+
+      // Use OpenAI Whisper API if key is available
+      if (settings.openaiApiKey) {
+        const audioBuffer = Buffer.from(audioBase64, 'base64');
+
+        const boundary = `----formdata${Date.now()}`;
+        const parts: Buffer[] = [];
+
+        // model field
+        parts.push(Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nwhisper-1\r\n`,
+        ));
+
+        // language field
+        const langCode = lang.split('-')[0]; // 'en-US' -> 'en'
+        parts.push(Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${langCode}\r\n`,
+        ));
+
+        // audio file
+        parts.push(Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.webm"\r\nContent-Type: audio/webm\r\n\r\n`,
+        ));
+        parts.push(audioBuffer);
+        parts.push(Buffer.from('\r\n'));
+        parts.push(Buffer.from(`--${boundary}--\r\n`));
+
+        const body = Buffer.concat(parts);
+
+        const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${settings.openaiApiKey}`,
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          },
+          body,
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Whisper API error (${response.status}): ${errText}`);
+        }
+
+        const data = await response.json();
+        return data.text || '';
+      }
+
+      // Fallback: use Gemini if no OpenAI key
+      if (settings.geminiApiKey) {
+        const model = 'gemini-2.5-flash';
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': settings.geminiApiKey,
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: `Transcribe this audio to text. Language: ${lang}. Return only the transcribed text, nothing else.` },
+                { inline_data: { mime_type: 'audio/webm', data: audioBase64 } },
+              ],
+            }],
+          }),
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Gemini API error (${response.status}): ${errText}`);
+        }
+
+        const data = await response.json();
+        return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      }
+
+      throw new Error('No API key configured. Set an OpenAI or Gemini API key in Settings → Icons.');
+    },
+  );
+
   ipcMain.handle(IPC_CHANNELS.GIT_STATUS, (_, cwd: string): GitStatus => {
     const empty: GitStatus = {
       isGit: false, branch: '', modified: 0, staged: 0, untracked: 0,

@@ -9,6 +9,7 @@ import { ReadmeViewer } from './components/ReadmeViewer';
 import { FileExplorer } from './components/FileExplorer';
 import { StatusBar } from './components/StatusBar';
 import { useKeyNav } from './components/KeyNav';
+import { useDictation } from './components/Dictation';
 import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp, FileEntry } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
@@ -49,6 +50,7 @@ declare global {
       saveFile: (filePath: string, content: string) => Promise<boolean>;
       exportBackup: () => Promise<string | null>;
       importBackup: () => Promise<boolean>;
+      transcribeAudio: (audioBase64: string, lang: string) => Promise<string>;
       loadReadme: (workingDirectory: string) => Promise<string | null>;
       setActiveProfile: (profileId: string | null) => void;
       generateIcon: (profileId: string, projectName: string) => Promise<string | null>;
@@ -404,6 +406,61 @@ export function App() {
     },
   });
 
+  // Dictation — send transcript to the focused terminal
+  const handleTranscript = useCallback((text: string) => {
+    if (!activeProfileId) return;
+    if (focusedPane.pane === 'agent') {
+      window.api.sendInput(activeProfileId, text);
+    }
+    // For shell pane, we'd need the shell ID — for now just send to agent
+  }, [activeProfileId, focusedPane]);
+
+  const dictation = useDictation({
+    lang: settings.dictationLang,
+    mode: settings.dictationMode,
+    onTranscript: handleTranscript,
+  });
+
+  // Hotkey for dictation: Ctrl+D (not Cmd — macOS swallows keyup with Cmd held)
+  const dictHoldActiveRef = useRef(false);
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && !e.metaKey && e.key === 'D') {
+        e.preventDefault();
+        if (settings.dictationMode === 'hold') {
+          if (!dictHoldActiveRef.current) {
+            dictHoldActiveRef.current = true;
+            dictation.startListening();
+          }
+        } else {
+          dictation.toggleListening();
+        }
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (settings.dictationMode === 'hold' && dictHoldActiveRef.current) {
+        if (e.key === 'D' || e.key === 'd' || e.key === 'Shift' || e.key === 'Control') {
+          dictHoldActiveRef.current = false;
+          dictation.stopListening();
+        }
+      }
+    };
+    const handleBlur = () => {
+      if (dictHoldActiveRef.current) {
+        dictHoldActiveRef.current = false;
+        dictation.stopListening();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [settings.dictationMode, dictation]);
+
   return (
     <div className="app" style={{ gridTemplateColumns: `${sidebarWidth}px auto 1fr` }}>
       <div className="titlebar">
@@ -441,6 +498,13 @@ export function App() {
           onToggleFiles={toggleFiles}
           externalApps={settings.externalApps || []}
           navActive={navActive}
+          dictationListening={dictation.listening}
+          dictationSupported={dictation.supported}
+          dictationInterim={dictation.interim}
+          dictationMode={settings.dictationMode}
+          onDictationToggle={dictation.toggleListening}
+          onDictationStart={dictation.startListening}
+          onDictationStop={dictation.stopListening}
         />
         {readmeVisible && activeProfile && (
           <ReadmeViewer workingDirectory={activeProfile.workingDirectory} />
