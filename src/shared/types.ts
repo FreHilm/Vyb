@@ -13,7 +13,6 @@ export interface Profile {
   command: string;
   args: string[];
   statusPatterns?: StatusPatterns;
-  slackChannel?: string; // Slack channel ID or name for this profile
 }
 
 export interface ProfileMemory {
@@ -45,8 +44,6 @@ export interface AppSettings {
   navModifierKey: 'meta' | 'alt'; // Modifier key for quick navigation
   dictationMode: 'toggle' | 'hold'; // toggle = click start/stop, hold = hold button to dictate
   dictationLang: string; // BCP 47 language code e.g. 'en-US'
-  slackEnabled: boolean;
-  slackBotToken: string; // xoxb-...
   flameIntensity: number; // 0-100, default 50. Controls flame brightness/opacity.
   flameSpread: number; // 0-100, default 50. Controls horizontal spread of flame spikes.
   flameLength: number; // 0-100, default 50. Controls how far flames extend from edge.
@@ -83,8 +80,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   navModifierKey: 'meta',
   dictationMode: 'toggle',
   dictationLang: 'en-US',
-  slackEnabled: false,
-  slackBotToken: '',
   flameIntensity: 50,
   flameSpread: 50,
   flameLength: 50,
