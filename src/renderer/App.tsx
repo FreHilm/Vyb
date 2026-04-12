@@ -476,6 +476,7 @@ export function App() {
             settings={settings}
             onSplitChange={handleTerminalSplitChange}
             focusedPane={focusedPane}
+            navActive={navActive}
             onShellCountChange={(count) => { shellCountRef.current = count; }}
           />
         </div>

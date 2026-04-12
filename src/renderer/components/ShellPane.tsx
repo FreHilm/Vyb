@@ -16,6 +16,8 @@ interface ShellPaneProps {
   onAllClosed: () => void;
   focused: boolean;
   focusedIndex: number;
+  navActive: boolean;
+  navFocusedPane: { pane: 'agent' | 'shell'; shellIndex: number };
   onShellCountChange?: (count: number) => void;
 }
 
@@ -34,6 +36,8 @@ export function ShellPane({
   onAllClosed,
   focused,
   focusedIndex,
+  navActive,
+  navFocusedPane,
   onShellCountChange,
 }: ShellPaneProps) {
   const [shells, setShells] = useState<ShellInfo[]>([]);
@@ -301,6 +305,20 @@ export function ShellPane({
                 <path d="M1.7 0.3a1 1 0 00-1.4 1.4L5.6 7l-5.3 5.3a1 1 0 101.4 1.4L7 8.4l5.3 5.3a1 1 0 001.4-1.4L8.4 7l5.3-5.3a1 1 0 00-1.4-1.4L7 5.6 1.7 0.3z" />
               </svg>
             </button>
+            {navActive && navFocusedPane.pane === 'shell' && navFocusedPane.shellIndex === idx && (
+              <>
+                {(idx > 0 || navFocusedPane.pane === 'shell') && (
+                  <div className="nav-pane-hint left">
+                    <span className="nav-arrow">&#x2190;</span>
+                  </div>
+                )}
+                {idx < shells.length - 1 && (
+                  <div className="nav-pane-hint right">
+                    <span className="nav-arrow">&#x2192;</span>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         ))}
       </div>
