@@ -53,6 +53,7 @@ declare global {
       transcribeAudio: (audioBase64: string, lang: string) => Promise<string>;
       loadProfileMemory: () => Promise<ProfileMemoryMap>;
       saveProfileMemory: (memory: ProfileMemoryMap) => Promise<void>;
+      loadScrollback: (profileId: string) => Promise<string | null>;
       loadReadme: (workingDirectory: string) => Promise<string | null>;
       setActiveProfile: (profileId: string | null) => void;
       generateIcon: (profileId: string, projectName: string) => Promise<string | null>;

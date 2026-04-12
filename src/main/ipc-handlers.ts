@@ -6,7 +6,7 @@ import * as path from 'path';
 import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap } from '../shared/types';
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
-import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout, loadProfileMemory, saveProfileMemory } from './config-loader';
+import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout, loadProfileMemory, saveProfileMemory, loadScrollback, saveScrollback } from './config-loader';
 import { initSlack, stopSlack, postStatus, setMessageHandler } from './slack-integration';
 
 let ptyManager: PtyManager;
@@ -14,6 +14,9 @@ let statusDetector: StatusDetector;
 let mainWindow: BrowserWindow;
 let profiles: Profile[] = [];
 let isQuitting = false;
+const scrollbackBuffers: Map<string, string> = new Map();
+const shellHadInput: Set<string> = new Set(); // tracks shells where user typed commands
+const MAX_BUFFER = 512 * 1024;
 let activeProfileId: string | null = null;
 
 function safeSend(channel: string, payload: unknown): void {
@@ -72,6 +75,13 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     (profileId, data) => {
       safeSend(IPC_CHANNELS.TERMINAL_DATA, { profileId, data });
       statusDetector.feedData(profileId, data);
+      // Accumulate scrollback for shell terminals
+      if (profileId.startsWith('shell:')) {
+        let buf = scrollbackBuffers.get(profileId) || '';
+        buf += data;
+        if (buf.length > MAX_BUFFER) buf = buf.slice(-MAX_BUFFER);
+        scrollbackBuffers.set(profileId, buf);
+      }
     },
     (profileId) => {
       if (profileId.startsWith('shell:')) {
@@ -114,6 +124,9 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       ptyManager.write(profileId, data);
       if (data === '\r' || data === '\n') {
         statusDetector.setWorking(profileId);
+        if (profileId.startsWith('shell:')) {
+          shellHadInput.add(profileId);
+        }
       }
     },
   );
@@ -423,6 +436,14 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     saveProfileMemory(memory);
   });
 
+  ipcMain.handle(IPC_CHANNELS.SCROLLBACK_LOAD, (_, profileId: string): string | null => {
+    return loadScrollback(profileId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SCROLLBACK_SAVE, (_, profileId: string, data: string) => {
+    saveScrollback(profileId, data);
+  });
+
   ipcMain.handle(IPC_CHANNELS.GIT_STATUS, (_, cwd: string): GitStatus => {
     const empty: GitStatus = {
       isGit: false, branch: '', modified: 0, staged: 0, untracked: 0,
@@ -713,6 +734,12 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
 export function cleanupIpcHandlers(): void {
   isQuitting = true;
+  // Save scrollback only for shells where user actually typed commands
+  for (const [profileId, data] of scrollbackBuffers) {
+    if (shellHadInput.has(profileId)) {
+      saveScrollback(profileId, data);
+    }
+  }
   stopSlack();
   if (ptyManager) {
     ptyManager.destroyAll();
