@@ -25,9 +25,10 @@ AgentDispatch lets you manage multiple AI coding agents (Claude Code, Aider, Cop
 
 ### Key Features
 
-- **Multi-agent terminals** — Run any number of AI agents, each in a full xterm.js terminal with WebGL-accelerated rendering.
+- **Multi-agent terminals** — Run any number of AI agents, each in a full xterm.js terminal with WebGL-accelerated rendering. WebGL contexts are managed automatically (only active on visible terminals) to avoid hitting browser limits.
 - **Splittable shell terminals** — Toggle a split-pane shell area beneath any agent, split into multiple side-by-side terminals with resizable dividers. Add with `Ctrl+Cmd+=`, close with `Ctrl+Cmd+-`.
 - **Live status detection** — Configurable regex patterns watch terminal output and classify each agent as *ready*, *working*, *needs input*, or *offline*. Animated flame indicators show status on the active profile.
+- **Configurable flame effects** — Tune the sidebar flame indicators via Settings > Flames: intensity, spread, length, and speed. Live preview of all three animation states.
 - **OS notifications** — Get notified when an agent finishes a task or needs your input. Notifications include the profile icon and are suppressed when you're focused on that profile.
 - **Profile management** — Save named profiles with custom commands, working directories, and status patterns. Organize profiles into collapsible folders with drag-and-drop reordering.
 - **Keyboard navigation** — Hold a modifier key (Cmd or Alt, configurable) to reveal numbered shortcuts over command bar buttons, arrow indicators for profile cycling (up/down) and pane cycling (left/right through agent and shell terminals).
@@ -37,8 +38,8 @@ AgentDispatch lets you manage multiple AI coding agents (Claude Code, Aider, Cop
 - **Customizable theme** — Adjust hue (full color wheel + grayscale), darkness, and text brightness. Separate font sizes for sidebar, agent terminals, and shell terminals.
 - **Update indicators** — Profiles flash a colored highlight (green for ready, yellow for needs-input) when an inactive agent changes status.
 - **Configurable quick launchers** — Add custom external app buttons (VS Code, Fork, iTerm, etc.) with selectable icons and shell commands using `{path}` placeholder.
-- **Git status bar** — Shows branch, staged/modified/untracked counts, ahead/behind, stash count, last commit message, and a clickable link to open the repo on GitHub/GitLab/Bitbucket.
-- **Slack integration** — Two-way: status updates posted to mapped Slack channels, messages from Slack forwarded as agent input. Channel-per-profile mapping with auto-create.
+- **Git status bar** — Shows branch, staged/modified/untracked counts, ahead/behind, stash count, last commit message, clickable link to open the repo on GitHub/GitLab/Bitbucket, and a fetch button to sync with origin.
+- **Dictation** — Voice input via Ctrl+Shift+D using OpenAI Whisper or Gemini for transcription. Toggle or hold-to-record modes with configurable language.
 - **Backup & restore** — Export/import all settings, profiles, layout, and icons as a ZIP file.
 - **Resizable panes** — Drag handles between sidebar/main area and agent/shell terminals. Sizes persist across sessions.
 
@@ -78,7 +79,7 @@ npm run lint       # Run ESLint across all .ts/.tsx files
 
 ### Profiles
 
-Profiles are stored in `{userData}/profiles.json`. On first launch, the app copies `profiles.example.json` as a starting point:
+Profiles are stored in `{userData}/profiles.json`. Each profile defines an agent session:
 
 ```json
 {
@@ -87,8 +88,7 @@ Profiles are stored in `{userData}/profiles.json`. On first launch, the app copi
   "icon": "",
   "workingDirectory": "~/projects/my-app",
   "command": "claude",
-  "args": [],
-  "slackChannel": "my-project",
+  "args": ["--continue"],
   "statusPatterns": {
     "ready": ["for\\s*shortcuts", "\\$\\s*$"],
     "needsInput": ["\\(y\\/n\\)", "Allow\\s*once", "Yes.*No.*Always"]
@@ -103,8 +103,7 @@ Profiles are stored in `{userData}/profiles.json`. On first launch, the app copi
 | `icon` | Path to a custom icon image (or empty for generated avatar) |
 | `workingDirectory` | Starting directory for the terminal (`~` is expanded automatically) |
 | `command` | The command to run (e.g., `claude`, `aider`, `bash`) |
-| `args` | Array of command-line arguments |
-| `slackChannel` | Slack channel name or ID for this profile (optional) |
+| `args` | Array of command-line arguments (default: `["--continue"]`) |
 | `statusPatterns.ready` | Regex patterns that indicate the agent is idle/ready |
 | `statusPatterns.needsInput` | Regex patterns that indicate the agent is waiting for user input |
 
@@ -126,6 +125,15 @@ All settings are accessible via the settings dialog (`Cmd+,` on macOS, `Ctrl+,` 
 | Shell Font Size | Shell terminal text size (10-24px) | 14 |
 | Quick Nav Key | Modifier for keyboard shortcuts (Cmd or Alt) | Cmd |
 
+#### Flames
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| Intensity | Brightness/opacity of the flame indicators | 50 |
+| Spread | How wide the flame spikes extend horizontally | 50 |
+| Length | Width of the flame zone along the profile edge | 50 |
+| Speed | Animation pace (slow breathing to rapid flicker) | 50 |
+
 #### Icons
 
 | Setting | Description | Default |
@@ -144,8 +152,8 @@ Configure external app launchers. Each app has a name, icon (from built-in set: 
 
 | Setting | Description |
 |---------|-------------|
-| Slack enabled | Toggle Slack integration on/off |
-| Bot Token | Slack bot token (xoxb-...) for posting and reading messages |
+| OpenAI API Key | For icon generation (GPT Image) and dictation (Whisper) |
+| Gemini API Key | For icon generation (Nano Banana) and dictation fallback |
 
 #### Backup
 
@@ -162,6 +170,7 @@ Hold the configured modifier key (default: Cmd) to reveal navigation hints:
 | Mod + ← / → | Cycle between agent pane and shell terminals |
 | Ctrl + Cmd + = | Add a new shell terminal split |
 | Ctrl + Cmd + - | Close the last shell terminal |
+| Ctrl + Shift + D | Toggle dictation |
 | Cmd + , | Open Settings |
 
 ## Architecture
@@ -173,7 +182,6 @@ The app follows Electron's recommended security model with strict context isolat
 │  Main Process (src/main.ts, src/main/)               │
 │  ├── PtyManager       — spawns/manages PTY instances │
 │  ├── StatusDetector    — regex-based output analysis  │
-│  ├── SlackIntegration  — two-way Slack messaging      │
 │  ├── ConfigLoader      — profile/settings persistence │
 │  └── IPC Handlers      — bridges all renderer requests│
 ├──────────────────────────────────────────────────────┤
@@ -205,7 +213,6 @@ The app follows Electron's recommended security model with strict context isolat
 | Terminal | xterm.js 6 + WebGL + node-pty |
 | Editor | CodeMirror 6 (one-dark theme) |
 | Markdown | react-markdown + remark-gfm |
-| Messaging | @slack/web-api |
 | Packaging | Squirrel (Windows), ZIP (macOS), DEB/RPM (Linux) |
 
 ## Platform Support
