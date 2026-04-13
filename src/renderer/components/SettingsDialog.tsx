@@ -125,6 +125,7 @@ export function SettingsDialog({
   const [navModifierKey, setNavModifierKey] = useState(settings.navModifierKey);
   const [dictationMode, setDictationMode] = useState(settings.dictationMode);
   const [dictationLang, setDictationLang] = useState(settings.dictationLang);
+  const [gpuAcceleration, setGpuAcceleration] = useState(settings.gpuAcceleration);
   const [flameIntensity, setFlameIntensity] = useState(settings.flameIntensity);
   const [flameSpread, setFlameSpread] = useState(settings.flameSpread);
   const [flameLength, setFlameLength] = useState(settings.flameLength);
@@ -151,6 +152,7 @@ export function SettingsDialog({
       navModifierKey,
       dictationMode,
       dictationLang,
+      gpuAcceleration,
       flameIntensity,
       flameSpread,
       flameLength,
@@ -372,6 +374,33 @@ export function SettingsDialog({
                   <option value="ko-KR">Korean</option>
                 </select>
               </label>
+
+              <div className="field">
+                <span className="field-label">Terminal Rendering</span>
+                <div className="field-row">
+                  <button
+                    className={`provider-btn ${gpuAcceleration === 'auto' ? 'provider-btn-active' : ''}`}
+                    onClick={() => setGpuAcceleration('auto')}
+                  >
+                    Auto (WebGL)
+                  </button>
+                  <button
+                    className={`provider-btn ${gpuAcceleration === 'canvas' ? 'provider-btn-active' : ''}`}
+                    onClick={() => setGpuAcceleration('canvas')}
+                  >
+                    Canvas
+                  </button>
+                  <button
+                    className={`provider-btn ${gpuAcceleration === 'off' ? 'provider-btn-active' : ''}`}
+                    onClick={() => setGpuAcceleration('off')}
+                  >
+                    Off
+                  </button>
+                </div>
+                <span className="field-hint">
+                  Auto tries WebGL first, falls back to canvas. Use Canvas if you see rendering glitches.
+                </span>
+              </div>
             </>
           )}
 

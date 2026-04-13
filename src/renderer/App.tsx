@@ -45,6 +45,8 @@ declare global {
       onOpenSettings: (callback: () => void) => () => void;
       platform: string;
       getGitStatus: (cwd: string) => Promise<GitStatus>;
+      ackTerminalData: (profileId: string, bytes: number) => void;
+      serializeTerminal: (profileId: string) => Promise<string | null>;
       gitFetch: (cwd: string) => Promise<boolean>;
       listDir: (dirPath: string) => Promise<FileEntry[]>;
       readFile: (filePath: string) => Promise<string | null>;

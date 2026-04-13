@@ -44,6 +44,7 @@ export interface AppSettings {
   navModifierKey: 'meta' | 'alt'; // Modifier key for quick navigation
   dictationMode: 'toggle' | 'hold'; // toggle = click start/stop, hold = hold button to dictate
   dictationLang: string; // BCP 47 language code e.g. 'en-US'
+  gpuAcceleration: 'auto' | 'canvas' | 'off'; // Terminal rendering: auto tries WebGL, canvas skips WebGL, off disables GPU
   flameIntensity: number; // 0-100, default 50. Controls flame brightness/opacity.
   flameSpread: number; // 0-100, default 50. Controls horizontal spread of flame spikes.
   flameLength: number; // 0-100, default 50. Controls how far flames extend from edge.
@@ -80,6 +81,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   navModifierKey: 'meta',
   dictationMode: 'toggle',
   dictationLang: 'en-US',
+  gpuAcceleration: 'auto',
   flameIntensity: 50,
   flameSpread: 50,
   flameLength: 50,
@@ -108,6 +110,8 @@ export const IPC_CHANNELS = {
   TERMINAL_RESIZE: 'terminal:resize',
   TERMINAL_DESTROY: 'terminal:destroy',
   TERMINAL_DATA: 'terminal:data',
+  TERMINAL_ACK: 'terminal:ack',
+  TERMINAL_SERIALIZE: 'terminal:serialize',
   SHELL_TERMINAL_CREATE: 'shell-terminal:create',
   SHELL_TERMINAL_EXITED: 'shell-terminal:exited',
   PROFILES_LOAD: 'profiles:load',
