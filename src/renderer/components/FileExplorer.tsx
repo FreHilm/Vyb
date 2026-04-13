@@ -10,6 +10,7 @@ import { markdown } from '@codemirror/lang-markdown';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { basicSetup } from 'codemirror';
 import { FileEntry } from '../../shared/types';
+import { FileIcon } from '../file-icons';
 
 interface FileExplorerProps {
   workingDirectory: string;
@@ -88,11 +89,10 @@ function FileTreeNode({
         style={{ paddingLeft: 12 + depth * 16 }}
         onClick={handleToggle}
       >
-        {entry.isDirectory ? (
+        {entry.isDirectory && (
           <span className="file-tree-arrow">{expanded ? '▾' : '▸'}</span>
-        ) : (
-          <span className="file-tree-arrow" style={{ visibility: 'hidden' }}>▸</span>
         )}
+        <FileIcon filename={entry.name} isDirectory={entry.isDirectory} isExpanded={expanded} />
         <span className="file-tree-name">{entry.name}</span>
       </div>
       {expanded &&
