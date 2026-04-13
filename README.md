@@ -225,4 +225,6 @@ The app follows Electron's recommended security model with strict context isolat
 
 ## License
 
-MIT
+MIT -- see [LICENSE](LICENSE).
+
+Third-party dependency licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
