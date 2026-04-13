@@ -1523,6 +1523,25 @@
   height: 100%;
 }
 
+.shell-panel + .shell-panel {
+  border-left: 1px solid var(--c-surface1);
+}
+
+.shell-panel > .resize-handle-h {
+  position: absolute;
+  left: -2px;
+  top: 0;
+  height: 100%;
+  width: 6px;
+  z-index: 20;
+  background: transparent;
+}
+
+.shell-panel > .resize-handle-h:hover,
+.shell-panel > .resize-handle-h:active {
+  background: var(--c-blue);
+}
+
 .shell-instance {
   width: 100%;
   height: 100%;
