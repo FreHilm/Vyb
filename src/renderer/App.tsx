@@ -116,10 +116,12 @@ export function App() {
       if (restored.size > 0) setShellOpenSet(restored);
     });
 
-    window.api.getProfiles().then((loadedProfiles) => {
+    Promise.all([window.api.getProfiles(), window.api.loadSettings()]).then(([loadedProfiles, loadedSettings]) => {
       setProfiles(loadedProfiles);
       if (loadedProfiles.length > 0) {
-        setActiveProfileId(loadedProfiles[0].id);
+        const lastId = loadedSettings.lastActiveProfileId;
+        const restored = lastId && loadedProfiles.some((p) => p.id === lastId);
+        setActiveProfileId(restored ? lastId : loadedProfiles[0].id);
       }
     });
 
@@ -165,9 +167,12 @@ export function App() {
     });
   }, [settings]);
 
-  // Sync active profile to main process for notification suppression
+  // Sync active profile to main process for notification suppression + persist
   useEffect(() => {
     window.api.setActiveProfile(activeProfileId);
+    if (activeProfileId) {
+      window.api.saveSettings({ ...settings, lastActiveProfileId: activeProfileId });
+    }
   }, [activeProfileId]);
 
   const handleSaveSettings = async (newSettings: AppSettings) => {
