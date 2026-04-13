@@ -51,6 +51,11 @@ declare global {
       listDir: (dirPath: string) => Promise<FileEntry[]>;
       readFile: (filePath: string) => Promise<string | null>;
       saveFile: (filePath: string, content: string) => Promise<boolean>;
+      deleteFile: (targetPath: string) => Promise<boolean>;
+      renameFile: (oldPath: string, newPath: string) => Promise<boolean>;
+      copyFile: (srcPath: string, destPath: string) => Promise<boolean>;
+      createDir: (dirPath: string) => Promise<boolean>;
+      createFile: (filePath: string) => Promise<boolean>;
       exportBackup: () => Promise<string | null>;
       importBackup: () => Promise<boolean>;
       transcribeAudio: (audioBase64: string, lang: string) => Promise<string>;

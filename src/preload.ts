@@ -115,6 +115,16 @@ contextBridge.exposeInMainWorld('api', {
 
   saveFile: (filePath: string, content: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_SAVE, filePath, content),
+  deleteFile: (targetPath: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_DELETE, targetPath),
+  renameFile: (oldPath: string, newPath: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_RENAME, oldPath, newPath),
+  copyFile: (srcPath: string, destPath: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_COPY, srcPath, destPath),
+  createDir: (dirPath: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_CREATE_DIR, dirPath),
+  createFile: (filePath: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_CREATE, filePath),
 
   exportBackup: (): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.BACKUP_EXPORT),

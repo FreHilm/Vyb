@@ -16,7 +16,7 @@ const FILE: IconDef = {
 
 // Folder icons
 const FOLDER: IconDef = {
-  color: '#8b949e',
+  color: '#c09553',
   path: 'M1.5 3A1.5 1.5 0 013 1.5h3.3l1.2 1.5H13a1.5 1.5 0 011.5 1.5v8A1.5 1.5 0 0113 14H3a1.5 1.5 0 01-1.5-1.5V3z',
 };
 

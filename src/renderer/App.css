@@ -1360,8 +1360,8 @@
 }
 
 .file-tree-pane {
-  width: 240px;
   flex-shrink: 0;
+  min-width: 140px;
   display: flex;
   flex-direction: column;
   background: var(--c-mantle);
@@ -1370,13 +1370,39 @@
 }
 
 .file-tree-header {
-  padding: 8px 12px;
+  padding: 6px 8px 6px 12px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--c-subtext0);
   border-bottom: 1px solid var(--c-surface0);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.file-tree-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.file-tree-action-btn {
+  background: none;
+  border: none;
+  color: var(--c-overlay0);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.file-tree-action-btn:hover {
+  opacity: 1;
+  background: var(--c-surface0);
 }
 
 .file-tree-list {
@@ -1408,16 +1434,84 @@
 }
 
 .file-tree-arrow {
-  font-size: 10px;
+  font-size: 14px;
   color: var(--c-overlay0);
-  width: 12px;
+  width: 14px;
   flex-shrink: 0;
   text-align: center;
+  line-height: 1;
 }
 
 .file-tree-name {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* File inline input (rename / new file) */
+.file-inline-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-blue);
+  border-radius: 3px;
+  color: var(--c-text);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 1px 4px;
+  outline: none;
+}
+
+/* File context menu */
+.file-context-menu {
+  position: fixed;
+  z-index: 9999;
+  background: var(--c-mantle);
+  border: 1px solid var(--c-surface1);
+  border-radius: 6px;
+  padding: 4px 0;
+  min-width: 160px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.file-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 12px;
+  background: none;
+  border: none;
+  color: var(--c-text);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.file-ctx-item:hover:not(:disabled) {
+  background: var(--c-surface0);
+}
+
+.file-ctx-item:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.file-ctx-danger:hover:not(:disabled) {
+  background: var(--c-red-dim);
+  color: var(--c-red);
+}
+
+.file-ctx-icon {
+  display: flex;
+  align-items: center;
+  opacity: 0.7;
+}
+
+.file-ctx-divider {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--c-surface0);
 }
 
 /* Keyboard Navigation */

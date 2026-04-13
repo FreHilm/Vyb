@@ -600,6 +600,61 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.FILE_DELETE, (_, targetPath: string): boolean => {
+    try {
+      const stat = fs.statSync(targetPath);
+      if (stat.isDirectory()) {
+        fs.rmSync(targetPath, { recursive: true });
+      } else {
+        fs.unlinkSync(targetPath);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FILE_RENAME, (_, oldPath: string, newPath: string): boolean => {
+    try {
+      fs.renameSync(oldPath, newPath);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FILE_COPY, (_, srcPath: string, destPath: string): boolean => {
+    try {
+      const stat = fs.statSync(srcPath);
+      if (stat.isDirectory()) {
+        fs.cpSync(srcPath, destPath, { recursive: true });
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FILE_CREATE_DIR, (_, dirPath: string): boolean => {
+    try {
+      fs.mkdirSync(dirPath, { recursive: true });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FILE_CREATE, (_, filePath: string): boolean => {
+    try {
+      fs.writeFileSync(filePath, '', 'utf-8');
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.README_LOAD, (_, workingDirectory: string): string | null => {
     const names = ['README.md', 'readme.md', 'Readme.md', 'README.MD'];
     for (const name of names) {
