@@ -619,6 +619,38 @@
   font-size: 14px;
 }
 
+/* File drop target */
+.terminal-drop-active {
+  outline: 2px solid var(--c-blue);
+  outline-offset: -2px;
+}
+
+.terminal-drop-zone {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+}
+
+.terminal-drop-zone-active {
+  pointer-events: auto;
+  background: hsla(217, 92%, 76%, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.terminal-drop-label {
+  background: var(--c-surface0);
+  color: var(--c-blue);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--c-blue);
+  pointer-events: none;
+}
+
 /* Dictation button */
 .dictation-active {
   background: var(--c-red) !important;

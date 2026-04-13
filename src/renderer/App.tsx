@@ -17,6 +17,7 @@ import './App.css';
 declare global {
   interface Window {
     api: {
+      getPathForFile: (file: File) => string;
       getProfiles: () => Promise<Profile[]>;
       saveProfiles: (profiles: Profile[]) => Promise<void>;
       createTerminal: (profileId: string, profile: Profile) => Promise<void>;
@@ -95,6 +96,17 @@ export function App() {
   const [hasUpdates, setHasUpdates] = useState<Set<string>>(new Set());
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState('');
+
+  // Prevent Electron default file drop behavior (navigating to file)
+  useEffect(() => {
+    const preventDrop = (e: DragEvent) => e.preventDefault();
+    document.addEventListener('dragover', preventDrop);
+    document.addEventListener('drop', preventDrop);
+    return () => {
+      document.removeEventListener('dragover', preventDrop);
+      document.removeEventListener('drop', preventDrop);
+    };
+  }, []);
 
   // Load settings and profiles on mount
   useEffect(() => {

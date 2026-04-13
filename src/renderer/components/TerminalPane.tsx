@@ -38,6 +38,77 @@ function shellId(profileId: string): string {
   return `shell:${profileId}`;
 }
 
+// Shell-escape a file path (like VS Code does)
+export function escapePathForShell(p: string): string {
+  return p.replace(/([ ()[\]{}$`!#&|;'"<>\\])/g, '\\$1');
+}
+
+// Attach native DOM drag-and-drop to a terminal element.
+// Pastes shell-escaped file paths into the terminal on drop.
+export function setupTerminalDrop(
+  element: HTMLElement,
+  sendInput: (data: string) => void,
+): () => void {
+  let dragCounter = 0;
+
+  const onDragEnter = (e: DragEvent) => {
+    if (!e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault();
+    dragCounter++;
+    element.classList.add('terminal-drop-active');
+  };
+
+  const onDragOver = (e: DragEvent) => {
+    if (!e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const onDragLeave = (e: DragEvent) => {
+    e.preventDefault();
+    dragCounter--;
+    if (dragCounter <= 0) {
+      dragCounter = 0;
+      element.classList.remove('terminal-drop-active');
+    }
+  };
+
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter = 0;
+    element.classList.remove('terminal-drop-active');
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    const paths: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      try {
+        const p = window.api.getPathForFile(files[i]);
+        if (p) paths.push(escapePathForShell(p));
+      } catch {
+        // fallback: try deprecated .path
+        const p = (files[i] as unknown as { path?: string }).path;
+        if (p) paths.push(escapePathForShell(p));
+      }
+    }
+    if (paths.length > 0) {
+      sendInput(paths.join(' '));
+    }
+  };
+
+  element.addEventListener('dragenter', onDragEnter);
+  element.addEventListener('dragover', onDragOver);
+  element.addEventListener('dragleave', onDragLeave);
+  element.addEventListener('drop', onDrop);
+
+  return () => {
+    element.removeEventListener('dragenter', onDragEnter);
+    element.removeEventListener('dragover', onDragOver);
+    element.removeEventListener('dragleave', onDragLeave);
+    element.removeEventListener('drop', onDrop);
+  };
+}
+
 function createTerminalInstance(
   container: HTMLElement,
   onData: (data: string) => void,
@@ -72,12 +143,16 @@ function createTerminalInstance(
   return { terminal, fitAddon, element, opened: false, ptyCreated: false, kind };
 }
 
-function openTerminal(instance: TerminalInstance, gpuMode: string): void {
+function openTerminal(instance: TerminalInstance, gpuMode: string, profileId: string): void {
   if (instance.opened) return;
   instance.opened = true;
   instance.element.style.display = 'block';
   instance.terminal.open(instance.element);
   activateWebgl(instance, gpuMode);
+  // Attach native drop handler to the xterm.js element
+  setupTerminalDrop(instance.element, (data) => {
+    window.api.sendInput(profileId, data);
+  });
 }
 
 function activateWebgl(instance: TerminalInstance, mode: string): void {
@@ -182,7 +257,7 @@ export function TerminalPane({
 
     agentTerminalsRef.current.forEach((instance, id) => {
       if (id === activeProfileId) {
-        openTerminal(instance, settings.gpuAcceleration);
+        openTerminal(instance, settings.gpuAcceleration, id);
         instance.element.style.display = 'block';
         activateWebgl(instance, settings.gpuAcceleration);
 
@@ -302,7 +377,11 @@ export function TerminalPane({
 
   return (
     <div className="terminal-split" ref={splitRef}>
-      <div className="terminal-pane agent-pane" style={agentStyle} ref={agentContainerRef}>
+      <div
+        className="terminal-pane agent-pane"
+        style={agentStyle}
+        ref={agentContainerRef}
+      >
         {!activeProfileId && (
           <div className="terminal-placeholder">Select a profile to start</div>
         )}

@@ -7,6 +7,7 @@ import '@xterm/xterm/css/xterm.css';
 import { AppSettings } from '../../shared/types';
 import { getTerminalTheme } from '../theme';
 import { ResizeHandle } from './ResizeHandle';
+import { setupTerminalDrop } from './TerminalPane';
 
 interface ShellPaneProps {
   profileId: string;
@@ -142,6 +143,11 @@ export function ShellPane({
       termEl.className = 'shell-instance';
       panelDiv.appendChild(termEl);
       terminal.open(termEl);
+
+      // Native file drop handler (like VS Code)
+      setupTerminalDrop(termEl, (data) => {
+        window.api.sendInput(shell.id, data);
+      });
 
       let webglAddon: WebglAddon | undefined;
       if (settings.gpuAcceleration === 'auto') {
