@@ -104,6 +104,17 @@ Export: `archiver` creates ZIP of profiles.json, settings.json, layout.json, ico
 - `shellOpenedRef` tracks which profiles have had shell opened (prevents unmount/remount)
 - `shellCountRef` tracks shell terminal count for keyboard pane cycling
 
+## Dependencies & Licensing
+
+This project is MIT-licensed. All dependencies must use compatible permissive licenses. When adding a new npm package:
+
+1. Check its license before installing — only **MIT**, **ISC**, **Apache-2.0**, **BSD-2-Clause**, **BSD-3-Clause**, and **0BSD** are allowed.
+2. **Never** add packages with copyleft licenses (GPL, LGPL, AGPL, MPL) — these would force the entire app to adopt that license.
+3. After adding a new runtime dependency, update `THIRD_PARTY_NOTICES.md` with the package name, license, and description.
+4. Dev-only dependencies (build tools, linters, types) are less restrictive but should still avoid copyleft.
+
+To verify: `npm view <package> license` before installing.
+
 ## Cross-Platform
 
 ~90% portable. Key platform-specific code:
