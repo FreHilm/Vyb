@@ -132,9 +132,24 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   ipcMain.handle(
     IPC_CHANNELS.TERMINAL_CREATE,
     (_, profileId: string, profile: Profile, cols?: number, rows?: number) => {
-      statusDetector.register(profileId, profile);
+      // If claude --continue but no .claude folder exists, drop --continue
+      let effectiveProfile = profile;
+      if (
+        profile.command === 'claude' &&
+        profile.args?.includes('--continue')
+      ) {
+        let cwd = profile.workingDirectory || os.homedir();
+        if (cwd.startsWith('~')) cwd = cwd.replace(/^~/, os.homedir());
+        if (!fs.existsSync(path.join(cwd, '.claude'))) {
+          effectiveProfile = {
+            ...profile,
+            args: profile.args.filter((a) => a !== '--continue'),
+          };
+        }
+      }
+      statusDetector.register(profileId, effectiveProfile);
       terminalBackend.create(profileId, cols || 80, rows || 24);
-      ptyManager.create(profileId, profile, cols, rows);
+      ptyManager.create(profileId, effectiveProfile, cols, rows);
     },
   );
 
