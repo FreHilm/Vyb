@@ -72,15 +72,16 @@ function createTerminalInstance(
   return { terminal, fitAddon, element, opened: false, ptyCreated: false, kind };
 }
 
-function openTerminal(instance: TerminalInstance): void {
+function openTerminal(instance: TerminalInstance, gpuMode: string): void {
   if (instance.opened) return;
   instance.opened = true;
   instance.element.style.display = 'block';
   instance.terminal.open(instance.element);
-  activateWebgl(instance);
+  activateWebgl(instance, gpuMode);
 }
 
-function activateWebgl(instance: TerminalInstance): void {
+function activateWebgl(instance: TerminalInstance, mode: string): void {
+  if (mode === 'off' || mode === 'canvas') return;
   if (instance.webglAddon) return;
   try {
     const addon = new WebglAddon();
@@ -129,6 +130,7 @@ export function TerminalPane({
       const agentInst = agentTerminalsRef.current.get(profileId);
       if (agentInst) {
         agentInst.terminal.write(data);
+        window.api.ackTerminalData(profileId, data.length);
       }
       // Shell terminals are handled by ShellPane's own listener
     });
@@ -180,9 +182,9 @@ export function TerminalPane({
 
     agentTerminalsRef.current.forEach((instance, id) => {
       if (id === activeProfileId) {
-        openTerminal(instance);
+        openTerminal(instance, settings.gpuAcceleration);
         instance.element.style.display = 'block';
-        activateWebgl(instance);
+        activateWebgl(instance, settings.gpuAcceleration);
 
         requestAnimationFrame(() => {
           instance.fitAddon.fit();
@@ -197,7 +199,14 @@ export function TerminalPane({
               });
             }
           } else {
-            window.api.resizeTerminal(id, instance.terminal.cols, instance.terminal.rows);
+            // Restore terminal state from backend replay buffer
+            window.api.serializeTerminal(id).then((serialized) => {
+              if (serialized) {
+                instance.terminal.reset();
+                instance.terminal.write(serialized);
+              }
+              window.api.resizeTerminal(id, instance.terminal.cols, instance.terminal.rows);
+            });
           }
         });
       } else {

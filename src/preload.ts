@@ -28,6 +28,9 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_DATA, handler);
   },
 
+  ackTerminalData: (profileId: string, bytes: number): void =>
+    ipcRenderer.send(IPC_CHANNELS.TERMINAL_ACK, profileId, bytes),
+
   onStatusChange: (
     callback: (payload: { profileId: string; status: string }) => void,
   ): (() => void) => {
@@ -101,6 +104,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.GIT_STATUS, cwd),
   gitFetch: (cwd: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_FETCH, cwd),
+  serializeTerminal: (profileId: string): Promise<string | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_SERIALIZE, profileId),
 
   listDir: (dirPath: string): Promise<FileEntry[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_DIR, dirPath),

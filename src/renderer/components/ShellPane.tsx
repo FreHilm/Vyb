@@ -79,7 +79,7 @@ export function ShellPane({
           entry.webglAddon.dispose();
           entry.webglAddon = undefined;
         }
-      } else if (!entry.webglAddon) {
+      } else if (!entry.webglAddon && settings.gpuAcceleration === 'auto') {
         try {
           const addon = new WebglAddon();
           addon.onContextLoss(() => {
@@ -144,15 +144,17 @@ export function ShellPane({
       terminal.open(termEl);
 
       let webglAddon: WebglAddon | undefined;
-      try {
-        webglAddon = new WebglAddon();
-        webglAddon.onContextLoss(() => {
-          webglAddon?.dispose();
-          const e = terminalsRef.current.get(shell.id);
-          if (e) e.webglAddon = undefined;
-        });
-        terminal.loadAddon(webglAddon);
-      } catch { /* canvas fallback */ }
+      if (settings.gpuAcceleration === 'auto') {
+        try {
+          webglAddon = new WebglAddon();
+          webglAddon.onContextLoss(() => {
+            webglAddon?.dispose();
+            const e = terminalsRef.current.get(shell.id);
+            if (e) e.webglAddon = undefined;
+          });
+          terminal.loadAddon(webglAddon);
+        } catch { /* canvas fallback */ }
+      }
 
       terminal.onData((data) => {
         window.api.sendInput(shell.id, data);
@@ -193,7 +195,10 @@ export function ShellPane({
   useEffect(() => {
     const unsub = window.api.onTerminalData(({ profileId: pid, data }) => {
       const entry = terminalsRef.current.get(pid);
-      if (entry) entry.terminal.write(data);
+      if (entry) {
+        entry.terminal.write(data);
+        window.api.ackTerminalData(pid, data.length);
+      }
     });
     return () => unsub();
   }, []);
