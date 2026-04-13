@@ -1,7 +1,9 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
+  getPathForFile: (file: File): string => webUtils.getPathForFile(file),
+
   getProfiles: (): Promise<Profile[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.PROFILES_LOAD),
 
