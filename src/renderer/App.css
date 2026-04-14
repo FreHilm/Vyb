@@ -1323,36 +1323,112 @@
   min-width: 0;
 }
 
-.file-editor-header {
+/* File tab bar */
+.file-tab-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 6px 12px;
   background: var(--c-mantle);
   border-bottom: 1px solid var(--c-surface0);
   min-height: 32px;
+  overflow: hidden;
 }
 
-.file-editor-name {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--c-text);
+.file-tabs-scroll {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.file-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.file-tab {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
-}
-
-.file-modified-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--c-yellow);
-}
-
-.file-save-btn {
+  gap: 4px;
+  padding: 4px 8px;
   font-size: 11px;
-  padding: 3px 10px;
+  color: var(--c-overlay0);
+  cursor: pointer;
+  white-space: nowrap;
+  border-right: 1px solid var(--c-surface0);
+  flex-shrink: 0;
+  transition: background 0.1s, color 0.1s;
+}
+
+.file-tab:hover {
+  background: var(--c-surface0);
+  color: var(--c-text);
+}
+
+.file-tab-active {
+  background: var(--c-base);
+  color: var(--c-text);
+  border-bottom: 1px solid var(--c-base);
+  margin-bottom: -1px;
+}
+
+.file-tab-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-tab-close {
+  background: none;
+  border: none;
+  color: var(--c-overlay0);
+  cursor: pointer;
+  padding: 1px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.1s;
+  margin-left: 2px;
+}
+
+.file-tab:hover .file-tab-close,
+.file-tab-active .file-tab-close {
+  opacity: 0.6;
+}
+
+.file-tab-close:hover {
+  opacity: 1 !important;
+  background: var(--c-surface1);
+  color: var(--c-red);
+}
+
+.file-tab-actions {
+  display: flex;
+  gap: 4px;
+  padding: 0 8px;
+  flex-shrink: 0;
+}
+
+.file-tab-action-btn {
+  background: none;
+  border: 1px solid var(--c-surface1);
+  color: var(--c-subtext0);
+  font-size: 10px;
+  font-family: inherit;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.file-tab-action-btn:hover:not(:disabled) {
+  background: var(--c-surface0);
+  color: var(--c-text);
+}
+
+.file-tab-action-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 .file-editor-content {

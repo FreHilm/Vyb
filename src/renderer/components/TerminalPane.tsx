@@ -32,6 +32,8 @@ interface TerminalInstance {
   ptyCreated: boolean;
   kind: 'agent' | 'shell';
   webglAddon?: WebglAddon;
+  lastCols: number;
+  lastRows: number;
 }
 
 function shellId(profileId: string): string {
@@ -109,6 +111,36 @@ export function setupTerminalDrop(
   };
 }
 
+// Debounced PTY resize — xterm.js reflows text immediately via fitAddon.fit(),
+// but we delay telling the PTY (SIGWINCH) by 200ms to batch rapid resize events.
+// This prevents TUI apps like Claude Code from redrawing their full conversation
+// on every pixel of a window drag.
+const resizeTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+const lastDims: Map<string, { cols: number; rows: number }> = new Map();
+
+export function debouncedPtyResize(terminalId: string, cols: number, rows: number): void {
+  const prev = lastDims.get(terminalId);
+  if (prev && prev.cols === cols && prev.rows === rows) return;
+  lastDims.set(terminalId, { cols, rows });
+
+  const existing = resizeTimers.get(terminalId);
+  if (existing) clearTimeout(existing);
+
+  resizeTimers.set(terminalId, setTimeout(() => {
+    resizeTimers.delete(terminalId);
+    window.api.resizeTerminal(terminalId, cols, rows);
+  }, 200));
+}
+
+function resizeIfChanged(profileId: string, instance: TerminalInstance): void {
+  const cols = instance.terminal.cols;
+  const rows = instance.terminal.rows;
+  if (cols === instance.lastCols && rows === instance.lastRows) return;
+  instance.lastCols = cols;
+  instance.lastRows = rows;
+  debouncedPtyResize(profileId, cols, rows);
+}
+
 function createTerminalInstance(
   container: HTMLElement,
   onData: (data: string) => void,
@@ -140,7 +172,7 @@ function createTerminalInstance(
   container.appendChild(element);
   terminal.onData(onData);
 
-  return { terminal, fitAddon, element, opened: false, ptyCreated: false, kind };
+  return { terminal, fitAddon, element, opened: false, ptyCreated: false, kind, lastCols: 0, lastRows: 0 };
 }
 
 function openTerminal(instance: TerminalInstance, gpuMode: string, profileId: string): void {
@@ -270,18 +302,14 @@ export function TerminalPane({
             const profile = profiles.find((p) => p.id === id);
             if (profile) {
               window.api.createTerminal(id, profile).then(() => {
+                instance.lastCols = instance.terminal.cols;
+                instance.lastRows = instance.terminal.rows;
                 window.api.resizeTerminal(id, instance.terminal.cols, instance.terminal.rows);
               });
             }
           } else {
-            // Restore terminal state from backend replay buffer
-            window.api.serializeTerminal(id).then((serialized) => {
-              if (serialized) {
-                instance.terminal.reset();
-                instance.terminal.write(serialized);
-              }
-              window.api.resizeTerminal(id, instance.terminal.cols, instance.terminal.rows);
-            });
+            // Debounced resize — only sends to PTY if dimensions actually changed
+            resizeIfChanged(id, instance);
           }
         });
       } else {
@@ -301,7 +329,7 @@ export function TerminalPane({
     }
   }, [focusedPane, activeProfileId, hidden]);
 
-  // Refit when returning from hidden
+  // Refit when returning from hidden (README/Files → terminal view)
   useEffect(() => {
     if (hidden) return;
     const timer = setTimeout(() => {
@@ -309,7 +337,8 @@ export function TerminalPane({
         const agentInst = agentTerminalsRef.current.get(activeProfileId);
         if (agentInst && agentInst.opened) {
           agentInst.fitAddon.fit();
-          window.api.resizeTerminal(activeProfileId, agentInst.terminal.cols, agentInst.terminal.rows);
+          // Only resize PTY if dimensions truly changed (e.g. window was resized while hidden)
+          resizeIfChanged(activeProfileId, agentInst);
         }
       }
     }, 50);
@@ -329,7 +358,8 @@ export function TerminalPane({
     });
   }, [onSplitChange]);
 
-  // Refit agent terminals on container resize — debounced to avoid zero-dimension fits
+  // Refit agent terminals on container resize — only fires on ACTUAL size changes,
+  // not on profile switch. ResizeObserver fires once on initial .observe() — skip that.
   useEffect(() => {
     const agentContainer = agentContainerRef.current;
     if (!agentContainer) return;
@@ -344,7 +374,7 @@ export function TerminalPane({
           const agentInst = agentTerminalsRef.current.get(activeProfileId);
           if (agentInst && agentInst.opened && agentInst.element.style.display !== 'none') {
             agentInst.fitAddon.fit();
-            window.api.resizeTerminal(activeProfileId, agentInst.terminal.cols, agentInst.terminal.rows);
+            resizeIfChanged(activeProfileId, agentInst);
           }
         }
       });
@@ -352,7 +382,6 @@ export function TerminalPane({
 
     const observer = new ResizeObserver(refit);
     observer.observe(agentContainer);
-    requestAnimationFrame(refit);
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
       observer.disconnect();

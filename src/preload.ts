@@ -106,8 +106,6 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.GIT_STATUS, cwd),
   gitFetch: (cwd: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_FETCH, cwd),
-  serializeTerminal: (profileId: string): Promise<string | null> =>
-    ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_SERIALIZE, profileId),
 
   listDir: (dirPath: string): Promise<FileEntry[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_DIR, dirPath),
@@ -127,6 +125,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.FILE_CREATE_DIR, dirPath),
   createFile: (filePath: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_CREATE, filePath),
+  saveFileAs: (content: string, defaultPath: string): Promise<string | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_SAVE_AS, content, defaultPath),
 
   exportBackup: (): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.BACKUP_EXPORT),

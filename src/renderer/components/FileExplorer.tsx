@@ -59,12 +59,23 @@ function parentDir(filePath: string): string {
   return filePath.replace(/\/[^/]+$/, '');
 }
 
+function fileName(filePath: string): string {
+  return filePath.split('/').pop() || '';
+}
+
+// ── Tab type ─────────────────────────────────────────────────────
+
+interface FileTab {
+  path: string;
+  name: string;
+}
+
 // ── Context Menu ─────────────────────────────────────────────────
 
 interface ContextMenuProps {
   x: number;
   y: number;
-  entry: FileEntry | null; // null = right-clicked empty area
+  entry: FileEntry | null;
   clipboard: string | null;
   onClose: () => void;
   onCopy: () => void;
@@ -73,9 +84,10 @@ interface ContextMenuProps {
   onRename: () => void;
   onNewFile: () => void;
   onNewDir: () => void;
+  onOpenNewTab: (() => void) | null;
 }
 
-function ContextMenu({ x, y, entry, clipboard, onClose, onCopy, onPaste, onDelete, onRename, onNewFile, onNewDir }: ContextMenuProps) {
+function ContextMenu({ x, y, entry, clipboard, onClose, onCopy, onPaste, onDelete, onRename, onNewFile, onNewDir, onOpenNewTab }: ContextMenuProps) {
   useEffect(() => {
     const handleClick = () => onClose();
     window.addEventListener('click', handleClick);
@@ -84,6 +96,17 @@ function ContextMenu({ x, y, entry, clipboard, onClose, onCopy, onPaste, onDelet
 
   return (
     <div className="file-context-menu" style={{ left: x, top: y }} onClick={(e) => e.stopPropagation()}>
+      {entry && !entry.isDirectory && onOpenNewTab && (
+        <>
+          <button className="file-ctx-item" onClick={onOpenNewTab}>
+            <span className="file-ctx-icon">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3 2h7v2h4v10H3V2zm1 1v11h9V5H9V3H4zm6 0v2h2l-2-2z" /></svg>
+            </span>
+            Open in New Tab
+          </button>
+          <div className="file-ctx-divider" />
+        </>
+      )}
       {entry && (
         <>
           <button className="file-ctx-item" onClick={onCopy}>
@@ -142,7 +165,6 @@ function InlineInput({ initialValue, onSubmit, onCancel }: {
 
   useEffect(() => {
     inputRef.current?.focus();
-    // Select name without extension
     const dot = initialValue.lastIndexOf('.');
     if (dot > 0) {
       inputRef.current?.setSelectionRange(0, dot);
@@ -204,7 +226,6 @@ function FileTreeNode({
     setChildren(entries);
   }, [entry.path]);
 
-  // Reload children when refreshKey changes (after file ops)
   useEffect(() => {
     if (expanded && entry.isDirectory) {
       loadChildren();
@@ -275,30 +296,29 @@ function FileTreeNode({
 
 export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled }: FileExplorerProps) {
   const [rootEntries, setRootEntries] = useState<FileEntry[]>([]);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [selectedIsImage, setSelectedIsImage] = useState(false);
-  const [modified, setModified] = useState(false);
+  const [tabs, setTabs] = useState<FileTab[]>([]);
+  const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
+  const [modifiedSet, setModifiedSet] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
-  const [pendingFile, setPendingFile] = useState<string | null>(null);
-  const [pendingClose, setPendingClose] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const currentFileRef = useRef<string | null>(null);
-  const modifiedRef = useRef(false);
+  const activePathRef = useRef<string | null>(null);
+  // Store editor doc content per tab so we can restore on switch
+  const docCacheRef = useRef<Map<string, string>>(new Map());
 
   // Context menu state
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; entry: FileEntry | null } | null>(null);
   const [clipboard, setClipboard] = useState<string | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
-
-  // Delete confirmation dialog
   const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null);
-
-  // New file/dir input
   const [creating, setCreating] = useState<{ type: 'file' | 'dir'; dir: string } | null>(null);
   const [treeWidth, setTreeWidth] = useState(240);
-  const explorerRef = useRef<HTMLDivElement>(null);
+
+  // Close-tab dialog
+  const [closingTabPath, setClosingTabPath] = useState<string | null>(null);
+  // Close-all dialog (parent requesting close)
+  const [pendingClose, setPendingClose] = useState(false);
 
   const handleTreeResize = useCallback((delta: number) => {
     setTreeWidth((w) => Math.max(140, Math.min(500, w - delta)));
@@ -309,20 +329,15 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
     setRefreshKey((k) => k + 1);
   }, [workingDirectory]);
 
-  // Keep modifiedRef in sync
-  useEffect(() => {
-    modifiedRef.current = modified;
-  }, [modified]);
-
-  // Handle close request from parent
+  // ── Handle parent close request ──────────────────────────────
   useEffect(() => {
     if (!closeRequested) return;
-    if (modifiedRef.current) {
+    if (modifiedSet.size > 0) {
       setPendingClose(true);
     } else {
       onCloseHandled(true);
     }
-  }, [closeRequested, onCloseHandled]);
+  }, [closeRequested, onCloseHandled, modifiedSet.size]);
 
   // Load root directory
   useEffect(() => {
@@ -336,124 +351,199 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
     };
   }, []);
 
+  // ── Editor helpers ───────────────────────────────────────────
+
+  const saveCurrentDoc = useCallback(() => {
+    if (activePathRef.current && viewRef.current) {
+      docCacheRef.current.set(activePathRef.current, viewRef.current.state.doc.toString());
+    }
+  }, []);
+
   const handleSave = useCallback(async () => {
-    if (!currentFileRef.current || !viewRef.current) return;
+    if (!activePathRef.current || !viewRef.current) return;
     setSaving(true);
     const content = viewRef.current.state.doc.toString();
-    await window.api.saveFile(currentFileRef.current, content);
-    setModified(false);
-    modifiedRef.current = false;
+    await window.api.saveFile(activePathRef.current, content);
+    docCacheRef.current.set(activePathRef.current, content);
+    setModifiedSet((s) => { const n = new Set(s); n.delete(activePathRef.current!); return n; });
     setSaving(false);
   }, []);
 
-  const openFile = useCallback(
-    async (filePath: string) => {
-      const fileName = filePath.split('/').pop() || '';
-
-      if (viewRef.current) {
-        viewRef.current.destroy();
-        viewRef.current = null;
-      }
-
-      setSelectedFile(filePath);
-      currentFileRef.current = filePath;
-      setModified(false);
-      modifiedRef.current = false;
-
-      if (isImageFile(fileName)) {
-        setSelectedIsImage(true);
-        return;
-      }
-
-      setSelectedIsImage(false);
-
-      const content = await window.api.readFile(filePath);
-      if (content === null) return;
-
-      if (!editorRef.current) return;
-
-      const lang = getLanguageExtension(fileName);
-
-      const state = EditorState.create({
-        doc: content,
-        extensions: [
-          basicSetup,
-          oneDark,
-          ...(Array.isArray(lang) ? lang : [lang]),
-          keymap.of([
-            {
-              key: 'Mod-s',
-              run: () => {
-                handleSave();
-                return true;
-              },
-            },
-          ]),
-          EditorView.updateListener.of((update) => {
-            if (update.docChanged) {
-              setModified(true);
-              modifiedRef.current = true;
-            }
-          }),
-          EditorView.theme({
-            '&': { height: '100%', fontSize: '13px' },
-            '.cm-scroller': { overflow: 'auto' },
-            '.cm-content': { fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace" },
-          }),
-        ],
-      });
-
-      viewRef.current = new EditorView({
-        state,
-        parent: editorRef.current,
-      });
-    },
-    [handleSave],
-  );
-
-  const handleSelectFile = useCallback(
-    (filePath: string) => {
-      if (filePath === currentFileRef.current) return;
-
-      if (modifiedRef.current) {
-        setPendingFile(filePath);
-      } else {
-        openFile(filePath);
-      }
-    },
-    [openFile],
-  );
-
-  const handleDialogSave = useCallback(async () => {
-    await handleSave();
-    if (pendingClose) {
-      setPendingClose(false);
-      onCloseHandled(true);
-    } else if (pendingFile) {
-      openFile(pendingFile);
-      setPendingFile(null);
+  const handleSaveAs = useCallback(async () => {
+    if (!activePathRef.current || !viewRef.current) return;
+    const content = viewRef.current.state.doc.toString();
+    const newPath = await window.api.saveFileAs(content, activePathRef.current);
+    if (newPath) {
+      // Update the tab to point to the new path
+      const oldPath = activePathRef.current;
+      docCacheRef.current.delete(oldPath);
+      docCacheRef.current.set(newPath, content);
+      setTabs((t) => t.map((tab) => tab.path === oldPath ? { path: newPath, name: fileName(newPath) } : tab));
+      setActiveTabPath(newPath);
+      activePathRef.current = newPath;
+      setModifiedSet((s) => { const n = new Set(s); n.delete(oldPath); return n; });
+      refresh();
     }
-  }, [handleSave, openFile, pendingFile, pendingClose, onCloseHandled]);
+  }, [refresh]);
 
-  const handleDialogDiscard = useCallback(() => {
-    setModified(false);
-    modifiedRef.current = false;
-    if (pendingClose) {
-      setPendingClose(false);
-      onCloseHandled(true);
-    } else if (pendingFile) {
-      openFile(pendingFile);
-      setPendingFile(null);
+  const mountEditor = useCallback(async (filePath: string) => {
+    if (viewRef.current) {
+      viewRef.current.destroy();
+      viewRef.current = null;
     }
-  }, [openFile, pendingFile, pendingClose, onCloseHandled]);
 
-  const handleDialogCancel = useCallback(() => {
-    setPendingFile(null);
-    if (pendingClose) {
-      setPendingClose(false);
-      onCloseHandled(false);
+    activePathRef.current = filePath;
+    setActiveTabPath(filePath);
+
+    if (isImageFile(fileName(filePath))) return;
+    if (!editorRef.current) return;
+
+    // Use cached content or load from disk
+    let content = docCacheRef.current.get(filePath);
+    if (content === undefined) {
+      content = await window.api.readFile(filePath) || '';
+      docCacheRef.current.set(filePath, content);
     }
-  }, [pendingClose, onCloseHandled]);
+
+    const lang = getLanguageExtension(fileName(filePath));
+    const thisPath = filePath;
+
+    const state = EditorState.create({
+      doc: content,
+      extensions: [
+        basicSetup,
+        oneDark,
+        ...(Array.isArray(lang) ? lang : [lang]),
+        keymap.of([
+          { key: 'Mod-s', run: () => { handleSave(); return true; } },
+          { key: 'Mod-Shift-s', run: () => { handleSaveAs(); return true; } },
+        ]),
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            setModifiedSet((s) => new Set(s).add(thisPath));
+          }
+        }),
+        EditorView.theme({
+          '&': { height: '100%', fontSize: '13px' },
+          '.cm-scroller': { overflow: 'auto' },
+          '.cm-content': { fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace" },
+        }),
+      ],
+    });
+
+    viewRef.current = new EditorView({ state, parent: editorRef.current });
+  }, [handleSave, handleSaveAs]);
+
+  // ── Tab management ───────────────────────────────────────────
+
+  const openInTab = useCallback((filePath: string, forceNew: boolean) => {
+    if (isImageFile(fileName(filePath))) {
+      // Images: always open directly, no tab reuse logic for modified check
+    }
+
+    const existingIdx = tabs.findIndex((t) => t.path === filePath);
+    if (existingIdx >= 0) {
+      // Tab already open — switch to it
+      saveCurrentDoc();
+      mountEditor(filePath);
+      return;
+    }
+
+    const newTab: FileTab = { path: filePath, name: fileName(filePath) };
+
+    if (forceNew || (activePathRef.current && modifiedSet.has(activePathRef.current))) {
+      // Open in new tab (keep current modified tab)
+      saveCurrentDoc();
+      setTabs((t) => [...t, newTab]);
+      mountEditor(filePath);
+    } else if (tabs.length === 0) {
+      // No tabs yet
+      setTabs([newTab]);
+      mountEditor(filePath);
+    } else {
+      // Reuse active tab (no modifications)
+      saveCurrentDoc();
+      const activePath = activePathRef.current;
+      docCacheRef.current.delete(activePath || '');
+      setTabs((t) => t.map((tab) => tab.path === activePath ? newTab : tab));
+      mountEditor(filePath);
+    }
+  }, [tabs, modifiedSet, saveCurrentDoc, mountEditor]);
+
+  const switchTab = useCallback((filePath: string) => {
+    if (filePath === activePathRef.current) return;
+    saveCurrentDoc();
+    mountEditor(filePath);
+  }, [saveCurrentDoc, mountEditor]);
+
+  const closeTab = useCallback((filePath: string) => {
+    if (modifiedSet.has(filePath)) {
+      setClosingTabPath(filePath);
+      return;
+    }
+    doCloseTab(filePath);
+  }, [modifiedSet]);
+
+  const doCloseTab = useCallback((filePath: string) => {
+    docCacheRef.current.delete(filePath);
+    setModifiedSet((s) => { const n = new Set(s); n.delete(filePath); return n; });
+    setTabs((prev) => {
+      const next = prev.filter((t) => t.path !== filePath);
+      if (activePathRef.current === filePath) {
+        if (next.length > 0) {
+          // Switch to neighbor tab
+          const oldIdx = prev.findIndex((t) => t.path === filePath);
+          const newIdx = Math.min(oldIdx, next.length - 1);
+          mountEditor(next[newIdx].path);
+        } else {
+          // No tabs left
+          if (viewRef.current) { viewRef.current.destroy(); viewRef.current = null; }
+          activePathRef.current = null;
+          setActiveTabPath(null);
+        }
+      }
+      return next;
+    });
+  }, [mountEditor]);
+
+  // Close-tab dialog handlers
+  const handleCloseTabSave = useCallback(async () => {
+    if (!closingTabPath) return;
+    // Save the file being closed
+    const content = docCacheRef.current.get(closingTabPath);
+    if (content !== undefined) {
+      await window.api.saveFile(closingTabPath, content);
+    }
+    const p = closingTabPath;
+    setClosingTabPath(null);
+    doCloseTab(p);
+  }, [closingTabPath, doCloseTab]);
+
+  const handleCloseTabDiscard = useCallback(() => {
+    if (!closingTabPath) return;
+    const p = closingTabPath;
+    setModifiedSet((s) => { const n = new Set(s); n.delete(p); return n; });
+    setClosingTabPath(null);
+    doCloseTab(p);
+  }, [closingTabPath, doCloseTab]);
+
+  // Parent close-all handlers
+  const handleCloseAllDiscard = useCallback(() => {
+    setPendingClose(false);
+    setModifiedSet(new Set());
+    onCloseHandled(true);
+  }, [onCloseHandled]);
+
+  const handleCloseAllCancel = useCallback(() => {
+    setPendingClose(false);
+    onCloseHandled(false);
+  }, [onCloseHandled]);
+
+  // ── Tree file selection ──────────────────────────────────────
+
+  const handleSelectFile = useCallback((filePath: string) => {
+    openInTab(filePath, false);
+  }, [openInTab]);
 
   // ── File operations ──────────────────────────────────────────
 
@@ -481,7 +571,6 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
         : workingDirectory;
     const name = clipboard.split('/').pop() || '';
     let destPath = `${targetDir}/${name}`;
-    // Avoid overwriting — append " copy" if exists
     let i = 0;
     const baseName = name.replace(/(\.[^.]+)$/, '');
     const ext = name.includes('.') ? name.slice(name.lastIndexOf('.')) : '';
@@ -502,17 +591,15 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
   const handleConfirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
     await window.api.deleteFile(deleteTarget.path);
-    if (selectedFile === deleteTarget.path) {
-      setSelectedFile(null);
-      currentFileRef.current = null;
-      if (viewRef.current) {
-        viewRef.current.destroy();
-        viewRef.current = null;
-      }
+    // Close tab if open
+    const tabOpen = tabs.find((t) => t.path === deleteTarget.path);
+    if (tabOpen) {
+      setModifiedSet((s) => { const n = new Set(s); n.delete(deleteTarget.path); return n; });
+      doCloseTab(deleteTarget.path);
     }
     setDeleteTarget(null);
     refresh();
-  }, [deleteTarget, selectedFile, refresh]);
+  }, [deleteTarget, tabs, doCloseTab, refresh]);
 
   const handleRename = useCallback(() => {
     if (ctxMenu?.entry) setRenamingPath(ctxMenu.entry.path);
@@ -523,13 +610,27 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
     const dir = parentDir(oldPath);
     const newPath = `${dir}/${newName}`;
     await window.api.renameFile(oldPath, newPath);
-    if (selectedFile === oldPath) {
-      setSelectedFile(newPath);
-      currentFileRef.current = newPath;
+    // Update tab if open
+    setTabs((t) => t.map((tab) => tab.path === oldPath ? { path: newPath, name: newName } : tab));
+    if (activePathRef.current === oldPath) {
+      activePathRef.current = newPath;
+      setActiveTabPath(newPath);
+    }
+    const cached = docCacheRef.current.get(oldPath);
+    if (cached !== undefined) {
+      docCacheRef.current.delete(oldPath);
+      docCacheRef.current.set(newPath, cached);
     }
     setRenamingPath(null);
     refresh();
-  }, [selectedFile, refresh]);
+  }, [refresh]);
+
+  const handleOpenNewTab = useCallback(() => {
+    if (ctxMenu?.entry && !ctxMenu.entry.isDirectory) {
+      openInTab(ctxMenu.entry.path, true);
+    }
+    setCtxMenu(null);
+  }, [ctxMenu, openInTab]);
 
   const handleNewFile = useCallback(() => {
     const dir = ctxMenu?.entry?.isDirectory
@@ -563,42 +664,78 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
     refresh();
   }, [creating, refresh]);
 
-  const fileName = selectedFile?.split('/').pop() || '';
+  const activeIsImage = activeTabPath ? isImageFile(fileName(activeTabPath)) : false;
+  const activeIsModified = activeTabPath ? modifiedSet.has(activeTabPath) : false;
 
   return (
     <div className="file-explorer">
       <div className="file-editor-pane">
-        {selectedFile && (
-          <div className="file-editor-header">
-            <span className="file-editor-name">
-              {fileName}
-              {modified && <span className="file-modified-dot" />}
-            </span>
-            {!selectedIsImage && modified && (
-              <button
-                className="action-btn file-save-btn"
-                onClick={handleSave}
-                disabled={saving}
-              >
-                {saving ? 'Saving...' : 'Save'}
-              </button>
-            )}
+        {/* Tab bar */}
+        <div className="file-tab-bar">
+          <div className="file-tabs-scroll">
+            {tabs.map((tab) => {
+              const isActive = tab.path === activeTabPath;
+              const isMod = modifiedSet.has(tab.path);
+              return (
+                <div
+                  key={tab.path}
+                  className={`file-tab ${isActive ? 'file-tab-active' : ''}`}
+                  onClick={() => switchTab(tab.path)}
+                  title={tab.path}
+                >
+                  <FileIcon filename={tab.name} isDirectory={false} />
+                  <span className="file-tab-name">{tab.name}{isMod ? ' *' : ''}</span>
+                  <button
+                    className="file-tab-close"
+                    onClick={(e) => { e.stopPropagation(); closeTab(tab.path); }}
+                    title="Close"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 14 14" fill="currentColor">
+                      <path d="M1.7 0.3a1 1 0 00-1.4 1.4L5.6 7l-5.3 5.3a1 1 0 101.4 1.4L7 8.4l5.3 5.3a1 1 0 001.4-1.4L8.4 7l5.3-5.3a1 1 0 00-1.4-1.4L7 5.6 1.7 0.3z" />
+                    </svg>
+                  </button>
+                </div>
+              );
+            })}
           </div>
-        )}
-        {selectedFile && selectedIsImage && (
+          {activeTabPath && !activeIsImage && (
+            <div className="file-tab-actions">
+              <button
+                className="file-tab-action-btn"
+                onClick={handleSave}
+                disabled={saving || !activeIsModified}
+                title="Save (Cmd+S)"
+              >
+                Save
+              </button>
+              <button
+                className="file-tab-action-btn"
+                onClick={handleSaveAs}
+                disabled={saving}
+                title="Save As (Cmd+Shift+S)"
+              >
+                Save As
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Editor area */}
+        {activeTabPath && activeIsImage && (
           <div className="file-image-viewer">
-            <img src={`local-file://${selectedFile}`} alt={fileName} />
+            <img src={`local-file://${activeTabPath}`} alt={fileName(activeTabPath)} />
           </div>
         )}
         <div
           className="file-editor-content"
           ref={editorRef}
-          style={{ display: selectedFile && !selectedIsImage ? 'block' : 'none' }}
+          style={{ display: activeTabPath && !activeIsImage ? 'block' : 'none' }}
         />
-        {!selectedFile && (
+        {!activeTabPath && (
           <div className="file-editor-empty">Select a file to view</div>
         )}
       </div>
+
       <ResizeHandle direction="horizontal" onResize={handleTreeResize} />
       <div className="file-tree-pane" style={{ width: treeWidth }}>
         <div className="file-tree-header">
@@ -642,7 +779,7 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
               key={entry.path}
               entry={entry}
               depth={0}
-              selectedPath={selectedFile}
+              selectedPath={activeTabPath}
               onSelect={handleSelectFile}
               onContextMenu={handleContextMenu}
               renamingPath={renamingPath}
@@ -668,6 +805,7 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
           onRename={handleRename}
           onNewFile={handleNewFile}
           onNewDir={handleNewDir}
+          onOpenNewTab={ctxMenu.entry && !ctxMenu.entry.isDirectory ? handleOpenNewTab : null}
         />
       )}
 
@@ -687,41 +825,53 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
             </div>
             <div className="modal-footer">
               <div className="modal-footer-right">
-                <button className="cancel-btn" onClick={() => setDeleteTarget(null)}>
-                  Cancel
-                </button>
-                <button className="delete-btn" onClick={handleConfirmDelete}>
-                  Delete
-                </button>
+                <button className="cancel-btn" onClick={() => setDeleteTarget(null)}>Cancel</button>
+                <button className="delete-btn" onClick={handleConfirmDelete}>Delete</button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Unsaved changes dialog */}
-      {(pendingFile || pendingClose) && (
-        <div className="modal-overlay" onClick={handleDialogCancel}>
+      {/* Close tab with unsaved changes */}
+      {closingTabPath && (
+        <div className="modal-overlay" onClick={() => setClosingTabPath(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Unsaved Changes</h3>
             </div>
             <div className="modal-body">
               <p style={{ fontSize: 13, lineHeight: 1.5 }}>
-                <strong>{fileName}</strong> has unsaved changes. What would you like to do?
+                <strong>{fileName(closingTabPath)}</strong> has unsaved changes.
               </p>
             </div>
             <div className="modal-footer">
-              <button className="cancel-btn" onClick={handleDialogCancel}>
-                Stay on file
-              </button>
+              <button className="cancel-btn" onClick={() => setClosingTabPath(null)}>Cancel</button>
               <div className="modal-footer-right">
-                <button className="delete-btn" onClick={handleDialogDiscard}>
-                  Discard
-                </button>
-                <button className="save-btn" onClick={handleDialogSave}>
-                  Save
-                </button>
+                <button className="delete-btn" onClick={handleCloseTabDiscard}>Discard</button>
+                <button className="save-btn" onClick={handleCloseTabSave}>Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Close all with unsaved changes */}
+      {pendingClose && (
+        <div className="modal-overlay" onClick={handleCloseAllCancel}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Unsaved Changes</h3>
+            </div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, lineHeight: 1.5 }}>
+                You have {modifiedSet.size} unsaved file{modifiedSet.size > 1 ? 's' : ''}. Close anyway?
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="cancel-btn" onClick={handleCloseAllCancel}>Cancel</button>
+              <div className="modal-footer-right">
+                <button className="delete-btn" onClick={handleCloseAllDiscard}>Discard All</button>
               </div>
             </div>
           </div>

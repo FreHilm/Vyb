@@ -7,7 +7,7 @@ import '@xterm/xterm/css/xterm.css';
 import { AppSettings } from '../../shared/types';
 import { getTerminalTheme } from '../theme';
 import { ResizeHandle } from './ResizeHandle';
-import { setupTerminalDrop } from './TerminalPane';
+import { setupTerminalDrop, debouncedPtyResize } from './TerminalPane';
 
 interface ShellPaneProps {
   profileId: string;
@@ -112,7 +112,7 @@ export function ShellPane({
         // Just refit
         requestAnimationFrame(() => {
           entry!.fitAddon.fit();
-          window.api.resizeTerminal(shell.id, entry!.terminal.cols, entry!.terminal.rows);
+          debouncedPtyResize(shell.id, entry!.terminal.cols, entry!.terminal.rows);
         });
         continue;
       }
@@ -191,7 +191,7 @@ export function ShellPane({
         requestAnimationFrame(() => {
           fitAddon.fit();
           terminal.focus();
-          window.api.resizeTerminal(shell.id, terminal.cols, terminal.rows);
+          debouncedPtyResize(shell.id, terminal.cols, terminal.rows);
         });
       }
     }
@@ -252,7 +252,7 @@ export function ShellPane({
           const panelDiv = panelRefs.current.get(id);
           if (panelDiv && panelDiv.clientHeight > 10 && panelDiv.clientWidth > 10) {
             entry.fitAddon.fit();
-            window.api.resizeTerminal(id, entry.terminal.cols, entry.terminal.rows);
+            debouncedPtyResize(id, entry.terminal.cols, entry.terminal.rows);
           }
         });
       });
