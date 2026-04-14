@@ -47,7 +47,6 @@ declare global {
       platform: string;
       getGitStatus: (cwd: string) => Promise<GitStatus>;
       ackTerminalData: (profileId: string, bytes: number) => void;
-      serializeTerminal: (profileId: string) => Promise<string | null>;
       gitFetch: (cwd: string) => Promise<boolean>;
       listDir: (dirPath: string) => Promise<FileEntry[]>;
       readFile: (filePath: string) => Promise<string | null>;
@@ -57,6 +56,7 @@ declare global {
       copyFile: (srcPath: string, destPath: string) => Promise<boolean>;
       createDir: (dirPath: string) => Promise<boolean>;
       createFile: (filePath: string) => Promise<boolean>;
+      saveFileAs: (content: string, defaultPath: string) => Promise<string | null>;
       exportBackup: () => Promise<string | null>;
       importBackup: () => Promise<boolean>;
       transcribeAudio: (audioBase64: string, lang: string) => Promise<string>;

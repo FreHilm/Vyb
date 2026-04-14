@@ -7,12 +7,10 @@ import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
 import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout, loadProfileMemory, saveProfileMemory, loadScrollback, saveScrollback } from './config-loader';
-import { TerminalBackend } from './terminal-backend';
 
 
 let ptyManager: PtyManager;
 let statusDetector: StatusDetector;
-let terminalBackend: TerminalBackend;
 let mainWindow: BrowserWindow;
 let profiles: Profile[] = [];
 let isQuitting = false;
@@ -47,8 +45,6 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   mainWindow.on('closed', () => {
     isQuitting = true;
   });
-
-  terminalBackend = new TerminalBackend();
 
   statusDetector = new StatusDetector((profileId, status, previousStatus, output) => {
     safeSend(IPC_CHANNELS.PROFILE_STATUS_CHANGE, { profileId, status });
@@ -86,7 +82,6 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   ptyManager = new PtyManager(
     (profileId, data) => {
       statusDetector.feedData(profileId, data);
-      terminalBackend.write(profileId, data);
       // Accumulate scrollback for shell terminals
       if (profileId.startsWith('shell:')) {
         let buf = scrollbackBuffers.get(profileId) || '';
@@ -148,7 +143,6 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         }
       }
       statusDetector.register(profileId, effectiveProfile);
-      terminalBackend.create(profileId, cols || 80, rows || 24);
       ptyManager.create(profileId, effectiveProfile, cols, rows);
     },
   );
@@ -170,19 +164,13 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     IPC_CHANNELS.TERMINAL_RESIZE,
     (_, profileId: string, cols: number, rows: number) => {
       ptyManager.resize(profileId, cols, rows);
-      terminalBackend.resize(profileId, cols, rows);
     },
   );
 
   ipcMain.handle(IPC_CHANNELS.TERMINAL_DESTROY, (_, profileId: string) => {
     ptyManager.destroy(profileId);
     statusDetector.unregister(profileId);
-    terminalBackend.destroy(profileId);
     flowStates.delete(profileId);
-  });
-
-  ipcMain.handle(IPC_CHANNELS.TERMINAL_SERIALIZE, (_, profileId: string): string | null => {
-    return terminalBackend.serialize(profileId);
   });
 
   // Flow control ACK — renderer reports bytes consumed
@@ -283,7 +271,6 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         args: [],
       };
       // Reuse ptyManager but skip status detection
-      terminalBackend.create(terminalId, 80, 24);
       ptyManager.create(terminalId, shellProfile);
     },
   );
@@ -661,6 +648,20 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.FILE_SAVE_AS, async (_, content: string, defaultPath: string): Promise<string | null> => {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save As',
+      defaultPath,
+    });
+    if (result.canceled || !result.filePath) return null;
+    try {
+      fs.writeFileSync(result.filePath, content, 'utf-8');
+      return result.filePath;
+    } catch {
+      return null;
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.FILE_CREATE, (_, filePath: string): boolean => {
     try {
       fs.writeFileSync(filePath, '', 'utf-8');
@@ -864,9 +865,6 @@ export function cleanupIpcHandlers(): void {
     if (shellHadInput.has(profileId)) {
       saveScrollback(profileId, data);
     }
-  }
-  if (terminalBackend) {
-    terminalBackend.destroyAll();
   }
   if (ptyManager) {
     ptyManager.destroyAll();
