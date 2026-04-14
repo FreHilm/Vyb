@@ -88,6 +88,7 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [layout, setLayout] = useState<SidebarLayout>({ items: [], folders: [] });
   const [readmeVisible, setReadmeVisible] = useState(false);
+  const [hasReadme, setHasReadme] = useState(false);
   const [focusedPane, setFocusedPane] = useState<{ pane: 'agent' | 'shell'; shellIndex: number }>({ pane: 'agent', shellIndex: 0 });
   const shellCountRef = useRef(1);
   const profileMemoryRef = useRef<ProfileMemoryMap>({});
@@ -191,6 +192,18 @@ export function App() {
       window.api.saveSettings({ ...settings, lastActiveProfileId: activeProfileId });
     }
   }, [activeProfileId]);
+
+  // Check if active profile has a README
+  useEffect(() => {
+    const profile = profiles.find((p) => p.id === activeProfileId);
+    if (!profile) {
+      setHasReadme(false);
+      return;
+    }
+    window.api.loadReadme(profile.workingDirectory).then((md) => {
+      setHasReadme(md !== null);
+    });
+  }, [activeProfileId, profiles]);
 
   const handleSaveSettings = async (newSettings: AppSettings) => {
     await window.api.saveSettings(newSettings);
@@ -584,6 +597,7 @@ export function App() {
           profile={activeProfile}
           shellOpen={activeProfileId ? shellOpenSet.has(activeProfileId) : false}
           readmeVisible={readmeVisible}
+          hasReadme={hasReadme}
           onToggleShell={toggleShell}
           onToggleReadme={toggleReadme}
           filesVisible={filesVisible}

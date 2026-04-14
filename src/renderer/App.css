@@ -561,8 +561,13 @@
   font-family: inherit;
 }
 
-.action-btn:hover {
+.action-btn:hover:not(:disabled) {
   background: var(--c-surface1);
+}
+
+.action-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 .action-btn svg {
@@ -1833,8 +1838,41 @@
   flex: 1;
   overflow-y: auto;
   padding: 32px 48px;
+  position: relative;
   background: var(--c-base);
   outline: none;
+}
+
+.readme-back-btn {
+  position: sticky;
+  top: 12px;
+  left: -36px;
+  z-index: 100;
+  float: left;
+  margin-bottom: -32px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--c-surface1);
+  background: var(--c-mantle);
+  color: var(--c-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, background 0.15s;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.readme-back-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.readme-back-btn:hover {
+  background: var(--c-surface0);
 }
 
 .readme-loading,

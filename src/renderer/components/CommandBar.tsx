@@ -6,6 +6,7 @@ interface CommandBarProps {
   profile: Profile | null;
   shellOpen: boolean;
   readmeVisible: boolean;
+  hasReadme: boolean;
   filesVisible: boolean;
   onToggleShell: () => void;
   onToggleReadme: () => void;
@@ -30,6 +31,7 @@ export function CommandBar({
   profile,
   shellOpen,
   readmeVisible,
+  hasReadme,
   filesVisible,
   onToggleShell,
   onToggleReadme,
@@ -63,7 +65,8 @@ export function CommandBar({
         <button
           className={`action-btn ${readmeVisible ? 'action-btn-active' : ''}`}
           onClick={onToggleReadme}
-          title="Toggle README"
+          disabled={!hasReadme}
+          title={hasReadme ? 'Toggle README' : 'No README.md found'}
         >
           <NavNum active={navActive} idx={0} />
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
