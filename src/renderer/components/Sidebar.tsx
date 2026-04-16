@@ -447,17 +447,17 @@ export function Sidebar({
             Click + to add an agent profile
           </div>
         )}
-        {navActive && (
-          <>
-            <div className="nav-arrows-profile nav-arrow-up">
-              <span className="nav-arrow">&#x2191;</span>
-            </div>
-            <div className="nav-arrows-profile nav-arrow-down">
-              <span className="nav-arrow">&#x2193;</span>
-            </div>
-          </>
-        )}
       </div>
+      {navActive && (
+        <>
+          <div className="nav-arrows-profile nav-arrow-up">
+            <span className="nav-arrow">&#x2191;</span>
+          </div>
+          <div className="nav-arrows-profile nav-arrow-down">
+            <span className="nav-arrow">&#x2193;</span>
+          </div>
+        </>
+      )}
       {confirmDeleteFolderId && (
         <div className="modal-overlay" onClick={() => setConfirmDeleteFolderId(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
