@@ -1,6 +1,35 @@
 import { useState, useEffect } from 'react';
 import { Profile, AgentConfig } from '../../shared/types';
 
+// Agent icons — must match SettingsDialog.tsx definitions
+const AGENT_ICONS: Record<string, { viewBox: string; paths: string[]; color: string; stroke?: boolean }> = {
+  claude: { viewBox: '0 0 16 16', color: '#d97757', stroke: true, paths: ['M8 1.5v4M8 10.5v4M1.5 8h4M10.5 8h4M3.4 3.4l2.8 2.8M9.8 9.8l2.8 2.8M12.6 3.4l-2.8 2.8M6.2 9.8l-2.8 2.8'] },
+  codex: { viewBox: '0 0 16 16', color: '#10a37f', paths: ['M8 1L2.5 4.5v7L8 15l5.5-3.5v-7L8 1zm0 2.5L11 5.5v2L8 9.5 5 7.5v-2L8 3.5z'] },
+  gemini: { viewBox: '0 0 16 16', color: '#4285f4', paths: ['M8 0C8 4.4 4.4 8 0 8c4.4 0 8 3.6 8 8 0-4.4 3.6-8 8-8-4.4 0-8-3.6-8-8z'] },
+};
+
+function AgentIcon({ agentId, size = 16 }: { agentId: string; size?: number }) {
+  const icon = AGENT_ICONS[agentId];
+  if (!icon) {
+    // Generic robot icon for custom agents
+    return (
+      <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" style={{ color: 'var(--c-overlay0)' }}>
+        <path d="M8 1a3 3 0 00-3 3v1H4a2 2 0 00-2 2v6a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-1V4a3 3 0 00-3-3zm0 1.5A1.5 1.5 0 019.5 4v1h-3V4A1.5 1.5 0 018 2.5zM6 9a1 1 0 112 0 1 1 0 01-2 0zm4 0a1 1 0 112 0 1 1 0 01-2 0z" />
+      </svg>
+    );
+  }
+  return (
+    <svg width={size} height={size} viewBox={icon.viewBox}
+      fill={icon.stroke ? 'none' : icon.color}
+      stroke={icon.stroke ? icon.color : 'none'}
+      strokeWidth={icon.stroke ? '1.8' : '0'}
+      strokeLinecap="round"
+    >
+      {icon.paths.map((d, i) => <path key={i} d={d} />)}
+    </svg>
+  );
+}
+
 interface ProfileEditorProps {
   profile: Profile | null; // null = creating new
   agents: AgentConfig[];
@@ -156,15 +185,20 @@ export function ProfileEditor({
 
           <div className="field">
             <span className="field-label">Agent</span>
-            <select
-              className="field-select"
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-            >
+            <div className="agent-picker">
               {agents.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
+                <button
+                  key={a.id}
+                  type="button"
+                  className={`agent-pick-btn ${agentId === a.id ? 'agent-pick-active' : ''}`}
+                  onClick={() => setAgentId(a.id)}
+                  title={`${a.command} ${a.args.join(' ')}`}
+                >
+                  <AgentIcon agentId={a.id} size={14} />
+                  <span>{a.name || a.command}</span>
+                </button>
               ))}
-            </select>
+            </div>
             {selectedAgent && (
               <span className="field-hint">
                 {selectedAgent.command} {selectedAgent.args.join(' ')}
