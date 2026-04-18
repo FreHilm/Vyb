@@ -3,7 +3,7 @@ import { exec, execSync } from 'child_process';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap } from '../shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
 import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout, loadProfileMemory, saveProfileMemory, loadScrollback, saveScrollback } from './config-loader';
@@ -127,21 +127,44 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   ipcMain.handle(
     IPC_CHANNELS.TERMINAL_CREATE,
     (_, profileId: string, profile: Profile, cols?: number, rows?: number) => {
+      // Resolve agent config from settings
+      const settings = loadSettings();
+      const agents = settings.agents || DEFAULT_AGENTS;
+      const resolved = resolveAgent(profile, agents);
+
+      // Build effective profile with resolved command/args
+      let effectiveProfile: Profile = { ...profile, command: resolved.command, args: resolved.args };
+
       // If claude --continue but no .claude folder exists, drop --continue
-      let effectiveProfile = profile;
       if (
-        profile.command === 'claude' &&
-        profile.args?.includes('--continue')
+        effectiveProfile.command === 'claude' &&
+        effectiveProfile.args?.includes('--continue')
       ) {
-        let cwd = profile.workingDirectory || os.homedir();
+        let cwd = effectiveProfile.workingDirectory || os.homedir();
         if (cwd.startsWith('~')) cwd = cwd.replace(/^~/, os.homedir());
         if (!fs.existsSync(path.join(cwd, '.claude'))) {
           effectiveProfile = {
-            ...profile,
-            args: profile.args.filter((a) => a !== '--continue'),
+            ...effectiveProfile,
+            args: effectiveProfile.args.filter((a) => a !== '--continue'),
           };
         }
       }
+
+      // Codex --resume guard: similar to Claude's --continue
+      if (
+        effectiveProfile.command === 'codex' &&
+        effectiveProfile.args?.includes('--resume')
+      ) {
+        let cwd = effectiveProfile.workingDirectory || os.homedir();
+        if (cwd.startsWith('~')) cwd = cwd.replace(/^~/, os.homedir());
+        if (!fs.existsSync(path.join(cwd, '.codex'))) {
+          effectiveProfile = {
+            ...effectiveProfile,
+            args: effectiveProfile.args.filter((a) => a !== '--resume'),
+          };
+        }
+      }
+
       statusDetector.register(profileId, effectiveProfile);
       ptyManager.create(profileId, effectiveProfile, cols, rows);
     },

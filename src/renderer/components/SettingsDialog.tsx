@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AppSettings, ExternalApp } from '../../shared/types';
+import { AppSettings, ExternalApp, AgentConfig, DEFAULT_AGENTS } from '../../shared/types';
 import { hueToPreviewColor } from '../theme';
 import { APP_ICONS, APP_ICON_LABELS } from '../icons';
 
@@ -13,7 +13,7 @@ interface SettingsDialogProps {
   profilesWithoutIcons: number;
 }
 
-type SettingsTab = 'appearance' | 'flames' | 'icons' | 'apps' | 'integrations' | 'backup';
+type SettingsTab = 'appearance' | 'flames' | 'agents' | 'icons' | 'apps' | 'integrations' | 'backup';
 
 function BackupTab() {
   const [exporting, setExporting] = useState(false);
@@ -119,6 +119,9 @@ export function SettingsDialog({
   const [iconReferenceImage, setIconReferenceImage] = useState(
     settings.iconReferenceImage,
   );
+  const [agents, setAgents] = useState<AgentConfig[]>(
+    settings.agents?.length ? settings.agents : [...DEFAULT_AGENTS],
+  );
   const [externalApps, setExternalApps] = useState<ExternalApp[]>(
     settings.externalApps || [],
   );
@@ -148,6 +151,7 @@ export function SettingsDialog({
       openaiApiKey,
       iconPromptPrefix,
       iconReferenceImage,
+      agents,
       externalApps,
       navModifierKey,
       dictationMode,
@@ -190,6 +194,12 @@ export function SettingsDialog({
             onClick={() => setTab('flames')}
           >
             Flames
+          </button>
+          <button
+            className={`settings-tab ${tab === 'agents' ? 'settings-tab-active' : ''}`}
+            onClick={() => setTab('agents')}
+          >
+            Agents
           </button>
           <button
             className={`settings-tab ${tab === 'icons' ? 'settings-tab-active' : ''}`}
@@ -513,6 +523,79 @@ export function SettingsDialog({
                 />
                 <span className="field-hint">Animation speed — slow breathing to rapid flicker</span>
               </label>
+            </>
+          )}
+
+          {tab === 'agents' && (
+            <>
+              <span className="field-hint" style={{ marginBottom: 8 }}>
+                Define the AI agents available for profiles.
+                Each agent has a command and default arguments.
+              </span>
+
+              {agents.map((agent, idx) => (
+                <div key={agent.id} className="ext-app-row">
+                  <div className="ext-app-fields" style={{ flex: 1 }}>
+                    <input
+                      type="text"
+                      value={agent.name}
+                      onChange={(e) => {
+                        const updated = [...agents];
+                        updated[idx] = { ...agent, name: e.target.value };
+                        setAgents(updated);
+                      }}
+                      placeholder="Name"
+                      className="ext-app-name"
+                    />
+                    <input
+                      type="text"
+                      value={agent.command}
+                      onChange={(e) => {
+                        const updated = [...agents];
+                        updated[idx] = { ...agent, command: e.target.value };
+                        setAgents(updated);
+                      }}
+                      placeholder="Command (e.g. claude)"
+                      className="ext-app-command"
+                      style={{ fontFamily: 'monospace' }}
+                    />
+                    <input
+                      type="text"
+                      value={agent.args.join(' ')}
+                      onChange={(e) => {
+                        const updated = [...agents];
+                        updated[idx] = {
+                          ...agent,
+                          args: e.target.value.trim().split(/\s+/).filter((a) => a),
+                        };
+                        setAgents(updated);
+                      }}
+                      placeholder="Arguments (e.g. --continue)"
+                      className="ext-app-command"
+                      style={{ fontFamily: 'monospace' }}
+                    />
+                  </div>
+                  <button
+                    className="ext-app-delete"
+                    onClick={() => setAgents(agents.filter((_, i) => i !== idx))}
+                    title="Remove"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 14 14" fill="currentColor">
+                      <path d="M1.7 0.3a1 1 0 00-1.4 1.4L5.6 7l-5.3 5.3a1 1 0 101.4 1.4L7 8.4l5.3 5.3a1 1 0 001.4-1.4L8.4 7l5.3-5.3a1 1 0 00-1.4-1.4L7 5.6 1.7 0.3z" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+
+              <button
+                className="batch-generate-btn"
+                onClick={() => {
+                  const id = `agent-${Date.now().toString(36)}`;
+                  setAgents([...agents, { id, name: '', command: '', args: [] }]);
+                }}
+              >
+                + Add Agent
+              </button>
             </>
           )}
 
