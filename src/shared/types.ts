@@ -10,8 +10,9 @@ export interface Profile {
   name: string;
   icon: string;
   workingDirectory: string;
-  command: string;
-  args: string[];
+  command: string;       // kept for backwards compat — used if agentId is missing
+  args: string[];        // kept for backwards compat
+  agentId?: string;      // references AgentConfig.id from settings
   statusPatterns?: StatusPatterns;
 }
 
@@ -40,6 +41,7 @@ export interface AppSettings {
   iconReferenceImage: string; // Path to reference image for style consistency
   sidebarWidth: number; // pixels, default 250
   terminalSplitPercent: number; // agent pane %, default 67
+  agents: AgentConfig[];
   externalApps: ExternalApp[];
   navModifierKey: 'meta' | 'alt'; // Modifier key for quick navigation
   dictationMode: 'toggle' | 'hold'; // toggle = click start/stop, hold = hold button to dictate
@@ -51,6 +53,18 @@ export interface AppSettings {
   flameLength: number; // 0-100, default 50. Controls how far flames extend from edge.
   flameSpeed: number; // 0-100, default 50. Controls animation speed.
 }
+
+export interface AgentConfig {
+  id: string;
+  name: string;
+  command: string;
+  args: string[];
+}
+
+export const DEFAULT_AGENTS: AgentConfig[] = [
+  { id: 'claude', name: 'Claude', command: 'claude', args: ['--continue'] },
+  { id: 'codex', name: 'Codex', command: 'codex', args: ['--resume'] },
+];
 
 export interface ExternalApp {
   id: string;
@@ -75,6 +89,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   iconReferenceImage: '',
   sidebarWidth: 250,
   terminalSplitPercent: 67,
+  agents: [...DEFAULT_AGENTS],
   externalApps: [
     { id: 'vscode', name: 'VS Code', icon: 'vscode', command: 'open -a "Visual Studio Code" "{path}"' },
     { id: 'fork', name: 'Fork', icon: 'gitBranch', command: 'open -a Fork "{path}"' },
@@ -89,6 +104,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
   flameLength: 50,
   flameSpeed: 50,
 };
+
+/** Resolve the command and args for a profile, looking up the agent config if set */
+export function resolveAgent(profile: Profile, agents: AgentConfig[]): { command: string; args: string[] } {
+  if (profile.agentId) {
+    const agent = agents.find((a) => a.id === profile.agentId);
+    if (agent) return { command: agent.command, args: [...agent.args] };
+  }
+  // Backwards compat: use profile's own command/args
+  return { command: profile.command, args: [...profile.args] };
+}
 
 export interface SidebarFolder {
   id: string;

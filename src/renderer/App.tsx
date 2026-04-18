@@ -666,6 +666,7 @@ export function App() {
       {editorOpen && (
         <ProfileEditor
           profile={editingProfile}
+          agents={settings.agents || []}
           onSave={handleSaveProfile}
           onDelete={handleDeleteProfile}
           onClose={() => setEditorOpen(false)}

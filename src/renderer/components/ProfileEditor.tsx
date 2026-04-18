@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Profile } from '../../shared/types';
+import { Profile, AgentConfig } from '../../shared/types';
 
 interface ProfileEditorProps {
   profile: Profile | null; // null = creating new
+  agents: AgentConfig[];
   onSave: (profile: Profile) => void;
   onDelete: (profileId: string) => void;
   onClose: () => void;
@@ -18,6 +19,7 @@ function generateId(name: string): string {
 
 export function ProfileEditor({
   profile,
+  agents,
   onSave,
   onDelete,
   onClose,
@@ -27,8 +29,7 @@ export function ProfileEditor({
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('');
   const [workingDirectory, setWorkingDirectory] = useState('');
-  const [command, setCommand] = useState('claude');
-  const [args, setArgs] = useState('--continue');
+  const [agentId, setAgentId] = useState('claude');
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState('');
   const [iconCacheBust, setIconCacheBust] = useState(0);
@@ -38,10 +39,16 @@ export function ProfileEditor({
       setName(profile.name);
       setIcon(profile.icon);
       setWorkingDirectory(profile.workingDirectory);
-      setCommand(profile.command);
-      setArgs(profile.args.join(' '));
-}
-  }, [profile]);
+      // Resolve agentId: use stored agentId, or match by command
+      if (profile.agentId) {
+        setAgentId(profile.agentId);
+      } else {
+        // Backwards compat: try to match by command
+        const match = agents.find((a) => a.command === profile.command);
+        setAgentId(match?.id || agents[0]?.id || 'claude');
+      }
+    }
+  }, [profile, agents]);
 
   const handleBrowseDirectory = async () => {
     const dir = await window.api.selectDirectory();
@@ -75,16 +82,17 @@ export function ProfileEditor({
   const handleSave = () => {
     if (!name.trim() || !workingDirectory.trim()) return;
 
+    const agent = agents.find((a) => a.id === agentId);
+
     const saved: Profile = {
       id: profile?.id ?? generateId(name),
       name: name.trim(),
       icon,
       workingDirectory: workingDirectory.trim(),
-      command: command.trim() || 'claude',
-      args: args
-        .trim()
-        .split(/\s+/)
-        .filter((a) => a),
+      agentId,
+      // Store resolved command/args for backwards compat with older versions
+      command: agent?.command || 'claude',
+      args: agent?.args || [],
     };
 
     onSave(saved);
@@ -99,6 +107,8 @@ export function ProfileEditor({
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) onClose();
   };
+
+  const selectedAgent = agents.find((a) => a.id === agentId);
 
   return (
     <div className="modal-overlay" onClick={handleOverlayClick}>
@@ -144,25 +154,23 @@ export function ProfileEditor({
             </div>
           </label>
 
-          <label className="field">
-            <span className="field-label">Command</span>
-            <input
-              type="text"
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              placeholder="claude"
-            />
-          </label>
-
-          <label className="field">
-            <span className="field-label">Arguments</span>
-            <input
-              type="text"
-              value={args}
-              onChange={(e) => setArgs(e.target.value)}
-              placeholder="(optional, space-separated)"
-            />
-          </label>
+          <div className="field">
+            <span className="field-label">Agent</span>
+            <select
+              className="field-select"
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+            >
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+            {selectedAgent && (
+              <span className="field-hint">
+                {selectedAgent.command} {selectedAgent.args.join(' ')}
+              </span>
+            )}
+          </div>
 
           <label className="field">
             <span className="field-label">Icon</span>
