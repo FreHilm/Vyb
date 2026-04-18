@@ -153,11 +153,26 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       // Codex --resume guard: similar to Claude's --continue
       if (
         effectiveProfile.command === 'codex' &&
-        effectiveProfile.args?.includes('--resume')
+        effectiveProfile.args?.includes('resume')
       ) {
         let cwd = effectiveProfile.workingDirectory || os.homedir();
         if (cwd.startsWith('~')) cwd = cwd.replace(/^~/, os.homedir());
         if (!fs.existsSync(path.join(cwd, '.codex'))) {
+          effectiveProfile = {
+            ...effectiveProfile,
+            args: effectiveProfile.args.filter((a) => a !== '--resume'),
+          };
+        }
+      }
+
+      // Gemini --resume guard
+      if (
+        effectiveProfile.command === 'gemini' &&
+        effectiveProfile.args?.includes('resume')
+      ) {
+        let cwd = effectiveProfile.workingDirectory || os.homedir();
+        if (cwd.startsWith('~')) cwd = cwd.replace(/^~/, os.homedir());
+        if (!fs.existsSync(path.join(cwd, '.gemini'))) {
           effectiveProfile = {
             ...effectiveProfile,
             args: effectiveProfile.args.filter((a) => a !== '--resume'),
