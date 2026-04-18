@@ -63,7 +63,8 @@ export interface AgentConfig {
 
 export const DEFAULT_AGENTS: AgentConfig[] = [
   { id: 'claude', name: 'Claude', command: 'claude', args: ['--continue'] },
-  { id: 'codex', name: 'Codex', command: 'codex', args: ['--resume'] },
+  { id: 'codex', name: 'Codex', command: 'codex', args: ['resume'] },
+  { id: 'gemini', name: 'Gemini', command: 'gemini', args: ['--resume'] },
 ];
 
 export interface ExternalApp {
