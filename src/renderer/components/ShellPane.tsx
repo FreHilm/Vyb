@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
-import { ClipboardAddon } from '@xterm/addon-clipboard';
+// ClipboardAddon removed — it intercepts Escape key, breaking vi/vim
 import '@xterm/xterm/css/xterm.css';
 import { AppSettings } from '../../shared/types';
 import { getTerminalTheme } from '../theme';
@@ -137,7 +137,6 @@ export function ShellPane({
 
       const fitAddon = new FitAddon();
       terminal.loadAddon(fitAddon);
-      terminal.loadAddon(new ClipboardAddon());
 
       const termEl = document.createElement('div');
       termEl.className = 'shell-instance';
