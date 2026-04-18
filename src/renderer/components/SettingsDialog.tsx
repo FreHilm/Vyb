@@ -1,5 +1,36 @@
 import { useState } from 'react';
 import { AppSettings, ExternalApp, AgentConfig, DEFAULT_AGENTS } from '../../shared/types';
+
+// Built-in agent IDs that cannot be deleted
+const BUILTIN_AGENT_IDS = new Set(DEFAULT_AGENTS.map((a) => a.id));
+
+// Agent logo icons keyed by agent ID
+const AGENT_ICONS: Record<string, { viewBox: string; paths: string[]; color: string }> = {
+  // Claude: stylized starburst/asterisk
+  claude: {
+    viewBox: '0 0 16 16',
+    color: '#d97757',
+    paths: [
+      'M8 1.5v4M8 10.5v4M1.5 8h4M10.5 8h4M3.4 3.4l2.8 2.8M9.8 9.8l2.8 2.8M12.6 3.4l-2.8 2.8M6.2 9.8l-2.8 2.8',
+    ],
+  },
+  // Codex/OpenAI: simplified hexagonal knot
+  codex: {
+    viewBox: '0 0 16 16',
+    color: '#10a37f',
+    paths: [
+      'M8 1L2.5 4.5v7L8 15l5.5-3.5v-7L8 1zm0 2.5L11 5.5v2L8 9.5 5 7.5v-2L8 3.5z',
+    ],
+  },
+  // Gemini: four-pointed sparkle star
+  gemini: {
+    viewBox: '0 0 16 16',
+    color: '#4285f4',
+    paths: [
+      'M8 0C8 4.4 4.4 8 0 8c4.4 0 8 3.6 8 8 0-4.4 3.6-8 8-8-4.4 0-8-3.6-8-8z',
+    ],
+  },
+};
 import { hueToPreviewColor } from '../theme';
 import { APP_ICONS, APP_ICON_LABELS } from '../icons';
 
@@ -134,6 +165,7 @@ export function SettingsDialog({
   const [flameLength, setFlameLength] = useState(settings.flameLength);
   const [flameSpeed, setFlameSpeed] = useState(settings.flameSpeed);
   const [flamePreviewMode, setFlamePreviewMode] = useState<'working' | 'ready' | 'needs-input'>('working');
+  const [editingAgentIdx, setEditingAgentIdx] = useState<number | null>(null);
 
   const handleSave = () => {
     onSave({
@@ -528,70 +560,130 @@ export function SettingsDialog({
 
           {tab === 'agents' && (
             <>
-              <span className="field-hint" style={{ marginBottom: 8 }}>
-                Define the AI agents available for profiles.
-                Each agent has a command and default arguments.
+              <span className="field-hint" style={{ marginBottom: 12 }}>
+                AI agents available for profiles. Click edit to change command and arguments.
               </span>
 
-              {agents.map((agent, idx) => (
-                <div key={agent.id} className="ext-app-row">
-                  <div className="ext-app-fields" style={{ flex: 1 }}>
-                    <input
-                      type="text"
-                      value={agent.name}
-                      onChange={(e) => {
-                        const updated = [...agents];
-                        updated[idx] = { ...agent, name: e.target.value };
-                        setAgents(updated);
-                      }}
-                      placeholder="Name"
-                      className="ext-app-name"
-                    />
-                    <input
-                      type="text"
-                      value={agent.command}
-                      onChange={(e) => {
-                        const updated = [...agents];
-                        updated[idx] = { ...agent, command: e.target.value };
-                        setAgents(updated);
-                      }}
-                      placeholder="Command (e.g. claude)"
-                      className="ext-app-command"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                    <input
-                      type="text"
-                      value={agent.args.join(' ')}
-                      onChange={(e) => {
-                        const updated = [...agents];
-                        updated[idx] = {
-                          ...agent,
-                          args: e.target.value.trim().split(/\s+/).filter((a) => a),
-                        };
-                        setAgents(updated);
-                      }}
-                      placeholder="Arguments (e.g. --continue)"
-                      className="ext-app-command"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                  <button
-                    className="ext-app-delete"
-                    onClick={() => setAgents(agents.filter((_, i) => i !== idx))}
-                    title="Remove"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 14 14" fill="currentColor">
-                      <path d="M1.7 0.3a1 1 0 00-1.4 1.4L5.6 7l-5.3 5.3a1 1 0 101.4 1.4L7 8.4l5.3 5.3a1 1 0 001.4-1.4L8.4 7l5.3-5.3a1 1 0 00-1.4-1.4L7 5.6 1.7 0.3z" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
+              <div className="agent-list">
+                {agents.map((agent, idx) => {
+                  const isEditing = editingAgentIdx === idx;
+                  const isBuiltin = BUILTIN_AGENT_IDS.has(agent.id);
+                  const iconDef = AGENT_ICONS[agent.id];
+                  return (
+                    <div key={agent.id} className={`agent-card ${isEditing ? 'agent-card-editing' : ''}`}>
+                      <div className="agent-card-header">
+                        <div className="agent-card-icon" style={iconDef ? { color: iconDef.color } : undefined}>
+                          {iconDef ? (
+                            <svg width="20" height="20" viewBox={iconDef.viewBox}
+                              fill={agent.id === 'claude' ? 'none' : 'currentColor'}
+                              stroke={agent.id === 'claude' ? 'currentColor' : 'none'}
+                              strokeWidth={agent.id === 'claude' ? '1.8' : '0'}
+                              strokeLinecap="round"
+                            >
+                              {iconDef.paths.map((d, i) => <path key={i} d={d} />)}
+                            </svg>
+                          ) : (
+                            <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+                              <path d="M8 1a3 3 0 00-3 3v1H4a2 2 0 00-2 2v6a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-1V4a3 3 0 00-3-3zm0 1.5A1.5 1.5 0 019.5 4v1h-3V4A1.5 1.5 0 018 2.5zM6 9a1 1 0 112 0 1 1 0 01-2 0zm4 0a1 1 0 112 0 1 1 0 01-2 0z" />
+                            </svg>
+                          )}
+                        </div>
+                        <div className="agent-card-info">
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              className="agent-edit-input agent-edit-name"
+                              value={agent.name}
+                              onChange={(e) => {
+                                const updated = [...agents];
+                                updated[idx] = { ...agent, name: e.target.value };
+                                setAgents(updated);
+                              }}
+                              placeholder="Agent name"
+                              autoFocus
+                            />
+                          ) : (
+                            <span className="agent-card-name">{agent.name || 'Unnamed'}</span>
+                          )}
+                          <span className="agent-card-cmd">
+                            {agent.command}{agent.args.length > 0 ? ` ${agent.args.join(' ')}` : ''}
+                          </span>
+                        </div>
+                        <div className="agent-card-actions">
+                          <button
+                            className="agent-action-btn"
+                            onClick={() => setEditingAgentIdx(isEditing ? null : idx)}
+                            title={isEditing ? 'Done' : 'Edit'}
+                          >
+                            {isEditing ? (
+                              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" />
+                              </svg>
+                            ) : (
+                              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M11.5 1.5l3 3-9 9H2.5v-3l9-9zm-1 4l-7 7v1h1l7-7-1-1z" />
+                              </svg>
+                            )}
+                          </button>
+                          {!isBuiltin && (
+                            <button
+                              className="agent-action-btn agent-action-delete"
+                              onClick={() => setAgents(agents.filter((_, i) => i !== idx))}
+                              title="Remove"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M5.5 1h5l.5.5V3h3.5v1H13l-.7 10.2a1 1 0 01-1 .8H4.7a1 1 0 01-1-.8L3 4h-.5V3H6V1.5l.5-.5zM6 3h4V2H6v1z" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {isEditing && (
+                        <div className="agent-card-edit">
+                          <label className="field">
+                            <span className="field-label">Command</span>
+                            <input
+                              type="text"
+                              value={agent.command}
+                              onChange={(e) => {
+                                const updated = [...agents];
+                                updated[idx] = { ...agent, command: e.target.value };
+                                setAgents(updated);
+                              }}
+                              placeholder="e.g. claude"
+                              style={{ fontFamily: 'monospace' }}
+                            />
+                          </label>
+                          <label className="field">
+                            <span className="field-label">Arguments</span>
+                            <input
+                              type="text"
+                              value={agent.args.join(' ')}
+                              onChange={(e) => {
+                                const updated = [...agents];
+                                updated[idx] = {
+                                  ...agent,
+                                  args: e.target.value.trim() ? e.target.value.trim().split(/\s+/) : [],
+                                };
+                                setAgents(updated);
+                              }}
+                              placeholder="e.g. --continue"
+                              style={{ fontFamily: 'monospace' }}
+                            />
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
 
               <button
                 className="batch-generate-btn"
                 onClick={() => {
                   const id = `agent-${Date.now().toString(36)}`;
                   setAgents([...agents, { id, name: '', command: '', args: [] }]);
+                  setEditingAgentIdx(agents.length);
                 }}
               >
                 + Add Agent

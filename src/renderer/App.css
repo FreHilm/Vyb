@@ -1050,13 +1050,21 @@
 
 .settings-tabs {
   display: flex;
-  padding: 12px 24px 0;
+  padding: 0 24px;
   gap: 0;
   border-bottom: 1px solid var(--c-surface0);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.settings-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .settings-tab {
-  padding: 8px 20px;
+  padding: 10px 16px;
+  white-space: nowrap;
+  flex-shrink: 0;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
@@ -1133,6 +1141,37 @@
 .generate-icon-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* Agent picker in profile editor */
+.agent-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent-pick-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  border-radius: 6px;
+  color: var(--c-text);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.agent-pick-btn:hover {
+  background: var(--c-surface1);
+}
+
+.agent-pick-active {
+  border-color: var(--c-blue);
+  background: var(--c-surface1);
 }
 
 .icon-preview {
@@ -2005,6 +2044,134 @@
   border: none;
   border-top: 1px solid var(--c-surface0);
   margin: 24px 0;
+}
+
+/* Agent cards */
+.agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.agent-card {
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.agent-card-editing {
+  border-color: var(--c-blue);
+}
+
+.agent-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.agent-card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--c-surface1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--c-blue);
+}
+
+.agent-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+.agent-card-cmd {
+  font-size: 11px;
+  font-family: 'Menlo', monospace;
+  color: var(--c-overlay0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-edit-input {
+  background: var(--c-mantle);
+  border: 1px solid var(--c-surface1);
+  border-radius: 4px;
+  color: var(--c-text);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 2px 6px;
+  outline: none;
+  width: 100%;
+}
+
+.agent-edit-input:focus {
+  border-color: var(--c-blue);
+}
+
+.agent-edit-name {
+  font-weight: 600;
+}
+
+.agent-card-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.agent-action-btn {
+  background: none;
+  border: none;
+  color: var(--c-overlay0);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s, background 0.15s;
+}
+
+.agent-action-btn:hover {
+  color: var(--c-text);
+  background: var(--c-surface1);
+}
+
+.agent-action-delete:hover {
+  color: var(--c-red);
+  background: var(--c-red-dim);
+}
+
+.agent-card-edit {
+  padding: 0 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--c-surface1);
+  margin-top: 0;
+  padding-top: 10px;
+}
+
+.agent-card-edit .field {
+  margin-bottom: 0;
+}
+
+.agent-card-edit .field-label {
+  font-size: 11px;
 }
 
 /* External app editor rows */
