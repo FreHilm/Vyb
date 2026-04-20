@@ -166,6 +166,7 @@ export function SettingsDialog({
   const [flameSpeed, setFlameSpeed] = useState(settings.flameSpeed);
   const [flamePreviewMode, setFlamePreviewMode] = useState<'working' | 'ready' | 'needs-input'>('working');
   const [editingAgentIdx, setEditingAgentIdx] = useState<number | null>(null);
+  const [showAgentBadge, setShowAgentBadge] = useState(settings.showAgentBadge !== false);
 
   const handleSave = () => {
     onSave({
@@ -193,6 +194,7 @@ export function SettingsDialog({
       flameSpread,
       flameLength,
       flameSpeed,
+      showAgentBadge,
     });
   };
 
@@ -443,6 +445,18 @@ export function SettingsDialog({
                   Auto tries WebGL first, falls back to canvas. Use Canvas if you see rendering glitches.
                 </span>
               </div>
+
+              <label className="field field-row-toggle">
+                <span className="field-label">Show agent logo on profiles</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={showAgentBadge}
+                    onChange={(e) => setShowAgentBadge(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
             </>
           )}
 

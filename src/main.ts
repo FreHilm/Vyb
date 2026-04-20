@@ -29,6 +29,10 @@ let mainWindow: BrowserWindow | null = null;
 
 function buildMenu() {
   const isMac = process.platform === 'darwin';
+  // IMPORTANT: menu role items (copy/paste/undo/selectAll/reload/etc.) install
+  // OS-level key handlers on macOS packaged apps that intercept keys BEFORE
+  // the renderer/xterm.js can receive them. Keep the menu minimal — no roles
+  // with keyboard accelerators that could conflict with terminal input.
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(isMac
       ? [
@@ -39,11 +43,8 @@ function buildMenu() {
               { type: 'separator' as const },
               { label: 'Settings...', accelerator: 'Cmd+,', click: openSettings },
               { type: 'separator' as const },
-              { role: 'hide' as const },
-              { role: 'hideOthers' as const },
-              { role: 'unhide' as const },
-              { type: 'separator' as const },
-              { role: 'quit' as const },
+              { label: 'Hide ' + APP_NAME, accelerator: 'Cmd+H', role: 'hide' as const },
+              { label: 'Quit ' + APP_NAME, accelerator: 'Cmd+Q', role: 'quit' as const },
             ],
           },
         ]
@@ -57,32 +58,16 @@ function buildMenu() {
               { type: 'separator' as const },
             ]
           : []),
-        isMac ? { role: 'close' as const } : { role: 'quit' as const },
-      ],
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' as const },
-        { role: 'redo' as const },
-        { type: 'separator' as const },
-        { role: 'cut' as const },
-        { role: 'copy' as const },
-        { role: 'paste' as const },
-        { role: 'selectAll' as const },
+        isMac
+          ? { label: 'Close Window', accelerator: 'Cmd+W', role: 'close' as const }
+          : { role: 'quit' as const },
       ],
     },
     {
       label: 'View',
       submenu: [
-        { role: 'reload' as const },
-        { role: 'toggleDevTools' as const },
-        { type: 'separator' as const },
-        { role: 'resetZoom' as const },
-        { role: 'zoomIn' as const },
-        { role: 'zoomOut' as const },
-        { type: 'separator' as const },
-        { role: 'togglefullscreen' as const },
+        { label: 'Toggle Full Screen', accelerator: isMac ? 'Ctrl+Cmd+F' : 'F11', role: 'togglefullscreen' as const },
+        { label: 'Toggle DevTools', accelerator: 'F12', click: () => mainWindow?.webContents.toggleDevTools() },
       ],
     },
   ];
