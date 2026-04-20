@@ -45,6 +45,59 @@ export function escapePathForShell(p: string): string {
   return p.replace(/([ ()[\]{}$`!#&|;'"<>\\])/g, '\\$1');
 }
 
+// Smart key event handler for xterm.js — handles Option+arrows (word nav),
+// Cmd+C (copy), Cmd+V (paste) before xterm's default behavior.
+// Returns false = don't let xterm process. Returns true = let xterm process.
+export function makeTerminalKeyHandler(terminal: Terminal, sendInput: (data: string) => void) {
+  return (e: KeyboardEvent): boolean => {
+    // Only react to keydown (ignore keyup, keypress)
+    if (e.type !== 'keydown') return true;
+
+    // macOS: Option + arrow → word navigation (ESC b / ESC f)
+    if (e.altKey && !e.metaKey && !e.ctrlKey) {
+      if (e.key === 'ArrowLeft') {
+        sendInput('\x1bb');
+        return false;
+      }
+      if (e.key === 'ArrowRight') {
+        sendInput('\x1bf');
+        return false;
+      }
+      if (e.key === 'Backspace') {
+        // Delete previous word
+        sendInput('\x1b\x7f');
+        return false;
+      }
+    }
+
+    // Cmd+C (macOS) / Ctrl+Shift+C (linux/win) → copy selection if any
+    if ((e.metaKey || (e.ctrlKey && e.shiftKey)) && (e.key === 'c' || e.key === 'C')) {
+      const sel = terminal.getSelection();
+      if (sel) {
+        navigator.clipboard.writeText(sel);
+        return false;
+      }
+      // No selection — let the key through (Ctrl+C = SIGINT)
+    }
+
+    // Cmd+V (macOS) / Ctrl+Shift+V (linux/win) → paste clipboard
+    if ((e.metaKey || (e.ctrlKey && e.shiftKey)) && (e.key === 'v' || e.key === 'V')) {
+      navigator.clipboard.readText().then((text) => {
+        if (text) sendInput(text);
+      }).catch(() => { /* clipboard blocked */ });
+      return false;
+    }
+
+    // Cmd+A → select all in terminal
+    if (e.metaKey && (e.key === 'a' || e.key === 'A')) {
+      terminal.selectAll();
+      return false;
+    }
+
+    return true;
+  };
+}
+
 // Attach native DOM drag-and-drop to a terminal element.
 // Pastes shell-escaped file paths into the terminal on drop.
 export function setupTerminalDrop(
@@ -154,6 +207,9 @@ function createTerminalInstance(
     fontFamily: 'Menlo, Monaco, "Courier New", monospace',
     theme,
     allowProposedApi: true,
+    // macOS Option key acts as Meta — enables Option+←/→ for word navigation
+    macOptionIsMeta: true,
+    macOptionClickForcesSelection: false,
   });
 
   const fitAddon = new FitAddon();
@@ -179,14 +235,14 @@ function openTerminal(instance: TerminalInstance, gpuMode: string, profileId: st
   instance.opened = true;
   instance.element.style.display = 'block';
   instance.terminal.open(instance.element);
-  // Attach custom key handler AFTER open() — tells xterm.js to process all keys
-  // normally without any default filtering. Critical for vi/vim in packaged apps.
-  instance.terminal.attachCustomKeyEventHandler(() => true);
+  // Attach smart key handler — handles Option+arrows (word nav), Cmd+C/V (copy/paste)
+  const sendInput = (data: string) => window.api.sendInput(profileId, data);
+  instance.terminal.attachCustomKeyEventHandler(
+    makeTerminalKeyHandler(instance.terminal, sendInput),
+  );
   activateWebgl(instance, gpuMode);
   // Attach native drop handler to the xterm.js element
-  setupTerminalDrop(instance.element, (data) => {
-    window.api.sendInput(profileId, data);
-  });
+  setupTerminalDrop(instance.element, sendInput);
 }
 
 function activateWebgl(instance: TerminalInstance, mode: string): void {
