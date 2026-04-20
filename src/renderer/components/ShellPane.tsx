@@ -142,6 +142,8 @@ export function ShellPane({
       termEl.className = 'shell-instance';
       panelDiv.appendChild(termEl);
       terminal.open(termEl);
+      // Pass all key events through to xterm.js — critical for vi/vim in packaged apps
+      terminal.attachCustomKeyEventHandler(() => true);
 
       // Native file drop handler (like VS Code)
       setupTerminalDrop(termEl, (data) => {

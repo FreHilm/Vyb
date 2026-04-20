@@ -179,6 +179,9 @@ function openTerminal(instance: TerminalInstance, gpuMode: string, profileId: st
   instance.opened = true;
   instance.element.style.display = 'block';
   instance.terminal.open(instance.element);
+  // Attach custom key handler AFTER open() — tells xterm.js to process all keys
+  // normally without any default filtering. Critical for vi/vim in packaged apps.
+  instance.terminal.attachCustomKeyEventHandler(() => true);
   activateWebgl(instance, gpuMode);
   // Attach native drop handler to the xterm.js element
   setupTerminalDrop(instance.element, (data) => {
@@ -258,9 +261,21 @@ export function TerminalPane({
     });
   }, [settings.baseHue, settings.darkness, settings.agentFontSize]);
 
-  // Create xterm.js instances for initialized profiles
+  // Create xterm.js instances for initialized profiles, dispose removed ones
   useEffect(() => {
     const theme = getTerminalTheme(settings.baseHue, settings.darkness);
+
+    // Dispose terminals that are no longer in the initialized set
+    for (const [profileId, instance] of agentTerminalsRef.current.entries()) {
+      if (!initialized.has(profileId)) {
+        deactivateWebgl(instance);
+        instance.terminal.dispose();
+        instance.element.remove();
+        agentTerminalsRef.current.delete(profileId);
+      }
+    }
+
+    // Create terminals for newly initialized profiles
     for (const profileId of initialized) {
       if (agentTerminalsRef.current.has(profileId)) continue;
       if (!agentContainerRef.current) continue;

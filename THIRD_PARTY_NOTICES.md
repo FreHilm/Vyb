@@ -35,6 +35,7 @@ with the MIT license of this project.
 | [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react) | MIT | React support for Vite |
 | [ESLint](https://github.com/eslint/eslint) | MIT | Linter |
 | [@typescript-eslint/parser](https://github.com/typescript-eslint/typescript-eslint) | BSD-2-Clause | TypeScript ESLint parser |
+| [terser](https://github.com/terser/terser) | BSD-2-Clause | JavaScript minifier (needed for xterm.js compatibility) |
 | [@typescript-eslint/eslint-plugin](https://github.com/typescript-eslint/typescript-eslint) | MIT | TypeScript ESLint rules |
 | [eslint-plugin-import](https://github.com/import-js/eslint-plugin-import) | MIT | Import/export linting |
 

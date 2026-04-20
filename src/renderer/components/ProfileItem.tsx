@@ -1,14 +1,47 @@
 import { useEffect, useState, useRef } from 'react';
 import { Profile, AgentStatus } from '../../shared/types';
 
+// Agent icons — same definitions as ProfileEditor/SettingsDialog
+const AGENT_ICON_DEFS: Record<string, { viewBox: string; paths: string[]; color: string; stroke?: boolean }> = {
+  claude: { viewBox: '0 0 16 16', color: '#d97757', stroke: true, paths: ['M8 1.5v4M8 10.5v4M1.5 8h4M10.5 8h4M3.4 3.4l2.8 2.8M9.8 9.8l2.8 2.8M12.6 3.4l-2.8 2.8M6.2 9.8l-2.8 2.8'] },
+  codex: { viewBox: '0 0 16 16', color: '#10a37f', paths: ['M8 1L2.5 4.5v7L8 15l5.5-3.5v-7L8 1zm0 2.5L11 5.5v2L8 9.5 5 7.5v-2L8 3.5z'] },
+  gemini: { viewBox: '0 0 16 16', color: '#4285f4', paths: ['M8 0C8 4.4 4.4 8 0 8c4.4 0 8 3.6 8 8 0-4.4 3.6-8 8-8-4.4 0-8-3.6-8-8z'] },
+};
+
+function SmallAgentIcon({ agentId }: { agentId?: string }) {
+  if (!agentId) return null;
+  const icon = AGENT_ICON_DEFS[agentId];
+  if (!icon) {
+    return (
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="var(--c-overlay0)">
+        <circle cx="8" cy="8" r="5" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="14" height="14" viewBox={icon.viewBox}
+      fill={icon.stroke ? 'none' : icon.color}
+      stroke={icon.stroke ? icon.color : 'none'}
+      strokeWidth={icon.stroke ? '2' : '0'}
+      strokeLinecap="round"
+    >
+      {icon.paths.map((d, i) => <path key={i} d={d} />)}
+    </svg>
+  );
+}
+
 interface ProfileItemProps {
   profile: Profile;
   isActive: boolean;
   status: AgentStatus;
   hasUpdate: boolean;
   iconRevision: number;
+  isRunning: boolean;
+  showAgentBadge: boolean;
   onClick: () => void;
   onEdit: () => void;
+  onStop: () => void;
+  onReload: () => void;
 }
 
 const STATUS_COLORS: Record<AgentStatus, string> = {
@@ -31,8 +64,12 @@ export function ProfileItem({
   status,
   hasUpdate,
   iconRevision,
+  isRunning,
+  showAgentBadge,
   onClick,
   onEdit,
+  onStop,
+  onReload,
 }: ProfileItemProps) {
   const [bouncing, setBouncing] = useState(false);
   const prevActiveRef = useRef(isActive);
@@ -119,10 +156,37 @@ export function ProfileItem({
             <path d="M9.1.9a1.5 1.5 0 012.1 2.1L4 10.2 0 12l1.8-4L9.1.9z" />
           </svg>
         </button>
+        {showAgentBadge && profile.agentId && (
+          <div className="agent-badge" title={profile.agentId}>
+            <SmallAgentIcon agentId={profile.agentId} />
+          </div>
+        )}
       </div>
       <div className="profile-info">
         <span className="profile-name">{profile.name}</span>
       </div>
+      {isRunning && (
+        <div className="profile-controls">
+          <button
+            className="profile-ctrl-btn profile-ctrl-reload"
+            onClick={(e) => { e.stopPropagation(); onReload(); }}
+            title="Reload agent"
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 3V1L4.5 4.5 8 8V6a4 4 0 11-4 4H2.5A5.5 5.5 0 108 3z" />
+            </svg>
+          </button>
+          <button
+            className="profile-ctrl-btn profile-ctrl-stop"
+            onClick={(e) => { e.stopPropagation(); onStop(); }}
+            title="Stop agent"
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <rect x="3" y="3" width="10" height="10" rx="1.5" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

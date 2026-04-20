@@ -79,6 +79,8 @@ export function App() {
     new Map(),
   );
   const [initialized, setInitialized] = useState<Set<string>>(new Set());
+  // Profiles the user explicitly stopped — don't auto-init them
+  const stoppedRef = useRef<Set<string>>(new Set());
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
   const [iconRevision, setIconRevision] = useState(0);
@@ -257,6 +259,8 @@ export function App() {
 
   const handleSelectProfile = useCallback(
     (profileId: string) => {
+      // User-initiated selection clears the stopped flag — reinit will proceed
+      stoppedRef.current.delete(profileId);
       setActiveProfileId(profileId);
       initializeProfile(profileId);
       setHasUpdates((prev) => {
@@ -276,6 +280,9 @@ export function App() {
 
     // If already initialized, no need to debounce
     if (initialized.has(activeProfileId)) return;
+
+    // If user explicitly stopped this profile, don't auto-init until they re-select or reload
+    if (stoppedRef.current.has(activeProfileId)) return;
 
     if (autoInitRef.current) clearTimeout(autoInitRef.current);
     autoInitRef.current = setTimeout(() => {
@@ -315,6 +322,43 @@ export function App() {
       initializeProfile(saved.id);
     }
   };
+
+  const handleStopProfile = useCallback(async (profileId: string) => {
+    // Mark as stopped to prevent auto-init
+    stoppedRef.current.add(profileId);
+    // Destroy the PTY
+    await window.api.destroyTerminal(profileId);
+    // Close any shell terminals for this profile
+    setShellOpenSet((prev) => {
+      if (!prev.has(profileId)) return prev;
+      const next = new Set(prev);
+      next.delete(profileId);
+      return next;
+    });
+    // Remove from initialized set — TerminalPane will dispose the xterm.js instance
+    setInitialized((prev) => {
+      if (!prev.has(profileId)) return prev;
+      const next = new Set(prev);
+      next.delete(profileId);
+      return next;
+    });
+    // Reset status to offline
+    setStatuses((prev) => {
+      const next = new Map(prev);
+      next.set(profileId, 'offline');
+      return next;
+    });
+  }, []);
+
+  const handleReloadProfile = useCallback(async (profileId: string) => {
+    await handleStopProfile(profileId);
+    // Clear the stopped flag so auto-init works for this profile again
+    stoppedRef.current.delete(profileId);
+    // Re-initialize after a short delay to let cleanup settle
+    setTimeout(() => {
+      setInitialized((prev) => new Set(prev).add(profileId));
+    }, 100);
+  }, [handleStopProfile]);
 
   const handleDeleteProfile = async (profileId: string) => {
     const updated = profiles.filter((p) => p.id !== profileId);
@@ -455,6 +499,7 @@ export function App() {
   // Keyboard profile navigation — only updates visual selection.
   // The auto-init effect (2s debounce) handles terminal initialization.
   const navSelectProfile = useCallback((profileId: string) => {
+    stoppedRef.current.delete(profileId);
     setActiveProfileId(profileId);
     window.api.setActiveProfile(profileId);
     setHasUpdates((prev) => {
@@ -590,6 +635,10 @@ export function App() {
         onSelectProfile={handleSelectProfile}
         onEditProfile={handleEditProfile}
         onAddProfile={handleAddProfile}
+        onStopProfile={handleStopProfile}
+        onReloadProfile={handleReloadProfile}
+        initialized={initialized}
+        showAgentBadge={settings.showAgentBadge !== false}
       />
       <ResizeHandle direction="horizontal" onResize={handleSidebarResize} />
       <div className="main-area">

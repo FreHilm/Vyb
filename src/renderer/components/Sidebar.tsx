@@ -20,6 +20,10 @@ interface SidebarProps {
   onSelectProfile: (profileId: string) => void;
   onEditProfile: (profile: Profile) => void;
   onAddProfile: () => void;
+  onStopProfile: (profileId: string) => void;
+  onReloadProfile: (profileId: string) => void;
+  initialized: Set<string>;
+  showAgentBadge: boolean;
 }
 
 type DragData =
@@ -76,6 +80,10 @@ export function Sidebar({
   onSelectProfile,
   onEditProfile,
   onAddProfile,
+  onStopProfile,
+  onReloadProfile,
+  initialized,
+  showAgentBadge,
   iconRevision,
   hasUpdates,
   navActive,
@@ -284,8 +292,12 @@ export function Sidebar({
           status={statuses.get(profile.id) || 'offline'}
           hasUpdate={hasUpdates.has(profile.id)}
           iconRevision={iconRevision}
+          isRunning={initialized.has(profile.id)}
+          showAgentBadge={showAgentBadge}
           onClick={() => onSelectProfile(profile.id)}
           onEdit={() => onEditProfile(profile)}
+          onStop={() => onStopProfile(profile.id)}
+          onReload={() => onReloadProfile(profile.id)}
         />
       </div>
     );

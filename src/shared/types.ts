@@ -52,6 +52,7 @@ export interface AppSettings {
   flameSpread: number; // 0-100, default 50. Controls horizontal spread of flame spikes.
   flameLength: number; // 0-100, default 50. Controls how far flames extend from edge.
   flameSpeed: number; // 0-100, default 50. Controls animation speed.
+  showAgentBadge: boolean; // Show agent logo badge on profile items
 }
 
 export interface AgentConfig {
@@ -104,6 +105,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   flameSpread: 50,
   flameLength: 50,
   flameSpeed: 50,
+  showAgentBadge: true,
 };
 
 /** Resolve the command and args for a profile, looking up the agent config if set */

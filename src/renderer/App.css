@@ -513,6 +513,66 @@
   min-width: 0;
 }
 
+.field-row-toggle {
+  display: flex;
+  flex-direction: row !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-badge {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--c-mantle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+  border: 1.5px solid var(--c-mantle);
+}
+
+.profile-controls {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.profile-item:hover .profile-controls {
+  opacity: 1;
+}
+
+.profile-ctrl-btn {
+  background: none;
+  border: none;
+  color: var(--c-overlay0);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+
+.profile-ctrl-btn:hover {
+  background: var(--c-surface1);
+}
+
+.profile-ctrl-reload:hover {
+  color: var(--c-blue);
+}
+
+.profile-ctrl-stop:hover {
+  color: var(--c-red);
+}
+
 .profile-name {
   font-size: var(--profile-font-size);
   font-weight: 500;
@@ -1798,6 +1858,15 @@
   height: 100%;
   overflow: hidden;
   padding: 2px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Constrain xterm canvases so they don't create stacking contexts above UI */
+.shell-instance .xterm,
+.shell-instance .xterm-screen,
+.shell-instance .xterm-viewport {
+  z-index: auto !important;
 }
 
 /* Close button — top-right of each panel, visible on hover */
@@ -1805,7 +1874,7 @@
   position: absolute;
   top: 4px;
   right: 4px;
-  z-index: 10;
+  z-index: 1000;
   background: var(--c-surface0);
   border: 1px solid var(--c-surface1);
   border-radius: 4px;
@@ -1816,6 +1885,8 @@
   align-items: center;
   opacity: 0;
   transition: opacity 0.15s;
+  isolation: isolate;
+  pointer-events: auto;
 }
 
 .shell-panel:hover .shell-close-btn {
