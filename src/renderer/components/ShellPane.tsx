@@ -7,7 +7,7 @@ import '@xterm/xterm/css/xterm.css';
 import { AppSettings } from '../../shared/types';
 import { getTerminalTheme } from '../theme';
 import { ResizeHandle } from './ResizeHandle';
-import { setupTerminalDrop, debouncedPtyResize } from './TerminalPane';
+import { setupTerminalDrop, debouncedPtyResize, makeTerminalKeyHandler } from './TerminalPane';
 
 interface ShellPaneProps {
   profileId: string;
@@ -133,6 +133,8 @@ export function ShellPane({
         fontFamily: 'Menlo, Monaco, "Courier New", monospace',
         theme,
         allowProposedApi: true,
+        macOptionIsMeta: true,
+        macOptionClickForcesSelection: false,
       });
 
       const fitAddon = new FitAddon();
@@ -142,8 +144,10 @@ export function ShellPane({
       termEl.className = 'shell-instance';
       panelDiv.appendChild(termEl);
       terminal.open(termEl);
-      // Pass all key events through to xterm.js — critical for vi/vim in packaged apps
-      terminal.attachCustomKeyEventHandler(() => true);
+      // Smart key handler — Option+arrows for word nav, Cmd+C/V for copy/paste
+      terminal.attachCustomKeyEventHandler(
+        makeTerminalKeyHandler(terminal, (data) => window.api.sendInput(shell.id, data)),
+      );
 
       // Native file drop handler (like VS Code)
       setupTerminalDrop(termEl, (data) => {
