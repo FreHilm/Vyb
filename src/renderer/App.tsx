@@ -65,6 +65,7 @@ declare global {
       loadScrollback: (profileId: string) => Promise<string | null>;
       loadReadme: (workingDirectory: string) => Promise<string | null>;
       setActiveProfile: (profileId: string | null) => void;
+      onActivateProfileRequest: (callback: (profileId: string) => void) => () => void;
       generateIcon: (profileId: string, projectName: string) => Promise<string | null>;
       loadLayout: () => Promise<SidebarLayout>;
       saveLayout: (layout: SidebarLayout) => Promise<void>;
@@ -171,9 +172,22 @@ export function App() {
       setSettingsOpen(true);
     });
 
+    // Handle notification click — switch to the profile that needs attention
+    const unsubActivate = window.api.onActivateProfileRequest((profileId) => {
+      stoppedRef.current.delete(profileId);
+      setActiveProfileId(profileId);
+      setHasUpdates((prev) => {
+        if (!prev.has(profileId)) return prev;
+        const next = new Set(prev);
+        next.delete(profileId);
+        return next;
+      });
+    });
+
     return () => {
       unsubStatus();
       unsubSettings();
+      unsubActivate();
     };
   }, []);
 
