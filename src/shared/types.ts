@@ -157,6 +157,7 @@ export const IPC_CHANNELS = {
   SETTINGS_SAVE: 'settings:save',
   SETTINGS_OPEN_DIALOG: 'settings:openDialog',
   PROFILE_SET_ACTIVE: 'profile:setActive',
+  PROFILE_ACTIVATE_REQUEST: 'profile:activateRequest',
   GENERATE_ICON: 'icon:generate',
   LAYOUT_LOAD: 'layout:load',
   LAYOUT_SAVE: 'layout:save',

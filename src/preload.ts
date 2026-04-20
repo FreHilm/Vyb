@@ -100,6 +100,12 @@ contextBridge.exposeInMainWorld('api', {
   setActiveProfile: (profileId: string | null): void =>
     ipcRenderer.send(IPC_CHANNELS.PROFILE_SET_ACTIVE, profileId),
 
+  onActivateProfileRequest: (callback: (profileId: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, profileId: string) => callback(profileId);
+    ipcRenderer.on(IPC_CHANNELS.PROFILE_ACTIVATE_REQUEST, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PROFILE_ACTIVATE_REQUEST, handler);
+  },
+
   platform: process.platform,
 
   getGitStatus: (cwd: string): Promise<GitStatus> =>

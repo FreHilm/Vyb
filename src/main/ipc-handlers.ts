@@ -74,6 +74,14 @@ export function setupIpcHandlers(window: BrowserWindow): void {
           opts.icon = profile.icon;
         }
         const notification = new Notification(opts);
+        notification.on('click', () => {
+          if (mainWindow.isDestroyed()) return;
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.show();
+          mainWindow.focus();
+          // Tell renderer to switch to this profile
+          safeSend(IPC_CHANNELS.PROFILE_ACTIVATE_REQUEST, profileId);
+        });
         notification.show();
       }
     }
