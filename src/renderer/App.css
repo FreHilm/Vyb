@@ -611,23 +611,30 @@
 }
 
 .action-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
-  background: var(--c-surface0);
-  border: 1px solid var(--c-surface1);
-  border-radius: 6px;
+  padding: 6px 11px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
   color: var(--c-text);
   font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 100ms, color 100ms, border-color 100ms;
   position: relative;
   font-family: inherit;
 }
 
 .action-btn:hover:not(:disabled) {
-  background: var(--c-surface1);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.action-btn svg {
+  color: var(--c-overlay0);
 }
 
 .action-btn:disabled {
@@ -761,8 +768,12 @@
 }
 
 .action-btn-active {
-  background: var(--c-surface2);
-  border-color: var(--c-blue);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.025));
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--c-text);
+}
+
+.action-btn-active svg {
   color: var(--c-blue);
 }
 
