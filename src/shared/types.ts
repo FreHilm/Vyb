@@ -164,6 +164,8 @@ export const IPC_CHANNELS = {
   README_LOAD: 'readme:load',
   GIT_STATUS: 'git:status',
   GIT_FETCH: 'git:fetch',
+  GIT_CHANGED_FILES: 'git:changedFiles',
+  GIT_FILE_DIFF: 'git:fileDiff',
   FILE_LIST_DIR: 'file:listDir',
   FILE_READ: 'file:read',
   FILE_SAVE: 'file:save',
@@ -186,6 +188,14 @@ export interface FileEntry {
   name: string;
   path: string;
   isDirectory: boolean;
+}
+
+export interface GitChangedFile {
+  path: string;
+  added: number;   // lines added
+  deleted: number; // lines deleted
+  status: 'modified' | 'added' | 'deleted' | 'untracked' | 'renamed';
+  staged: boolean;
 }
 
 export interface GitStatus {

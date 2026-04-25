@@ -3,11 +3,12 @@ import { GitStatus, Profile } from '../../shared/types';
 
 interface StatusBarProps {
   profile: Profile | null;
+  onToggleChanges?: () => void;
 }
 
 const POLL_INTERVAL = 10000; // 10 seconds
 
-export function StatusBar({ profile }: StatusBarProps) {
+export function StatusBar({ profile, onToggleChanges }: StatusBarProps) {
   const [git, setGit] = useState<GitStatus | null>(null);
   const [fetching, setFetching] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -64,20 +65,21 @@ export function StatusBar({ profile }: StatusBarProps) {
               </svg>
               {git.branch}
             </span>
-            {git.staged > 0 && (
-              <span className="status-item status-staged" title={`${git.staged} staged`}>
-                +{git.staged}
-              </span>
-            )}
-            {git.modified > 0 && (
-              <span className="status-item status-modified" title={`${git.modified} modified`}>
-                ~{git.modified}
-              </span>
-            )}
-            {git.untracked > 0 && (
-              <span className="status-item status-untracked" title={`${git.untracked} untracked`}>
-                ?{git.untracked}
-              </span>
+            {(git.staged > 0 || git.modified > 0 || git.untracked > 0) && onToggleChanges && (
+              <button
+                className="status-item status-changes-btn"
+                onClick={onToggleChanges}
+                title={`${git.staged + git.modified + git.untracked} changed files (${git.staged} staged, ${git.modified} modified, ${git.untracked} untracked) — click to view`}
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M4 2h5l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1zm4.5 0v3.5H12M5 7h6M5 9h6M5 11h4" stroke="currentColor" strokeWidth="0.5" fill="none" />
+                  <circle cx="13" cy="3" r="2.5" fill="var(--c-yellow)" />
+                  <text x="13" y="4.5" textAnchor="middle" fontSize="3.5" fill="var(--c-base)" fontWeight="bold">
+                    {git.staged + git.modified + git.untracked}
+                  </text>
+                </svg>
+                <span className="status-changes-count">{git.staged + git.modified + git.untracked}</span>
+              </button>
             )}
             {(git.ahead > 0 || git.behind > 0) && (
               <span className="status-item status-sync" title={`${git.ahead} ahead, ${git.behind} behind`}>
