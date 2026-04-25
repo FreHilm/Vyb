@@ -72,6 +72,7 @@ export function ProfileItem({
   onReload,
 }: ProfileItemProps) {
   const [bouncing, setBouncing] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'reload' | 'stop' | null>(null);
   const prevActiveRef = useRef(isActive);
 
   useEffect(() => {
@@ -169,7 +170,7 @@ export function ProfileItem({
         <div className="profile-controls">
           <button
             className="profile-ctrl-btn profile-ctrl-reload"
-            onClick={(e) => { e.stopPropagation(); onReload(); }}
+            onClick={(e) => { e.stopPropagation(); setPendingAction('reload'); }}
             title="Reload agent"
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
@@ -178,13 +179,56 @@ export function ProfileItem({
           </button>
           <button
             className="profile-ctrl-btn profile-ctrl-stop"
-            onClick={(e) => { e.stopPropagation(); onStop(); }}
+            onClick={(e) => { e.stopPropagation(); setPendingAction('stop'); }}
             title="Stop agent"
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
               <rect x="3" y="3" width="10" height="10" rx="1.5" />
             </svg>
           </button>
+        </div>
+      )}
+      {pendingAction && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => { e.stopPropagation(); setPendingAction(null); }}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{pendingAction === 'reload' ? 'Reload Agent' : 'Stop Agent'}</h3>
+            </div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, lineHeight: 1.5 }}>
+                {pendingAction === 'reload' ? (
+                  <>Reload <strong>{profile.name}</strong>? The current session will be terminated and a new one started.</>
+                ) : (
+                  <>Stop <strong>{profile.name}</strong>? The running session will be terminated.</>
+                )}
+              </p>
+            </div>
+            <div className="modal-footer">
+              <div className="modal-footer-right">
+                <button
+                  className="cancel-btn"
+                  onClick={(e) => { e.stopPropagation(); setPendingAction(null); }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="delete-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const action = pendingAction;
+                    setPendingAction(null);
+                    if (action === 'reload') onReload();
+                    else onStop();
+                  }}
+                >
+                  {pendingAction === 'reload' ? 'Reload' : 'Stop'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
