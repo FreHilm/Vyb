@@ -612,6 +612,103 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.GIT_CHANGED_FILES, (_, cwd: string): { path: string; added: number; deleted: number; status: string; staged: boolean }[] => {
+    const run = (cmd: string): string => {
+      try {
+        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }).trim();
+      } catch {
+        return '';
+      }
+    };
+
+    // Parse status porcelain to get file states (staged vs unstaged vs untracked)
+    const statusLines = run('git status --porcelain=v1').split('\n').filter(Boolean);
+    const fileMap = new Map<string, { status: string; staged: boolean }>();
+    for (const line of statusLines) {
+      const x = line[0];
+      const y = line[1];
+      const filePath = line.slice(3).replace(/^"(.*)"$/, '$1');
+      if (x === '?') {
+        fileMap.set(filePath, { status: 'untracked', staged: false });
+      } else if (x === 'A' || y === 'A') {
+        fileMap.set(filePath, { status: 'added', staged: x !== ' ' });
+      } else if (x === 'D' || y === 'D') {
+        fileMap.set(filePath, { status: 'deleted', staged: x !== ' ' });
+      } else if (x === 'R' || y === 'R') {
+        fileMap.set(filePath, { status: 'renamed', staged: x !== ' ' });
+      } else {
+        fileMap.set(filePath, { status: 'modified', staged: x !== ' ' });
+      }
+    }
+
+    // Get line counts: staged (cached) + unstaged
+    const counts = new Map<string, { added: number; deleted: number }>();
+    const parseNumstat = (output: string) => {
+      for (const line of output.split('\n').filter(Boolean)) {
+        const parts = line.split('\t');
+        if (parts.length < 3) continue;
+        const added = parts[0] === '-' ? 0 : parseInt(parts[0], 10) || 0;
+        const deleted = parts[1] === '-' ? 0 : parseInt(parts[1], 10) || 0;
+        const filePath = parts[2].replace(/^"(.*)"$/, '$1');
+        const existing = counts.get(filePath) || { added: 0, deleted: 0 };
+        counts.set(filePath, {
+          added: existing.added + added,
+          deleted: existing.deleted + deleted,
+        });
+      }
+    };
+    parseNumstat(run('git diff --numstat'));          // unstaged changes
+    parseNumstat(run('git diff --cached --numstat')); // staged changes
+
+    // Build result
+    const result: { path: string; added: number; deleted: number; status: string; staged: boolean }[] = [];
+    for (const [path, info] of fileMap) {
+      const c = counts.get(path) || { added: 0, deleted: 0 };
+      // For untracked files, count lines in the file as "added"
+      let added = c.added;
+      let deleted = c.deleted;
+      if (info.status === 'untracked') {
+        try {
+          const absPath = path.startsWith('/') ? path : `${cwd}/${path}`;
+          const content = fs.readFileSync(absPath, 'utf-8');
+          added = content.split('\n').length;
+        } catch { /* binary or unreadable */ }
+      }
+      result.push({ path, added, deleted, status: info.status, staged: info.staged });
+    }
+    // Sort: staged first, then alphabetical
+    result.sort((a, b) => {
+      if (a.staged !== b.staged) return a.staged ? -1 : 1;
+      return a.path.localeCompare(b.path);
+    });
+    return result;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_FILE_DIFF, (_, cwd: string, filePath: string): string => {
+    const run = (cmd: string): string => {
+      try {
+        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 });
+      } catch {
+        return '';
+      }
+    };
+    const escaped = filePath.replace(/"/g, '\\"');
+    // Combine staged + unstaged diff; fallback to showing full content for untracked
+    let diff = run(`git diff HEAD -- "${escaped}"`);
+    if (!diff) {
+      // Untracked file — show full content as all-added
+      try {
+        const absPath = filePath.startsWith('/') ? filePath : `${cwd}/${filePath}`;
+        const content = fs.readFileSync(absPath, 'utf-8');
+        const lines = content.split('\n');
+        diff = `+++ b/${filePath}\n@@ -0,0 +1,${lines.length} @@\n` + lines.map((l) => `+${l}`).join('\n');
+      } catch {
+        diff = '(binary or unreadable file)';
+      }
+    }
+    return diff;
+  });
+
   ipcMain.handle(IPC_CHANNELS.FILE_LIST_DIR, (_, dirPath: string): FileEntry[] => {
     try {
       const entries = fs.readdirSync(dirPath, { withFileTypes: true });

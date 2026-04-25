@@ -8,6 +8,7 @@ import { ResizeHandle } from './components/ResizeHandle';
 import { ReadmeViewer } from './components/ReadmeViewer';
 import { FileExplorer } from './components/FileExplorer';
 import { StatusBar } from './components/StatusBar';
+import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { useDictation } from './components/Dictation';
 import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp, FileEntry, ProfileMemoryMap } from '../shared/types';
@@ -48,6 +49,8 @@ declare global {
       getGitStatus: (cwd: string) => Promise<GitStatus>;
       ackTerminalData: (profileId: string, bytes: number) => void;
       gitFetch: (cwd: string) => Promise<boolean>;
+      getGitChangedFiles: (cwd: string) => Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>;
+      getGitFileDiff: (cwd: string, filePath: string) => Promise<string>;
       listDir: (dirPath: string) => Promise<FileEntry[]>;
       readFile: (filePath: string) => Promise<string | null>;
       saveFile: (filePath: string, content: string) => Promise<boolean>;
@@ -92,6 +95,8 @@ export function App() {
   const [layout, setLayout] = useState<SidebarLayout>({ items: [], folders: [] });
   const [readmeVisible, setReadmeVisible] = useState(false);
   const [hasReadme, setHasReadme] = useState(false);
+  const [changesVisible, setChangesVisible] = useState(false);
+  const [changesWidth, setChangesWidth] = useState(50); // percent of agent pane
   const [focusedPane, setFocusedPane] = useState<{ pane: 'agent' | 'shell'; shellIndex: number }>({ pane: 'agent', shellIndex: 0 });
   const shellCountRef = useRef(1);
   const profileMemoryRef = useRef<ProfileMemoryMap>({});
@@ -724,8 +729,16 @@ export function App() {
             profileMemory={profileMemoryRef.current}
           />
         </div>
+        {changesVisible && activeProfile && (
+          <GitChangesPanel
+            workingDirectory={activeProfile.workingDirectory}
+            widthPercent={changesWidth}
+            onWidthChange={setChangesWidth}
+            onClose={() => setChangesVisible(false)}
+          />
+        )}
       </div>
-      <StatusBar profile={activeProfile} />
+      <StatusBar profile={activeProfile} onToggleChanges={() => setChangesVisible((v) => !v)} />
       {editorOpen && (
         <ProfileEditor
           profile={editingProfile}
