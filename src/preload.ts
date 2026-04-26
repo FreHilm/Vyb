@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope } from './shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
@@ -200,5 +200,34 @@ contextBridge.exposeInMainWorld('api', {
       callback(payload);
     ipcRenderer.on(IPC_CHANNELS.ORDNA_EXITED, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.ORDNA_EXITED, handler);
+  },
+
+  spawnParallelAgent: (
+    profileId: string,
+    task: { id: string; title: string; filePath?: string },
+  ): Promise<ParallelAgent | { error: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_AGENT_SPAWN, profileId, task),
+
+  destroyParallelAgent: (id: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_AGENT_DESTROY, id),
+
+  listParallelAgents: (profileId?: string): Promise<ParallelAgent[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_AGENT_LIST, profileId),
+
+  finishParallelAgent: (id: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_AGENT_FINISH, id),
+
+  onParallelAgentChange: (callback: (agent: ParallelAgent) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, agent: ParallelAgent) =>
+      callback(agent);
+    ipcRenderer.on(IPC_CHANNELS.PARALLEL_AGENT_CHANGE, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PARALLEL_AGENT_CHANGE, handler);
+  },
+
+  onParallelAgentExited: (callback: (agent: ParallelAgent) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, agent: ParallelAgent) =>
+      callback(agent);
+    ipcRenderer.on(IPC_CHANNELS.PARALLEL_AGENT_EXITED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PARALLEL_AGENT_EXITED, handler);
   },
 });

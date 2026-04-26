@@ -8,13 +8,66 @@ import { ResizeHandle } from './components/ResizeHandle';
 import { ReadmeViewer } from './components/ReadmeViewer';
 import { FileExplorer } from './components/FileExplorer';
 import { KanbanViewer } from './components/KanbanViewer';
+import { ParallelAgentTerminal } from './components/ParallelAgentTerminal';
 import { StatusBar } from './components/StatusBar';
 import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
+
+// Build the prefixed task message we feed into the agent.
+//
+// For regular dispatch the agent runs in the parent repo, so we keep the
+// original absolute task.filePath. For a parallel agent we rewrite the path
+// to point at the worktree's copy of the same file, and prepend a worktree
+// preamble so the agent never strays out of its isolated checkout.
+function buildOrdnaTaskMessage(
+  payload: OrdnaTaskEnvelope['payload'],
+  parallel?: { worktreePath: string; branch: string; parentRepoPath: string },
+): string {
+  const t = payload.task;
+  const priority = t.priority || 'unset';
+  const tags = t.tags && t.tags.length > 0 ? t.tags.join(', ') : 'none';
+
+  // Map the task file's absolute path into the worktree, if applicable.
+  let taskFilePath = t.filePath;
+  if (parallel) {
+    const parent = parallel.parentRepoPath.replace(/\/+$/, '');
+    if (taskFilePath && taskFilePath.startsWith(parent + '/')) {
+      const rel = taskFilePath.slice(parent.length + 1);
+      taskFilePath = `${parallel.worktreePath}/${rel}`;
+    }
+  }
+
+  const worktreePreamble = parallel
+    ? `[Workspace — isolated git worktree]\n\n` +
+      `You are running in an isolated git worktree at:\n  ${parallel.worktreePath}\n` +
+      `Branch: ${parallel.branch}\n` +
+      `Make ALL edits inside this directory only — do NOT touch files in\n` +
+      `the original repo at ${parallel.parentRepoPath}. Your current working\n` +
+      `directory is already the worktree, so cwd-relative paths are safest.\n\n`
+    : '';
+
+  return (
+    worktreePreamble +
+    '[Ordna Task — please implement]\n\n' +
+    'This is a task from the Kanban board. Please read it carefully, and ' +
+    'before starting work, ask clarifying questions about anything ambiguous ' +
+    'or unspecified — do not make assumptions about scope or intent.\n\n' +
+    `Keep the task file (${taskFilePath}) in sync as you work: set ` +
+    '`status: doing` before you start, append a brief note to the ' +
+    '`## Progress` section at meaningful checkpoints, and set ' +
+    '`status: done` when finished.\n\n' +
+    `Task: ${t.title}\n` +
+    `ID: ${t.id}\n` +
+    `Status: ${t.status}\n` +
+    `Priority: ${priority}\n` +
+    `Tags: ${tags}\n\n` +
+    (t.rawContent || '')
+  );
+}
 
 declare global {
   interface Window {
@@ -85,6 +138,15 @@ declare global {
       getOrdnaHookInfo: () => Promise<{ url: string; port: number }>;
       onOrdnaTask: (callback: (envelope: OrdnaTaskEnvelope) => void) => () => void;
       onOrdnaExited: (callback: (payload: { profileId: string }) => void) => () => void;
+      spawnParallelAgent: (
+        profileId: string,
+        task: { id: string; title: string; filePath?: string },
+      ) => Promise<ParallelAgent | { error: string }>;
+      destroyParallelAgent: (id: string) => Promise<void>;
+      listParallelAgents: (profileId?: string) => Promise<ParallelAgent[]>;
+      finishParallelAgent: (id: string) => Promise<void>;
+      onParallelAgentChange: (callback: (agent: ParallelAgent) => void) => () => void;
+      onParallelAgentExited: (callback: (agent: ParallelAgent) => void) => () => void;
     };
   }
 }
@@ -116,6 +178,12 @@ export function App() {
   // shows the existing Ordna view without reloading.
   const [kanbanProfiles, setKanbanProfiles] = useState<Set<string>>(new Set());
   const [kanbanRunning, setKanbanRunning] = useState<Set<string>>(new Set());
+  // Parallel agents (Kanban-spawned worktree agents). Keyed by parallel agent id.
+  const [parallelAgents, setParallelAgents] = useState<Map<string, ParallelAgent>>(new Map());
+  // Which parallel-agent the user is viewing (PTY id `parallel:<id>`); null = parent profile
+  const [selectedParallelId, setSelectedParallelId] = useState<string | null>(null);
+  // Track parallel agents whose `completed` state has been seen by the user (for soft-delete)
+  const inspectedParallelRef = useRef<Set<string>>(new Set());
   const [hasReadme, setHasReadme] = useState(false);
   const [changesVisible, setChangesVisible] = useState(false);
   const [changesWidth, setChangesWidth] = useState(50); // percent of agent pane
@@ -243,6 +311,47 @@ export function App() {
       }
       const payload = envelope.payload;
 
+      // If the receiving profile has parallel-agent mode enabled, spawn a new
+      // worktree+agent for this task instead of injecting into the main agent.
+      const targetProfile = profilesRef.current.find((p) => p.id === target);
+      if (targetProfile?.parallelAgentEnabled) {
+        window.api
+          .spawnParallelAgent(target, {
+            id: payload.task.id,
+            title: payload.task.title,
+            filePath: payload.task.filePath,
+          })
+          .then((res) => {
+            if ('error' in res) {
+              console.error('spawn parallel agent failed:', res.error);
+              return;
+            }
+            // Build the message with worktree-rewritten paths so the agent
+            // never touches the parent repo. The manager returns the resolved
+            // parent path, so we don't have to expand `~` in the renderer.
+            const message = buildOrdnaTaskMessage(payload, {
+              worktreePath: res.worktreePath,
+              branch: res.branch,
+              parentRepoPath: res.parentRepoPath,
+            });
+            pendingParallelMessagesRef.current.set(res.id, message);
+            setParallelAgents((prev) => new Map(prev).set(res.id, res));
+            // Auto-select so the user immediately sees the new sub-agent
+            setSelectedParallelId(res.id);
+
+            // Schedule auto-submit unless the user disabled it. We wait long
+            // enough for the agent CLI (claude/codex/gemini) to print its
+            // prompt — pasting too early can land in a startup banner.
+            if (settingsRef.current.parallelAgentAutoRun !== false) {
+              const timer = setTimeout(() => {
+                submitParallelTask(res.id);
+              }, 2500);
+              autoRunTimersRef.current.set(res.id, timer);
+            }
+          });
+        return;
+      }
+
       // Close every overlay for the receiving profile so the agent terminal
       // becomes visible. Files uses the close-requested dance to respect
       // unsaved changes.
@@ -263,25 +372,29 @@ export function App() {
       setSettingsOpen(false);
       setFocusedPane({ pane: 'agent', shellIndex: 0 });
 
-      const t = payload.task;
-      const priority = t.priority || 'unset';
-      const tags = t.tags && t.tags.length > 0 ? t.tags.join(', ') : 'none';
-      const message =
-        '[Ordna Task — please implement]\n\n' +
-        'This is a task from the Kanban board. Please read it carefully, and ' +
-        'before starting work, ask clarifying questions about anything ambiguous ' +
-        'or unspecified — do not make assumptions about scope or intent.\n\n' +
-        `Keep the task file (${t.filePath}) in sync as you work: set ` +
-        '`status: doing` before you start, append a brief note to the ' +
-        '`## Progress` section at meaningful checkpoints, and set ' +
-        '`status: done` when finished.\n\n' +
-        `Task: ${t.title}\n` +
-        `ID: ${t.id}\n` +
-        `Status: ${t.status}\n` +
-        `Priority: ${priority}\n` +
-        `Tags: ${tags}\n\n` +
-        (t.rawContent || '');
+      const message = buildOrdnaTaskMessage(payload);
       window.api.sendInput(target, message + '\r');
+    });
+
+    // Mirror parallel-agent state from main into the renderer
+    const unsubParallelChange = window.api.onParallelAgentChange((agent) => {
+      setParallelAgents((prev) => new Map(prev).set(agent.id, agent));
+    });
+    const unsubParallelExit = window.api.onParallelAgentExited((agent) => {
+      setParallelAgents((prev) => {
+        if (!prev.has(agent.id)) return prev;
+        const next = new Map(prev);
+        next.delete(agent.id);
+        return next;
+      });
+      pendingParallelMessagesRef.current.delete(agent.id);
+      const t = autoRunTimersRef.current.get(agent.id);
+      if (t) {
+        clearTimeout(t);
+        autoRunTimersRef.current.delete(agent.id);
+      }
+      // If the user was looking at this sub-agent, drop back to the parent profile
+      setSelectedParallelId((curr) => (curr === agent.id ? null : curr));
     });
 
     // When an Ordna TUI process exits (e.g. user pressed `q`), close the
@@ -303,6 +416,8 @@ export function App() {
       unsubActivate();
       unsubOrdnaTask();
       unsubOrdnaExit();
+      unsubParallelChange();
+      unsubParallelExit();
     };
   }, []);
 
@@ -311,6 +426,83 @@ export function App() {
   useEffect(() => {
     activeProfileIdRef.current = activeProfileId;
   }, [activeProfileId]);
+
+  // Mirror profiles into a ref so the once-mounted onOrdnaTask listener can
+  // look up profile.parallelAgentEnabled at hook-fire time.
+  const profilesRef = useRef<Profile[]>([]);
+  useEffect(() => {
+    profilesRef.current = profiles;
+  }, [profiles]);
+
+  // Pending task messages awaiting paste into a freshly-spawned parallel agent.
+  // Keyed by parallel agent id. The TerminalPane is responsible for writing
+  // these once the agent's xterm.js mounts.
+  const pendingParallelMessagesRef = useRef<Map<string, string>>(new Map());
+  // Auto-run timers per parallel agent — fires after a short delay so the
+  // agent CLI has time to render its prompt before we paste the task.
+  const autoRunTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  const submitParallelTask = useCallback((id: string) => {
+    const ptyId = `parallel:${id}`;
+    const t = autoRunTimersRef.current.get(id);
+    if (t) {
+      clearTimeout(t);
+      autoRunTimersRef.current.delete(id);
+    }
+    const msg = pendingParallelMessagesRef.current.get(id);
+    if (msg) {
+      window.api.sendInput(ptyId, msg + '\r');
+      pendingParallelMessagesRef.current.delete(id);
+    } else {
+      window.api.sendInput(ptyId, '\r');
+    }
+  }, []);
+
+  const cancelAutoRun = useCallback((id: string) => {
+    const t = autoRunTimersRef.current.get(id);
+    if (t) {
+      clearTimeout(t);
+      autoRunTimersRef.current.delete(id);
+    }
+  }, []);
+
+  // Soft-delete timers for parallel agents that have reached `completed`.
+  // The agent auto-removes 30s after the user navigates AWAY from it (i.e.
+  // they inspected it then moved on). If they come back, the timer is reset.
+  const softDeleteTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  useEffect(() => {
+    const timers = softDeleteTimersRef.current;
+    for (const agent of parallelAgents.values()) {
+      const isCompleted = agent.phase === 'completed';
+      const isSelected = selectedParallelId === agent.id && activeProfileId === agent.profileId;
+      const hasInspected = inspectedParallelRef.current.has(agent.id);
+      if (isCompleted && isSelected) {
+        inspectedParallelRef.current.add(agent.id);
+        // Cancel pending destroy if user came back
+        const t = timers.get(agent.id);
+        if (t) {
+          clearTimeout(t);
+          timers.delete(agent.id);
+        }
+      } else if (isCompleted && hasInspected && !isSelected && !timers.has(agent.id)) {
+        // Schedule auto-removal 30s after the user navigates away
+        const t = setTimeout(() => {
+          window.api.destroyParallelAgent(agent.id).catch((): void => undefined);
+          timers.delete(agent.id);
+        }, 30_000);
+        timers.set(agent.id, t);
+      }
+    }
+    return () => {
+      // No cleanup on every render — timers persist across renders
+    };
+  }, [parallelAgents, selectedParallelId, activeProfileId]);
+  useEffect(() => {
+    return () => {
+      for (const t of softDeleteTimersRef.current.values()) clearTimeout(t);
+      softDeleteTimersRef.current.clear();
+    };
+  }, []);
 
   // Apply theme whenever settings change
   useEffect(() => {
@@ -841,6 +1033,14 @@ export function App() {
         onReloadProfile={handleReloadProfile}
         initialized={initialized}
         showAgentBadge={settings.showAgentBadge !== false}
+        parallelAgents={[...parallelAgents.values()]}
+        selectedParallelId={selectedParallelId}
+        onSelectParallel={(id) => setSelectedParallelId(id)}
+        onRunParallel={(id) => submitParallelTask(id)}
+        onStopParallel={(id) => {
+          cancelAutoRun(id);
+          window.api.destroyParallelAgent(id).catch((): void => undefined);
+        }}
       />
       <ResizeHandle direction="horizontal" onResize={handleSidebarResize} />
       <div className="main-area">
@@ -903,7 +1103,17 @@ export function App() {
             />
           );
         })}
-        <div style={{ display: readmeVisible || filesVisible || kanbanVisible ? 'none' : 'contents' }}>
+        {/* Mount one ParallelAgentTerminal per parallel agent so each PTY's
+            xterm.js stays alive and switching between them is just CSS. */}
+        {[...parallelAgents.values()].map((sa) => (
+          <ParallelAgentTerminal
+            key={sa.id}
+            agent={sa}
+            settings={settings}
+            hidden={!(selectedParallelId === sa.id && activeProfileId === sa.profileId && !readmeVisible && !filesVisible && !kanbanVisible)}
+          />
+        ))}
+        <div style={{ display: readmeVisible || filesVisible || kanbanVisible || selectedParallelId !== null ? 'none' : 'contents' }}>
           <TerminalPane
             profiles={profiles}
             activeProfileId={activeProfileId}

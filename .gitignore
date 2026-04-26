@@ -90,3 +90,9 @@ typings/
 
 # Electron-Forge
 out/
+
+# TypeScript compile output (tsconfig outDir)
+dist/
+
+# Claude Code per-project local settings
+.claude/

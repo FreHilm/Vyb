@@ -170,6 +170,7 @@ export function SettingsDialog({
   const [ordnaMode, setOrdnaMode] = useState<'web' | 'tui'>(settings.ordnaMode || 'web');
   const [ordnaHookPort, setOrdnaHookPort] = useState(settings.ordnaHookPort || 9876);
   const [ordnaHookInfo, setOrdnaHookInfo] = useState<{ url: string; port: number } | null>(null);
+  const [parallelAgentAutoRun, setParallelAgentAutoRun] = useState(settings.parallelAgentAutoRun !== false);
 
   useEffect(() => {
     window.api.getOrdnaHookInfo().then(setOrdnaHookInfo).catch((): void => undefined);
@@ -204,6 +205,7 @@ export function SettingsDialog({
       showAgentBadge,
       ordnaMode,
       ordnaHookPort,
+      parallelAgentAutoRun,
     });
   };
 
@@ -700,6 +702,29 @@ export function SettingsDialog({
                               style={{ fontFamily: 'monospace' }}
                             />
                           </label>
+                          <label className="field">
+                            <span className="field-label">Permission-mode args (parallel agents only)</span>
+                            <input
+                              type="text"
+                              value={(agent.permissionModeArgs ?? []).join(' ')}
+                              onChange={(e) => {
+                                const updated = [...agents];
+                                updated[idx] = {
+                                  ...agent,
+                                  permissionModeArgs: e.target.value.trim()
+                                    ? e.target.value.trim().split(/\s+/)
+                                    : [],
+                                };
+                                setAgents(updated);
+                              }}
+                              placeholder="e.g. --permission-mode acceptEdits"
+                              style={{ fontFamily: 'monospace' }}
+                            />
+                            <span className="field-hint">
+                              Appended only when this agent is launched by a Kanban-dispatched
+                              parallel worktree, so the agent can act without per-edit prompts.
+                            </span>
+                          </label>
                         </div>
                       )}
                     </div>
@@ -1065,6 +1090,24 @@ export function SettingsDialog({
                   </span>
                 </div>
               )}
+
+              <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                <span className="field-label">Auto-run dispatched Kanban tasks</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={parallelAgentAutoRun}
+                    onChange={(e) => setParallelAgentAutoRun(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+              <span className="field-hint">
+                After a parallel agent spawns, automatically paste the task and
+                press Enter (~2.5s after spawn so the CLI has time to load).
+                Off = the row stays in &quot;Awaiting run&quot; until you click ▶.
+              </span>
+
             </>
           )}
 
