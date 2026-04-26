@@ -193,6 +193,7 @@ export const IPC_CHANNELS = {
   ORDNA_GET_WEB_URL: 'ordna:getWebUrl',
   ORDNA_TASK_RECEIVED: 'ordna:taskReceived',
   ORDNA_HOOK_INFO: 'ordna:hookInfo',
+  ORDNA_EXITED: 'ordna:exited',
 } as const;
 
 export interface OrdnaTask {
@@ -214,6 +215,12 @@ export interface OrdnaTaskPayload {
   action: 'agent';
   task: OrdnaTask;
   context: { tasksDir: string; cwd: string; schema: string };
+}
+
+export interface OrdnaTaskEnvelope {
+  /** The profile whose Ordna instance dispatched this task (resolved by cwd). */
+  sourceProfileId: string | null;
+  payload: OrdnaTaskPayload;
 }
 
 export interface FileEntry {

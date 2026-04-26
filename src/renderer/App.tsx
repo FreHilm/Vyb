@@ -12,7 +12,7 @@ import { StatusBar } from './components/StatusBar';
 import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskPayload } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -77,10 +77,13 @@ declare global {
         profileId: string,
         mode: 'web' | 'tui',
       ) => Promise<{ webUrl?: string; tuiPtyId?: string; error?: string }>;
-      stopOrdna: () => Promise<void>;
-      getOrdnaActive: () => Promise<{ mode: 'web' | 'tui'; webUrl: string | null; tuiPtyId: string | null } | null>;
+      stopOrdna: (profileId: string) => Promise<void>;
+      getOrdnaInstance: (
+        profileId: string,
+      ) => Promise<{ mode: 'web' | 'tui'; webUrl: string | null; tuiPtyId: string | null } | null>;
       getOrdnaHookInfo: () => Promise<{ url: string; port: number }>;
-      onOrdnaTask: (callback: (payload: OrdnaTaskPayload) => void) => () => void;
+      onOrdnaTask: (callback: (envelope: OrdnaTaskEnvelope) => void) => () => void;
+      onOrdnaExited: (callback: (payload: { profileId: string }) => void) => () => void;
     };
   }
 }
@@ -105,7 +108,13 @@ export function App() {
   // Overlay visibility is per-profile so switching profiles preserves the open tab
   const [readmeProfiles, setReadmeProfiles] = useState<Set<string>>(new Set());
   const [filesProfiles, setFilesProfiles] = useState<Set<string>>(new Set());
+  // kanbanProfiles = profiles whose Kanban tab is currently SHOWN (overlay
+  // active). kanbanRunning = profiles whose KanbanViewer is mounted and whose
+  // Ordna instance is alive in the background. kanbanRunning ⊇ kanbanProfiles.
+  // Closing the Kanban tab only removes from kanbanProfiles, so re-opening
+  // shows the existing Ordna view without reloading.
   const [kanbanProfiles, setKanbanProfiles] = useState<Set<string>>(new Set());
+  const [kanbanRunning, setKanbanRunning] = useState<Set<string>>(new Set());
   const [hasReadme, setHasReadme] = useState(false);
   const [changesVisible, setChangesVisible] = useState(false);
   const [changesWidth, setChangesWidth] = useState(50); // percent of agent pane
@@ -205,12 +214,15 @@ export function App() {
       });
     });
 
-    const unsubOrdnaTask = window.api.onOrdnaTask((payload) => {
-      const target = activeProfileIdRef.current;
+    const unsubOrdnaTask = window.api.onOrdnaTask((envelope) => {
+      // Prefer the profile whose Ordna instance dispatched the task; fall back
+      // to the active profile if the cwd lookup didn't find a match.
+      const target = envelope.sourceProfileId ?? activeProfileIdRef.current;
       if (!target) {
         console.warn('Ordna task received but no active profile to receive it');
         return;
       }
+      const payload = envelope.payload;
 
       // Close every overlay for the receiving profile so the agent terminal
       // becomes visible. Files uses the close-requested dance to respect
@@ -249,11 +261,25 @@ export function App() {
       window.api.sendInput(target, message + '\r');
     });
 
+    // When an Ordna TUI process exits (e.g. user pressed `q`), close the
+    // Kanban panel for that profile and unmount its viewer entirely.
+    const unsubOrdnaExit = window.api.onOrdnaExited(({ profileId }) => {
+      const drop = (prev: Set<string>): Set<string> => {
+        if (!prev.has(profileId)) return prev;
+        const next = new Set(prev);
+        next.delete(profileId);
+        return next;
+      };
+      setKanbanProfiles(drop);
+      setKanbanRunning(drop);
+    });
+
     return () => {
       unsubStatus();
       unsubSettings();
       unsubActivate();
       unsubOrdnaTask();
+      unsubOrdnaExit();
     };
   }, []);
 
@@ -414,6 +440,8 @@ export function App() {
     stoppedRef.current.add(profileId);
     // Destroy the PTY
     await window.api.destroyTerminal(profileId);
+    // Stop the Ordna instance for this profile if any (web server / TUI PTY)
+    window.api.stopOrdna(profileId).catch((): void => undefined);
     // Close any shell terminals for this profile
     setShellOpenSet((prev) => {
       if (!prev.has(profileId)) return prev;
@@ -421,6 +449,15 @@ export function App() {
       next.delete(profileId);
       return next;
     });
+    // Drop Kanban panel and viewer so the user starts clean on reload
+    const drop = (prev: Set<string>): Set<string> => {
+      if (!prev.has(profileId)) return prev;
+      const next = new Set(prev);
+      next.delete(profileId);
+      return next;
+    };
+    setKanbanProfiles(drop);
+    setKanbanRunning(drop);
     // Remove from initialized set — TerminalPane will dispose the xterm.js instance
     setInitialized((prev) => {
       if (!prev.has(profileId)) return prev;
@@ -462,6 +499,7 @@ export function App() {
     setReadmeProfiles(drop);
     setFilesProfiles(drop);
     setKanbanProfiles(drop);
+    setKanbanRunning(drop);
 
     if (activeProfileId === profileId) {
       setActiveProfileId(updated.length > 0 ? updated[0].id : null);
@@ -579,10 +617,17 @@ export function App() {
     const id = activeProfileId;
     if (!id) return;
     const opening = !kanbanProfiles.has(id);
-    setKanbanProfiles((prev) => toggleInSet(prev, id));
     if (opening) {
+      // Show the Kanban tab and ensure its viewer is mounted (idempotent —
+      // existing Ordna instance is reused if already running).
+      setKanbanProfiles((prev) => ensureInSet(prev, id));
+      setKanbanRunning((prev) => ensureInSet(prev, id));
       if (filesProfiles.has(id)) setFilesCloseRequested(true);
       setReadmeProfiles((prev) => removeFromSet(prev, id));
+    } else {
+      // Hide-only: remove from the visible set but keep the viewer mounted in
+      // the background so Ordna keeps running and re-opening is instant.
+      setKanbanProfiles((prev) => removeFromSet(prev, id));
     }
   }, [activeProfileId, filesProfiles, kanbanProfiles]);
 
@@ -817,9 +862,24 @@ export function App() {
             }}
           />
         )}
-        {kanbanVisible && activeProfile && (
-          <KanbanViewer profile={activeProfile} settings={settings} />
-        )}
+        {/* Mount one KanbanViewer per profile in kanbanRunning. The set persists
+            across tab close — clicking the Kanban button to hide just removes
+            the profile from kanbanProfiles, leaving the viewer mounted and
+            Ordna alive in the background. The viewer is shown only when its
+            profile is active AND the Kanban tab is the active overlay. */}
+        {[...kanbanRunning].map((id) => {
+          const p = profiles.find((pp) => pp.id === id);
+          if (!p) return null;
+          const visible = id === activeProfileId && kanbanProfiles.has(id);
+          return (
+            <KanbanViewer
+              key={id}
+              profile={p}
+              settings={settings}
+              hidden={!visible}
+            />
+          );
+        })}
         <div style={{ display: readmeVisible || filesVisible || kanbanVisible ? 'none' : 'contents' }}>
           <TerminalPane
             profiles={profiles}

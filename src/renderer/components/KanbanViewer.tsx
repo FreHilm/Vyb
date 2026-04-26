@@ -10,16 +10,21 @@ import { setupTerminalDrop, debouncedPtyResize, makeTerminalKeyHandler } from '.
 interface KanbanViewerProps {
   profile: Profile;
   settings: AppSettings;
+  /** When true, the view is rendered with display:none so its iframe / xterm
+   * stays mounted and the underlying Ordna instance keeps running. */
+  hidden: boolean;
 }
 
-export function KanbanViewer({ profile, settings }: KanbanViewerProps) {
+export function KanbanViewer({ profile, settings, hidden }: KanbanViewerProps) {
   const mode = settings.ordnaMode || 'web';
   const [webUrl, setWebUrl] = useState<string | null>(null);
   const [tuiPtyId, setTuiPtyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Start (or restart) Ordna whenever the profile or mode changes
+  // Start the Ordna instance for THIS profile once on mount. The Map-backed
+  // OrdnaManager makes start() idempotent — re-mounts won't spawn a duplicate.
+  // Stop only on real unmount (profile closed kanban or was deleted).
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -41,13 +46,17 @@ export function KanbanViewer({ profile, settings }: KanbanViewerProps) {
 
     return () => {
       cancelled = true;
-      window.api.stopOrdna().catch((): void => undefined);
+      window.api.stopOrdna(profile.id).catch((): void => undefined);
     };
   }, [profile.id, mode]);
 
+  const wrapperStyle: React.CSSProperties = hidden
+    ? { display: 'none' }
+    : { display: 'flex', flex: 1, flexDirection: 'column', minHeight: 0 };
+
   if (loading) {
     return (
-      <div className="kanban-viewer">
+      <div className="kanban-viewer" style={wrapperStyle}>
         <div className="kanban-loading">Starting Ordna…</div>
       </div>
     );
@@ -55,7 +64,7 @@ export function KanbanViewer({ profile, settings }: KanbanViewerProps) {
 
   if (error) {
     return (
-      <div className="kanban-viewer">
+      <div className="kanban-viewer" style={wrapperStyle}>
         <div className="kanban-error">
           <p>Failed to start Ordna: {error}</p>
           <p style={{ fontSize: 12, opacity: 0.7 }}>
@@ -69,7 +78,7 @@ export function KanbanViewer({ profile, settings }: KanbanViewerProps) {
 
   if (mode === 'web' && webUrl) {
     return (
-      <div className="kanban-viewer">
+      <div className="kanban-viewer" style={wrapperStyle}>
         <iframe
           src={webUrl}
           className="kanban-iframe"
@@ -80,17 +89,17 @@ export function KanbanViewer({ profile, settings }: KanbanViewerProps) {
   }
 
   if (mode === 'tui' && tuiPtyId) {
-    return <KanbanTui ptyId={tuiPtyId} settings={settings} />;
+    return <KanbanTui ptyId={tuiPtyId} settings={settings} hidden={hidden} />;
   }
 
   return (
-    <div className="kanban-viewer">
+    <div className="kanban-viewer" style={wrapperStyle}>
       <div className="kanban-error">Ordna is not running.</div>
     </div>
   );
 }
 
-function KanbanTui({ ptyId, settings }: { ptyId: string; settings: AppSettings }) {
+function KanbanTui({ ptyId, settings, hidden }: { ptyId: string; settings: AppSettings; hidden: boolean }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<{ terminal: Terminal; fitAddon: FitAddon; webglAddon?: WebglAddon } | null>(null);
 
@@ -171,8 +180,26 @@ function KanbanTui({ ptyId, settings }: { ptyId: string; settings: AppSettings }
     };
   }, [ptyId, settings.baseHue, settings.darkness, settings.shellFontSize, settings.gpuAcceleration]);
 
+  // When the pane comes back into view, refit so xterm matches the new container size
+  useEffect(() => {
+    if (hidden) return;
+    const t = termRef.current;
+    if (!t) return;
+    const id = requestAnimationFrame(() => {
+      if (containerRef.current && containerRef.current.clientHeight > 10) {
+        t.fitAddon.fit();
+        t.terminal.focus();
+        debouncedPtyResize(ptyId, t.terminal.cols, t.terminal.rows);
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [hidden, ptyId]);
+
   return (
-    <div className="kanban-viewer">
+    <div
+      className="kanban-viewer"
+      style={hidden ? { display: 'none' } : { display: 'flex', flex: 1, flexDirection: 'column', minHeight: 0 }}
+    >
       <div ref={containerRef} className="kanban-tui-container" />
     </div>
   );
