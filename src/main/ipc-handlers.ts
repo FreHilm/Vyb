@@ -125,7 +125,10 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       if (profileId.startsWith('shell:')) {
         safeSend(IPC_CHANNELS.SHELL_TERMINAL_EXITED, { terminalId: profileId });
       } else if (profileId.startsWith('ordna:')) {
+        const realProfileId = profileId.slice('ordna:'.length);
+        if (ordnaManager) ordnaManager.handlePtyExit(realProfileId);
         safeSend(IPC_CHANNELS.SHELL_TERMINAL_EXITED, { terminalId: profileId });
+        safeSend(IPC_CHANNELS.ORDNA_EXITED, { profileId: realProfileId });
       } else {
         statusDetector.unregister(profileId);
         safeSend(IPC_CHANNELS.PROFILE_STATUS_CHANGE, {
@@ -849,14 +852,14 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.ORDNA_STOP, async () => {
-    await ordnaManager.stop();
+  ipcMain.handle(IPC_CHANNELS.ORDNA_STOP, async (_, profileId: string) => {
+    await ordnaManager.stop(profileId);
   });
 
-  ipcMain.handle(IPC_CHANNELS.ORDNA_GET_WEB_URL, () => {
-    const active = ordnaManager.getActive();
-    if (!active) return null;
-    return { mode: active.mode, webUrl: active.webUrl ?? null, tuiPtyId: active.tuiPtyId ?? null };
+  ipcMain.handle(IPC_CHANNELS.ORDNA_GET_WEB_URL, (_, profileId: string) => {
+    const inst = ordnaManager.getInstance(profileId);
+    if (!inst) return null;
+    return { mode: inst.mode, webUrl: inst.webUrl ?? null, tuiPtyId: inst.tuiPtyId ?? null };
   });
 
   ipcMain.handle(IPC_CHANNELS.ORDNA_HOOK_INFO, () => {
@@ -1052,7 +1055,10 @@ async function initOrdnaHookServer(): Promise<void> {
       preferredPort: settings.ordnaHookPort || 9876,
       token,
       onTask: (payload: OrdnaTaskPayload) => {
-        safeSend(IPC_CHANNELS.ORDNA_TASK_RECEIVED, payload);
+        const sourceProfileId = payload.context?.cwd
+          ? ordnaManager.resolveProfileByCwd(payload.context.cwd)
+          : null;
+        safeSend(IPC_CHANNELS.ORDNA_TASK_RECEIVED, { sourceProfileId, payload });
       },
     });
     ordnaManager.setHookEnv(`http://127.0.0.1:${port}/agent`, token);
@@ -1070,7 +1076,7 @@ export function cleanupIpcHandlers(): void {
     }
   }
   if (ordnaManager) {
-    ordnaManager.stop().catch((): void => undefined);
+    ordnaManager.stopAll().catch((): void => undefined);
   }
   ordnaHookServer.stop().catch((): void => undefined);
   if (ptyManager) {
