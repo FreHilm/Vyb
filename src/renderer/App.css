@@ -1529,9 +1529,13 @@
 }
 
 .git-changes-arrow {
-  font-size: 9px;
-  color: var(--c-overlay0);
-  width: 10px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--c-subtext0);
+  width: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
   transition: transform 0.15s;
 }
@@ -1562,17 +1566,38 @@
   flex-shrink: 0;
   font-size: 10px;
   font-weight: 700;
-  padding: 1px 5px;
+  padding: 2px 6px;
   border-radius: 3px;
   background: var(--c-surface2);
-  color: var(--c-subtext0);
+  color: var(--c-text);
+  border: 1px solid transparent;
 }
 
-.git-changes-status[data-status="modified"] { color: var(--c-yellow); }
-.git-changes-status[data-status="added"] { color: var(--c-green); }
-.git-changes-status[data-status="deleted"] { color: var(--c-red); }
-.git-changes-status[data-status="untracked"] { color: var(--c-blue); }
-.git-changes-status[data-status="renamed"] { color: var(--c-magenta); }
+.git-changes-status[data-status="modified"] {
+  color: var(--c-yellow);
+  background: color-mix(in srgb, var(--c-yellow) 22%, transparent);
+  border-color: color-mix(in srgb, var(--c-yellow) 45%, transparent);
+}
+.git-changes-status[data-status="added"] {
+  color: var(--c-green);
+  background: color-mix(in srgb, var(--c-green) 22%, transparent);
+  border-color: color-mix(in srgb, var(--c-green) 45%, transparent);
+}
+.git-changes-status[data-status="deleted"] {
+  color: var(--c-red);
+  background: color-mix(in srgb, var(--c-red) 22%, transparent);
+  border-color: color-mix(in srgb, var(--c-red) 45%, transparent);
+}
+.git-changes-status[data-status="untracked"] {
+  color: var(--c-blue);
+  background: color-mix(in srgb, var(--c-blue) 22%, transparent);
+  border-color: color-mix(in srgb, var(--c-blue) 45%, transparent);
+}
+.git-changes-status[data-status="renamed"] {
+  color: var(--c-magenta);
+  background: color-mix(in srgb, var(--c-magenta) 22%, transparent);
+  border-color: color-mix(in srgb, var(--c-magenta) 45%, transparent);
+}
 
 .git-changes-counts {
   flex-shrink: 0;
@@ -1580,15 +1605,17 @@
   gap: 6px;
   font-family: 'Menlo', 'Monaco', monospace;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .git-changes-added {
   color: var(--c-green);
+  text-shadow: 0 0 6px color-mix(in srgb, var(--c-green) 40%, transparent);
 }
 
 .git-changes-deleted {
   color: var(--c-red);
+  text-shadow: 0 0 6px color-mix(in srgb, var(--c-red) 40%, transparent);
 }
 
 .git-changes-diff-wrapper {
@@ -1651,19 +1678,41 @@
 }
 
 .git-diff-add {
-  background: hsla(115, 54%, 76%, 0.1);
+  background: color-mix(in srgb, var(--c-green) 22%, transparent);
+}
+
+.git-diff-add .git-diff-gutter {
+  background: color-mix(in srgb, var(--c-green) 30%, var(--c-mantle));
+  color: var(--c-text);
 }
 
 .git-diff-add .git-diff-content {
+  color: var(--c-text);
+}
+
+.git-diff-add .git-diff-prefix {
   color: var(--c-green);
+  opacity: 1;
+  font-weight: 700;
 }
 
 .git-diff-del {
-  background: hsla(343, 81%, 75%, 0.1);
+  background: color-mix(in srgb, var(--c-red) 22%, transparent);
+}
+
+.git-diff-del .git-diff-gutter {
+  background: color-mix(in srgb, var(--c-red) 30%, var(--c-mantle));
+  color: var(--c-text);
 }
 
 .git-diff-del .git-diff-content {
+  color: var(--c-text);
+}
+
+.git-diff-del .git-diff-prefix {
   color: var(--c-red);
+  opacity: 1;
+  font-weight: 700;
 }
 
 .git-diff-ctx .git-diff-content {
