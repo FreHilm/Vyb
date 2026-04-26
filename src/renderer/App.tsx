@@ -69,6 +69,7 @@ declare global {
       loadScrollback: (profileId: string) => Promise<string | null>;
       loadReadme: (workingDirectory: string) => Promise<string | null>;
       setActiveProfile: (profileId: string | null) => void;
+      queryStatuses: () => Promise<Record<string, string>>;
       onActivateProfileRequest: (callback: (profileId: string) => void) => () => void;
       generateIcon: (profileId: string, projectName: string) => Promise<string | null>;
       loadLayout: () => Promise<SidebarLayout>;
@@ -176,6 +177,24 @@ export function App() {
       }
     });
 
+    // Seed the status map with whatever the main process currently knows.
+    // This recovers the correct badge colours after a renderer reload (Vite HMR,
+    // DevTools refresh) where main has live agents but the renderer state reset.
+    window.api.queryStatuses().then((snap) => {
+      setStatuses((prev) => {
+        const next = new Map(prev);
+        for (const [pid, st] of Object.entries(snap)) {
+          next.set(pid, st as AgentStatus);
+        }
+        return next;
+      });
+      setInitialized((prev) => {
+        const next = new Set(prev);
+        for (const pid of Object.keys(snap)) next.add(pid);
+        return next;
+      });
+    });
+
     const unsubStatus = window.api.onStatusChange(({ profileId, status }) => {
       setStatuses((prev) => {
         const prevStatus = prev.get(profileId);
@@ -252,6 +271,10 @@ export function App() {
         'This is a task from the Kanban board. Please read it carefully, and ' +
         'before starting work, ask clarifying questions about anything ambiguous ' +
         'or unspecified — do not make assumptions about scope or intent.\n\n' +
+        `Keep the task file (${t.filePath}) in sync as you work: set ` +
+        '`status: doing` before you start, append a brief note to the ' +
+        '`## Progress` section at meaningful checkpoints, and set ' +
+        '`status: done` when finished.\n\n' +
         `Task: ${t.title}\n` +
         `ID: ${t.id}\n` +
         `Status: ${t.status}\n` +

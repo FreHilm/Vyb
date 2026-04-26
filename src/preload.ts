@@ -100,6 +100,9 @@ contextBridge.exposeInMainWorld('api', {
   setActiveProfile: (profileId: string | null): void =>
     ipcRenderer.send(IPC_CHANNELS.PROFILE_SET_ACTIVE, profileId),
 
+  queryStatuses: (): Promise<Record<string, string>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROFILE_STATUS_QUERY),
+
   onActivateProfileRequest: (callback: (profileId: string) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, profileId: string) => callback(profileId);
     ipcRenderer.on(IPC_CHANNELS.PROFILE_ACTIVATE_REQUEST, handler);
