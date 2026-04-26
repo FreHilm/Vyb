@@ -128,16 +128,18 @@ declare global {
       loadLayout: () => Promise<SidebarLayout>;
       saveLayout: (layout: SidebarLayout) => Promise<void>;
       startOrdna: (
+        instanceKey: string,
         profileId: string,
+        cwd: string,
         mode: 'web' | 'tui',
       ) => Promise<{ webUrl?: string; tuiPtyId?: string; error?: string }>;
-      stopOrdna: (profileId: string) => Promise<void>;
+      stopOrdna: (instanceKey: string) => Promise<void>;
       getOrdnaInstance: (
-        profileId: string,
+        instanceKey: string,
       ) => Promise<{ mode: 'web' | 'tui'; webUrl: string | null; tuiPtyId: string | null } | null>;
       getOrdnaHookInfo: () => Promise<{ url: string; port: number }>;
       onOrdnaTask: (callback: (envelope: OrdnaTaskEnvelope) => void) => () => void;
-      onOrdnaExited: (callback: (payload: { profileId: string }) => void) => () => void;
+      onOrdnaExited: (callback: (payload: { instanceKey: string }) => void) => () => void;
       spawnParallelAgent: (
         profileId: string,
         task: { id: string; title: string; filePath?: string },
@@ -168,15 +170,20 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [layout, setLayout] = useState<SidebarLayout>({ items: [], folders: [] });
-  // Overlay visibility is per-profile so switching profiles preserves the open tab
-  const [readmeProfiles, setReadmeProfiles] = useState<Set<string>>(new Set());
-  const [filesProfiles, setFilesProfiles] = useState<Set<string>>(new Set());
-  // kanbanProfiles = profiles whose Kanban tab is currently SHOWN (overlay
-  // active). kanbanRunning = profiles whose KanbanViewer is mounted and whose
-  // Ordna instance is alive in the background. kanbanRunning ⊇ kanbanProfiles.
-  // Closing the Kanban tab only removes from kanbanProfiles, so re-opening
+  // Overlay visibility is per-VIEW so each parallel agent has its own state
+  // independent of the parent profile and its siblings. View key is the
+  // profileId for the parent view, or `${profileId}|${parallelId}` for a
+  // parallel agent's view. The parent view's key is just `${profileId}` so
+  // existing behavior (open Files on profile A, switch to B, switch back —
+  // Files reappears) is preserved.
+  const [readmeViews, setReadmeViews] = useState<Set<string>>(new Set());
+  const [filesViews, setFilesViews] = useState<Set<string>>(new Set());
+  // kanbanViews = views whose Kanban tab is currently SHOWN (overlay active).
+  // kanbanRunning = views whose KanbanViewer is mounted and whose Ordna
+  // instance is alive in the background. kanbanRunning ⊇ kanbanViews.
+  // Closing the Kanban tab only removes from kanbanViews, so re-opening
   // shows the existing Ordna view without reloading.
-  const [kanbanProfiles, setKanbanProfiles] = useState<Set<string>>(new Set());
+  const [kanbanViews, setKanbanViews] = useState<Set<string>>(new Set());
   const [kanbanRunning, setKanbanRunning] = useState<Set<string>>(new Set());
   // Parallel agents (Kanban-spawned worktree agents). Keyed by parallel agent id.
   const [parallelAgents, setParallelAgents] = useState<Map<string, ParallelAgent>>(new Map());
@@ -192,10 +199,26 @@ export function App() {
   const profileMemoryRef = useRef<ProfileMemoryMap>({});
   const [filesCloseRequested, setFilesCloseRequested] = useState(false);
 
-  // Derived: visible state for the currently-active profile
-  const readmeVisible = activeProfileId ? readmeProfiles.has(activeProfileId) : false;
-  const filesVisible = activeProfileId ? filesProfiles.has(activeProfileId) : false;
-  const kanbanVisible = activeProfileId ? kanbanProfiles.has(activeProfileId) : false;
+  // Build the view key for the currently-active profile + parallel selection.
+  // Parent: just the profileId. Parallel: `${profileId}|${parallelId}`.
+  const activeViewKey = activeProfileId
+    ? selectedParallelId
+      ? `${activeProfileId}|${selectedParallelId}`
+      : activeProfileId
+    : null;
+
+  // The currently-viewed working directory. For a selected parallel agent
+  // this is the agent's worktree, so README/Files/Kanban panels operate on
+  // the worktree's contents. Falls back to the profile's working dir.
+  const selectedParallel = selectedParallelId ? parallelAgents.get(selectedParallelId) : null;
+  const activeViewCwd = selectedParallel
+    ? selectedParallel.worktreePath
+    : profiles.find((p) => p.id === activeProfileId)?.workingDirectory || '';
+
+  // Derived: visible state for the currently-active view
+  const readmeVisible = activeViewKey ? readmeViews.has(activeViewKey) : false;
+  const filesVisible = activeViewKey ? filesViews.has(activeViewKey) : false;
+  const kanbanVisible = activeViewKey ? kanbanViews.has(activeViewKey) : false;
   const [hasUpdates, setHasUpdates] = useState<Set<string>>(new Set());
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState('');
@@ -352,22 +375,21 @@ export function App() {
         return;
       }
 
-      // Close every overlay for the receiving profile so the agent terminal
-      // becomes visible. Files uses the close-requested dance to respect
-      // unsaved changes.
-      setReadmeProfiles((prev) => {
+      // Close every overlay for the receiving profile's parent view so the
+      // agent terminal becomes visible. Files uses the close-requested dance
+      // to respect unsaved changes. Parallel sub-views are untouched.
+      const dropParent = (prev: Set<string>): Set<string> => {
         if (!prev.has(target)) return prev;
         const next = new Set(prev);
         next.delete(target);
         return next;
-      });
-      setKanbanProfiles((prev) => {
-        if (!prev.has(target)) return prev;
-        const next = new Set(prev);
-        next.delete(target);
-        return next;
-      });
+      };
+      setReadmeViews(dropParent);
+      setKanbanViews(dropParent);
       setFilesCloseRequested(true);
+      // Drop back to the parent view so the user immediately sees the agent
+      // they just dispatched to.
+      setSelectedParallelId(null);
       setEditorOpen(false);
       setSettingsOpen(false);
       setFocusedPane({ pane: 'agent', shellIndex: 0 });
@@ -393,20 +415,41 @@ export function App() {
         clearTimeout(t);
         autoRunTimersRef.current.delete(agent.id);
       }
+      // Drop overlay/Kanban state for this parallel agent's view so a
+      // re-spawn under the same id (or simply leaving the view) doesn't
+      // resurrect stale state. Also stop its Ordna instance if we started one.
+      const viewKey = `${agent.profileId}|${agent.id}`;
+      const dropOne = (prev: Set<string>): Set<string> => {
+        if (!prev.has(viewKey)) return prev;
+        const next = new Set(prev);
+        next.delete(viewKey);
+        return next;
+      };
+      setReadmeViews(dropOne);
+      setFilesViews(dropOne);
+      setKanbanViews(dropOne);
+      setKanbanRunning((prev) => {
+        if (!prev.has(viewKey)) return prev;
+        window.api.stopOrdna(viewKey).catch((): void => undefined);
+        const next = new Set(prev);
+        next.delete(viewKey);
+        return next;
+      });
       // If the user was looking at this sub-agent, drop back to the parent profile
       setSelectedParallelId((curr) => (curr === agent.id ? null : curr));
     });
 
     // When an Ordna TUI process exits (e.g. user pressed `q`), close the
-    // Kanban panel for that profile and unmount its viewer entirely.
-    const unsubOrdnaExit = window.api.onOrdnaExited(({ profileId }) => {
+    // Kanban panel for that view and unmount its viewer entirely. The
+    // instanceKey identifies which view (parent or a specific parallel).
+    const unsubOrdnaExit = window.api.onOrdnaExited(({ instanceKey }) => {
       const drop = (prev: Set<string>): Set<string> => {
-        if (!prev.has(profileId)) return prev;
+        if (!prev.has(instanceKey)) return prev;
         const next = new Set(prev);
-        next.delete(profileId);
+        next.delete(instanceKey);
         return next;
       };
-      setKanbanProfiles(drop);
+      setKanbanViews(drop);
       setKanbanRunning(drop);
     });
 
@@ -655,8 +698,6 @@ export function App() {
     stoppedRef.current.add(profileId);
     // Destroy the PTY
     await window.api.destroyTerminal(profileId);
-    // Stop the Ordna instance for this profile if any (web server / TUI PTY)
-    window.api.stopOrdna(profileId).catch((): void => undefined);
     // Close any shell terminals for this profile
     setShellOpenSet((prev) => {
       if (!prev.has(profileId)) return prev;
@@ -664,15 +705,31 @@ export function App() {
       next.delete(profileId);
       return next;
     });
-    // Drop Kanban panel and viewer so the user starts clean on reload
-    const drop = (prev: Set<string>): Set<string> => {
-      if (!prev.has(profileId)) return prev;
-      const next = new Set(prev);
-      next.delete(profileId);
-      return next;
+    // Drop Kanban panel and viewer for the parent view + every parallel
+    // sub-view of this profile so the user starts clean on reload. Also
+    // stop the underlying Ordna instance for each so we don't leak ports
+    // or PTYs.
+    const dropForProfile = (prev: Set<string>): Set<string> => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const k of prev) {
+        if (k === profileId || k.startsWith(`${profileId}|`)) {
+          changed = true;
+          continue;
+        }
+        next.add(k);
+      }
+      return changed ? next : prev;
     };
-    setKanbanProfiles(drop);
-    setKanbanRunning(drop);
+    setKanbanViews(dropForProfile);
+    setKanbanRunning((prev) => {
+      for (const k of prev) {
+        if (k === profileId || k.startsWith(`${profileId}|`)) {
+          window.api.stopOrdna(k).catch((): void => undefined);
+        }
+      }
+      return dropForProfile(prev);
+    });
     // Remove from initialized set — TerminalPane will dispose the xterm.js instance
     setInitialized((prev) => {
       if (!prev.has(profileId)) return prev;
@@ -704,17 +761,31 @@ export function App() {
     setProfiles(updated);
     setEditorOpen(false);
 
-    // Drop overlay state for the removed profile
-    const drop = (prev: Set<string>): Set<string> => {
-      if (!prev.has(profileId)) return prev;
-      const next = new Set(prev);
-      next.delete(profileId);
-      return next;
+    // Drop overlay state for the removed profile (parent view + every
+    // parallel sub-view it owned).
+    const dropForProfile = (prev: Set<string>): Set<string> => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const k of prev) {
+        if (k === profileId || k.startsWith(`${profileId}|`)) {
+          changed = true;
+          continue;
+        }
+        next.add(k);
+      }
+      return changed ? next : prev;
     };
-    setReadmeProfiles(drop);
-    setFilesProfiles(drop);
-    setKanbanProfiles(drop);
-    setKanbanRunning(drop);
+    setReadmeViews(dropForProfile);
+    setFilesViews(dropForProfile);
+    setKanbanViews(dropForProfile);
+    setKanbanRunning((prev) => {
+      for (const k of prev) {
+        if (k === profileId || k.startsWith(`${profileId}|`)) {
+          window.api.stopOrdna(k).catch((): void => undefined);
+        }
+      }
+      return dropForProfile(prev);
+    });
 
     if (activeProfileId === profileId) {
       setActiveProfileId(updated.length > 0 ? updated[0].id : null);
@@ -807,44 +878,45 @@ export function App() {
     return next;
   };
 
-  // Command bar action builders
+  // Command bar action builders — keyed by activeViewKey so parallel agents
+  // and their parent profile each have independent overlay state.
   const toggleReadme = useCallback(() => {
-    const id = activeProfileId;
-    if (!id) return;
-    if (filesProfiles.has(id)) setFilesCloseRequested(true);
-    setKanbanProfiles((prev) => removeFromSet(prev, id));
-    setReadmeProfiles((prev) => toggleInSet(prev, id));
-  }, [activeProfileId, filesProfiles]);
+    const key = activeViewKey;
+    if (!key) return;
+    if (filesViews.has(key)) setFilesCloseRequested(true);
+    setKanbanViews((prev) => removeFromSet(prev, key));
+    setReadmeViews((prev) => toggleInSet(prev, key));
+  }, [activeViewKey, filesViews]);
 
   const toggleFiles = useCallback(() => {
-    const id = activeProfileId;
-    if (!id) return;
-    if (filesProfiles.has(id)) {
+    const key = activeViewKey;
+    if (!key) return;
+    if (filesViews.has(key)) {
       setFilesCloseRequested(true);
     } else {
-      setFilesProfiles((prev) => ensureInSet(prev, id));
-      setReadmeProfiles((prev) => removeFromSet(prev, id));
-      setKanbanProfiles((prev) => removeFromSet(prev, id));
+      setFilesViews((prev) => ensureInSet(prev, key));
+      setReadmeViews((prev) => removeFromSet(prev, key));
+      setKanbanViews((prev) => removeFromSet(prev, key));
     }
-  }, [activeProfileId, filesProfiles]);
+  }, [activeViewKey, filesViews]);
 
   const toggleKanban = useCallback(() => {
-    const id = activeProfileId;
-    if (!id) return;
-    const opening = !kanbanProfiles.has(id);
+    const key = activeViewKey;
+    if (!key) return;
+    const opening = !kanbanViews.has(key);
     if (opening) {
       // Show the Kanban tab and ensure its viewer is mounted (idempotent —
       // existing Ordna instance is reused if already running).
-      setKanbanProfiles((prev) => ensureInSet(prev, id));
-      setKanbanRunning((prev) => ensureInSet(prev, id));
-      if (filesProfiles.has(id)) setFilesCloseRequested(true);
-      setReadmeProfiles((prev) => removeFromSet(prev, id));
+      setKanbanViews((prev) => ensureInSet(prev, key));
+      setKanbanRunning((prev) => ensureInSet(prev, key));
+      if (filesViews.has(key)) setFilesCloseRequested(true);
+      setReadmeViews((prev) => removeFromSet(prev, key));
     } else {
       // Hide-only: remove from the visible set but keep the viewer mounted in
       // the background so Ordna keeps running and re-opening is instant.
-      setKanbanProfiles((prev) => removeFromSet(prev, id));
+      setKanbanViews((prev) => removeFromSet(prev, key));
     }
-  }, [activeProfileId, filesProfiles, kanbanProfiles]);
+  }, [activeViewKey, filesViews, kanbanViews]);
 
   const toggleShell = useCallback(() => {
     if (!activeProfileId) return;
@@ -1066,38 +1138,50 @@ export function App() {
           onDictationStop={dictation.stopListening}
         />
         {readmeVisible && activeProfile && (
-          <ReadmeViewer workingDirectory={activeProfile.workingDirectory} />
+          <ReadmeViewer workingDirectory={activeViewCwd || activeProfile.workingDirectory} />
         )}
         {filesVisible && activeProfile && (
           <FileExplorer
-            workingDirectory={activeProfile.workingDirectory}
+            workingDirectory={activeViewCwd || activeProfile.workingDirectory}
             closeRequested={filesCloseRequested}
             onCloseHandled={(proceed) => {
               setFilesCloseRequested(false);
-              if (proceed && activeProfileId) {
-                setFilesProfiles((prev) => {
-                  if (!prev.has(activeProfileId)) return prev;
+              if (proceed && activeViewKey) {
+                setFilesViews((prev) => {
+                  if (!prev.has(activeViewKey)) return prev;
                   const next = new Set(prev);
-                  next.delete(activeProfileId);
+                  next.delete(activeViewKey);
                   return next;
                 });
               }
             }}
           />
         )}
-        {/* Mount one KanbanViewer per profile in kanbanRunning. The set persists
+        {/* Mount one KanbanViewer per view in kanbanRunning. The set persists
             across tab close — clicking the Kanban button to hide just removes
-            the profile from kanbanProfiles, leaving the viewer mounted and
-            Ordna alive in the background. The viewer is shown only when its
-            profile is active AND the Kanban tab is the active overlay. */}
-        {[...kanbanRunning].map((id) => {
-          const p = profiles.find((pp) => pp.id === id);
+            the view from kanbanViews, leaving the viewer mounted and Ordna
+            alive in the background. The viewer is shown only when its view
+            matches the active view AND the Kanban tab is the active overlay.
+            View key format: parent = `${profileId}`, parallel = `${profileId}|${parallelId}`. */}
+        {[...kanbanRunning].map((key) => {
+          const sepIdx = key.indexOf('|');
+          const profileId = sepIdx === -1 ? key : key.slice(0, sepIdx);
+          const parallelId = sepIdx === -1 ? null : key.slice(sepIdx + 1);
+          const p = profiles.find((pp) => pp.id === profileId);
           if (!p) return null;
-          const visible = id === activeProfileId && kanbanProfiles.has(id);
+          let cwd = p.workingDirectory;
+          if (parallelId) {
+            const pa = parallelAgents.get(parallelId);
+            if (!pa) return null; // parallel gone — viewer will be unmounted next render
+            cwd = pa.worktreePath;
+          }
+          const visible = key === activeViewKey && kanbanViews.has(key);
           return (
             <KanbanViewer
-              key={id}
-              profile={p}
+              key={key}
+              instanceKey={key}
+              profileId={p.id}
+              cwd={cwd}
               settings={settings}
               hidden={!visible}
             />
