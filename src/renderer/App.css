@@ -283,6 +283,9 @@
 
 .flame {
   fill: var(--flame-color);
+  /* Anchor scaleX at x=3 (right edge of the base bar) so animated spikes
+     stay attached and never reveal a gap between base and flame. */
+  transform-origin: 3px 0;
   opacity: 0.25;
   transform-origin: left center;
   transition: fill 0.3s, opacity 0.3s;
