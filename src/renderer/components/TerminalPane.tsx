@@ -208,7 +208,7 @@ function createTerminalInstance(
     theme,
     allowProposedApi: true,
     // macOS Option key acts as Meta — enables Option+←/→ for word navigation
-    macOptionIsMeta: true,
+    macOptionIsMeta: false,
     macOptionClickForcesSelection: false,
   });
 

@@ -133,7 +133,7 @@ export function ShellPane({
         fontFamily: 'Menlo, Monaco, "Courier New", monospace',
         theme,
         allowProposedApi: true,
-        macOptionIsMeta: true,
+        macOptionIsMeta: false,
         macOptionClickForcesSelection: false,
       });
 
@@ -167,7 +167,12 @@ export function ShellPane({
         } catch { /* canvas fallback */ }
       }
 
+      // Suppresses xterm.js responses (CPR, OSC color queries, device attrs, etc.)
+      // from being routed to the PTY while the saved scrollback is being replayed.
+      // Otherwise the answers land on the new shell's prompt as garbage input.
+      let replayingScrollback = false;
       terminal.onData((data) => {
+        if (replayingScrollback) return;
         window.api.sendInput(shell.id, data);
       });
 
@@ -181,14 +186,22 @@ export function ShellPane({
           terminal.focus();
           // Restore scrollback then start shell
           window.api.loadScrollback(shell.id).then((scrollback) => {
+            const startPty = () => {
+              replayingScrollback = false;
+              window.api.createShellTerminal(shell.id, workingDirectory).then(() => {
+                window.api.resizeTerminal(shell.id, terminal.cols, terminal.rows);
+              });
+            };
             if (scrollback && scrollback.trim()) {
+              replayingScrollback = true;
               terminal.write('\x1B[90m--- Previous session ---\x1B[0m\r\n');
               terminal.write(scrollback);
-              terminal.write('\r\n');
+              // The write callback fires after xterm.js has fully parsed the data
+              // and emitted any synchronous responses. Safe to start the PTY now.
+              terminal.write('\r\n', startPty);
+            } else {
+              startPty();
             }
-            window.api.createShellTerminal(shell.id, workingDirectory).then(() => {
-              window.api.resizeTerminal(shell.id, terminal.cols, terminal.rows);
-            });
           });
         });
       } else {

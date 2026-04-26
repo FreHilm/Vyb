@@ -105,7 +105,7 @@ function KanbanTui({ ptyId, settings }: { ptyId: string; settings: AppSettings }
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       theme,
       allowProposedApi: true,
-      macOptionIsMeta: true,
+      macOptionIsMeta: false,
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
