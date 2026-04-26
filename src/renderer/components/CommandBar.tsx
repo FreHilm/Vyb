@@ -8,9 +8,11 @@ interface CommandBarProps {
   readmeVisible: boolean;
   hasReadme: boolean;
   filesVisible: boolean;
+  kanbanVisible: boolean;
   onToggleShell: () => void;
   onToggleReadme: () => void;
   onToggleFiles: () => void;
+  onToggleKanban: () => void;
   externalApps: ExternalApp[];
   navActive: boolean;
   dictationListening: boolean;
@@ -33,9 +35,11 @@ export function CommandBar({
   readmeVisible,
   hasReadme,
   filesVisible,
+  kanbanVisible,
   onToggleShell,
   onToggleReadme,
   onToggleFiles,
+  onToggleKanban,
   externalApps,
   navActive,
   dictationListening,
@@ -56,8 +60,8 @@ export function CommandBar({
     window.api.openExternal(app.command, profile.workingDirectory);
   };
 
-  // Fixed buttons: README(0), Files(1), Terminal(2), Folder(3), then external apps(4+)
-  const extStart = 4;
+  // Fixed buttons: README(0), Files(1), Terminal(2), Folder(3), Kanban(4), then external apps(5+)
+  const extStart = 5;
 
   return (
     <div className="command-bar">
@@ -102,6 +106,17 @@ export function CommandBar({
             <path d="M1.5 1A1.5 1.5 0 000 2.5v11A1.5 1.5 0 001.5 15h13a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0014.5 4H7.71L6.85 2.15A1.5 1.5 0 005.57 1.5H1.5z" />
           </svg>
           <span>Folder</span>
+        </button>
+        <button
+          className={`action-btn ${kanbanVisible ? 'action-btn-active' : ''}`}
+          onClick={onToggleKanban}
+          title="Toggle Kanban (Ordna)"
+        >
+          <NavNum active={navActive} idx={4} />
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M1.5 2h3a.5.5 0 01.5.5v11a.5.5 0 01-.5.5h-3a.5.5 0 01-.5-.5v-11a.5.5 0 01.5-.5zM6.5 2h3a.5.5 0 01.5.5v7a.5.5 0 01-.5.5h-3a.5.5 0 01-.5-.5v-7a.5.5 0 01.5-.5zM11.5 2h3a.5.5 0 01.5.5v4a.5.5 0 01-.5.5h-3a.5.5 0 01-.5-.5v-4a.5.5 0 01.5-.5z" />
+          </svg>
+          <span>Kanban</span>
         </button>
 
         {dictationSupported && (

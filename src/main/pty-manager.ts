@@ -47,6 +47,7 @@ export class PtyManager {
     profile: Profile,
     cols = 80,
     rows = 24,
+    extraEnv?: Record<string, string>,
   ): void {
     if (this.ptys.has(profileId)) {
       this.destroy(profileId);
@@ -98,6 +99,13 @@ export class PtyManager {
     delete spawnEnv.ELECTRON_RUN_AS_NODE;
     delete spawnEnv.__CFBundleIdentifier;
     spawnEnv.XPC_SERVICE_NAME = '0';
+
+    // Apply caller-supplied env (e.g. ORDNA_AGENT_HOOK_*)
+    if (extraEnv) {
+      for (const [k, v] of Object.entries(extraEnv)) {
+        spawnEnv[k] = v;
+      }
+    }
 
     const ptyProcess = pty.spawn(spawnCmd, spawnArgs, {
       name: 'xterm-256color',

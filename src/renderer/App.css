@@ -2261,6 +2261,51 @@
   outline: none;
 }
 
+.kanban-viewer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-base);
+  position: relative;
+  min-height: 0;
+}
+
+.kanban-iframe {
+  flex: 1;
+  border: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--c-base);
+}
+
+.kanban-loading,
+.kanban-error {
+  color: var(--c-overlay0);
+  font-size: 14px;
+  text-align: center;
+  padding: 40px 24px;
+}
+
+.kanban-error code {
+  font-family: Menlo, Monaco, monospace;
+  background: var(--c-surface0);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.kanban-tui-container {
+  flex: 1;
+  position: relative;
+  background: var(--c-base);
+  padding: 8px;
+  min-height: 0;
+}
+
+.kanban-tui-instance {
+  width: 100%;
+  height: 100%;
+}
+
 .readme-back-btn {
   position: sticky;
   top: 12px;

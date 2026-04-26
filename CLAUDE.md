@@ -113,9 +113,22 @@ Export: `archiver` creates ZIP of profiles.json, settings.json, layout.json, ico
 
 `StatusBar.tsx` polls git status every 10s (local only). Shows branch, staged/modified/untracked counts, ahead/behind, stashes, last commit, remote link. Fetch button runs `git fetch --quiet` on demand and refreshes status.
 
+### Ordna Kanban
+
+`KanbanViewer.tsx` renders Ordna scoped to the active profile's working directory — mirrors the README/Files overlay pattern. Two modes (Settings → Ordna):
+
+- **Web**: main process calls `runWeb({ cwd, port: 0, openBrowser: false })` from `@frehilm/ordna-web`; renderer iframes the resulting `http://127.0.0.1:<port>/` URL.
+- **TUI**: spawns `npx -y @frehilm/ordna-cli` via `PtyManager` with PTY id `ordna:<profileId>`. `ordna:` prefix is excluded from status detection.
+
+`OrdnaManager` (`src/main/ordna-manager.ts`) holds at most one running instance and restarts it when the active profile changes. Lifecycle is gated by the renderer: opening the Kanban tab calls `startOrdna()`, closing or unmounting calls `stopOrdna()`.
+
+**Hook receiver**: `ordna-hook-server.ts` runs a tiny HTTP server on `127.0.0.1:<ordnaHookPort>` (9876 by default, falls back to next free port). Validates `X-Token` against `settings.ordnaHookToken` (random hex, generated on first launch). Ordna's outbound POST to `/agent` is forwarded over IPC (`ORDNA_TASK_RECEIVED`) to the renderer, which prepends an instructional context block ("This is a task from the Kanban board… ask clarifying questions…") and writes it into the active agent's PTY via `sendInput`. Env vars `ORDNA_AGENT_HOOK_URL`, `ORDNA_AGENT_HOOK_LABEL`, `ORDNA_AGENT_HOOK_HEADERS` are auto-set when Ordna is launched.
+
+`PtyManager.create()` accepts an optional `extraEnv` param to inject these vars into the spawned PTY environment.
+
 ## Vite Config
 
-- `vite.main.config.ts`: Externalizes `node-pty`, `archiver`, `adm-zip`, `@xterm/xterm`, `@xterm/addon-serialize`
+- `vite.main.config.ts`: Externalizes `node-pty`, `archiver`, `adm-zip`, `@xterm/xterm`, `@xterm/addon-serialize`, `@frehilm/ordna-core`, `@frehilm/ordna-web`
 - `vite.renderer.config.ts`: `@vitejs/plugin-react` for JSX
 - `vite.preload.config.ts`: Default (bundles shared type imports)
 

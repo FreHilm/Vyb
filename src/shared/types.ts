@@ -53,6 +53,9 @@ export interface AppSettings {
   flameLength: number; // 0-100, default 50. Controls how far flames extend from edge.
   flameSpeed: number; // 0-100, default 50. Controls animation speed.
   showAgentBadge: boolean; // Show agent logo badge on profile items
+  ordnaMode: 'web' | 'tui'; // Kanban mode for Ordna integration
+  ordnaHookPort: number; // Local HTTP port for receiving Ordna agent hooks
+  ordnaHookToken: string; // Random shared secret for the X-Token header
 }
 
 export interface AgentConfig {
@@ -106,6 +109,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   flameLength: 50,
   flameSpeed: 50,
   showAgentBadge: true,
+  ordnaMode: 'web',
+  ordnaHookPort: 9876,
+  ordnaHookToken: '',
 };
 
 /** Resolve the command and args for a profile, looking up the agent config if set */
@@ -182,7 +188,33 @@ export const IPC_CHANNELS = {
   PROFILE_MEMORY_SAVE: 'profileMemory:save',
   SCROLLBACK_LOAD: 'scrollback:load',
   SCROLLBACK_SAVE: 'scrollback:save',
+  ORDNA_START: 'ordna:start',
+  ORDNA_STOP: 'ordna:stop',
+  ORDNA_GET_WEB_URL: 'ordna:getWebUrl',
+  ORDNA_TASK_RECEIVED: 'ordna:taskReceived',
+  ORDNA_HOOK_INFO: 'ordna:hookInfo',
 } as const;
+
+export interface OrdnaTask {
+  id: string;
+  title: string;
+  status: string;
+  assignee: string | null;
+  priority: 'high' | 'medium' | 'low' | null;
+  tags: string[];
+  depends_on: string[];
+  created_at: string;
+  updated_at: string;
+  sections: { heading: string; level: number; content: string }[];
+  rawContent: string;
+  filePath: string;
+}
+
+export interface OrdnaTaskPayload {
+  action: 'agent';
+  task: OrdnaTask;
+  context: { tasksDir: string; cwd: string; schema: string };
+}
 
 export interface FileEntry {
   name: string;
