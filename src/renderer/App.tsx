@@ -13,7 +13,7 @@ import { StatusBar } from './components/StatusBar';
 import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -147,6 +147,8 @@ declare global {
       finishParallelAgent: (id: string) => Promise<void>;
       onParallelAgentChange: (callback: (agent: ParallelAgent) => void) => () => void;
       onParallelAgentExited: (callback: (agent: ParallelAgent) => void) => () => void;
+      setEditMenuState: (state: EditMenuState) => void;
+      onEditMenuAction: (callback: (action: EditMenuAction) => void) => () => void;
     };
   }
 }

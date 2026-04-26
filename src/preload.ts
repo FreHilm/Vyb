@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent } from './shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
@@ -229,5 +229,15 @@ contextBridge.exposeInMainWorld('api', {
       callback(agent);
     ipcRenderer.on(IPC_CHANNELS.PARALLEL_AGENT_EXITED, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PARALLEL_AGENT_EXITED, handler);
+  },
+
+  setEditMenuState: (state: EditMenuState): void =>
+    ipcRenderer.send(IPC_CHANNELS.EDIT_MENU_STATE, state),
+
+  onEditMenuAction: (callback: (action: EditMenuAction) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, action: EditMenuAction) =>
+      callback(action);
+    ipcRenderer.on(IPC_CHANNELS.EDIT_MENU_ACTION, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.EDIT_MENU_ACTION, handler);
   },
 });
