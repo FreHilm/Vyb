@@ -229,6 +229,8 @@ export const IPC_CHANNELS = {
   ORDNA_TASK_RECEIVED: 'ordna:taskReceived',
   ORDNA_HOOK_INFO: 'ordna:hookInfo',
   ORDNA_EXITED: 'ordna:exited',
+  EDIT_MENU_ACTION: 'editMenu:action',
+  EDIT_MENU_STATE: 'editMenu:state',
   PARALLEL_AGENT_SPAWN: 'parallel:spawn',
   PARALLEL_AGENT_DESTROY: 'parallel:destroy',
   PARALLEL_AGENT_LIST: 'parallel:list',
@@ -290,6 +292,25 @@ export interface FileEntry {
   name: string;
   path: string;
   isDirectory: boolean;
+}
+
+export type EditMenuAction =
+  | 'save'
+  | 'saveAs'
+  | 'undo'
+  | 'redo'
+  | 'cut'
+  | 'copy'
+  | 'paste'
+  | 'selectAll'
+  | 'find';
+
+export interface EditMenuState {
+  /** Whether a non-image file is currently open in the editor (i.e. menu items
+   * other than Save should be enabled). */
+  hasFile: boolean;
+  /** Whether the active file has unsaved changes (Save item enabled). */
+  canSave: boolean;
 }
 
 export interface GitChangedFile {
