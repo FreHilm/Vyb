@@ -150,10 +150,10 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       if (profileId.startsWith('shell:')) {
         safeSend(IPC_CHANNELS.SHELL_TERMINAL_EXITED, { terminalId: profileId });
       } else if (profileId.startsWith('ordna:')) {
-        const realProfileId = profileId.slice('ordna:'.length);
-        if (ordnaManager) ordnaManager.handlePtyExit(realProfileId);
+        const instanceKey = profileId.slice('ordna:'.length);
+        if (ordnaManager) ordnaManager.handlePtyExit(instanceKey);
         safeSend(IPC_CHANNELS.SHELL_TERMINAL_EXITED, { terminalId: profileId });
-        safeSend(IPC_CHANNELS.ORDNA_EXITED, { profileId: realProfileId });
+        safeSend(IPC_CHANNELS.ORDNA_EXITED, { instanceKey });
       } else if (profileId.startsWith('parallel:')) {
         const id = profileId.slice('parallel:'.length);
         statusDetector.unregister(profileId);
@@ -840,24 +840,27 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     return null;
   });
 
-  ipcMain.handle(IPC_CHANNELS.ORDNA_START, async (_, profileId: string, mode: 'web' | 'tui') => {
-    const profile = profiles.find((p) => p.id === profileId);
-    if (!profile) return { error: 'profile not found' };
-    try {
-      const result = await ordnaManager.start(profile, mode);
-      return result;
-    } catch (err) {
-      console.error('Ordna start failed:', err);
-      return { error: (err as Error).message };
-    }
+  ipcMain.handle(
+    IPC_CHANNELS.ORDNA_START,
+    async (_, instanceKey: string, profileId: string, cwd: string, mode: 'web' | 'tui') => {
+      const profile = profiles.find((p) => p.id === profileId);
+      if (!profile) return { error: 'profile not found' };
+      try {
+        const result = await ordnaManager.start(instanceKey, profileId, cwd, mode);
+        return result;
+      } catch (err) {
+        console.error('Ordna start failed:', err);
+        return { error: (err as Error).message };
+      }
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.ORDNA_STOP, async (_, instanceKey: string) => {
+    await ordnaManager.stop(instanceKey);
   });
 
-  ipcMain.handle(IPC_CHANNELS.ORDNA_STOP, async (_, profileId: string) => {
-    await ordnaManager.stop(profileId);
-  });
-
-  ipcMain.handle(IPC_CHANNELS.ORDNA_GET_WEB_URL, (_, profileId: string) => {
-    const inst = ordnaManager.getInstance(profileId);
+  ipcMain.handle(IPC_CHANNELS.ORDNA_GET_WEB_URL, (_, instanceKey: string) => {
+    const inst = ordnaManager.getInstance(instanceKey);
     if (!inst) return null;
     return { mode: inst.mode, webUrl: inst.webUrl ?? null, tuiPtyId: inst.tuiPtyId ?? null };
   });

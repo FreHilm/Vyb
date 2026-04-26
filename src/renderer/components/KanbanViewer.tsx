@@ -3,28 +3,35 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
-import { Profile, AppSettings } from '../../shared/types';
+import { AppSettings } from '../../shared/types';
 import { getTerminalTheme } from '../theme';
 import { setupTerminalDrop, debouncedPtyResize, makeTerminalKeyHandler } from './TerminalPane';
 
 interface KanbanViewerProps {
-  profile: Profile;
+  /** Opaque key for this Ordna instance — `${profileId}` for parent view,
+   * `${profileId}|${parallelId}` for a parallel agent's view. */
+  instanceKey: string;
+  /** Owning profile id, used by the main process for hook routing. */
+  profileId: string;
+  /** Working directory the Ordna instance should run in. For parallel views
+   * this is the agent's worktree path; otherwise the profile's cwd. */
+  cwd: string;
   settings: AppSettings;
   /** When true, the view is rendered with display:none so its iframe / xterm
    * stays mounted and the underlying Ordna instance keeps running. */
   hidden: boolean;
 }
 
-export function KanbanViewer({ profile, settings, hidden }: KanbanViewerProps) {
+export function KanbanViewer({ instanceKey, profileId, cwd, settings, hidden }: KanbanViewerProps) {
   const mode = settings.ordnaMode || 'web';
   const [webUrl, setWebUrl] = useState<string | null>(null);
   const [tuiPtyId, setTuiPtyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Start the Ordna instance for THIS profile once on mount. The Map-backed
+  // Start the Ordna instance for THIS view once on mount. The Map-backed
   // OrdnaManager makes start() idempotent — re-mounts won't spawn a duplicate.
-  // Stop only on real unmount (profile closed kanban or was deleted).
+  // Stop only on real unmount (kanban closed or profile/parallel went away).
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -32,7 +39,7 @@ export function KanbanViewer({ profile, settings, hidden }: KanbanViewerProps) {
     setWebUrl(null);
     setTuiPtyId(null);
 
-    window.api.startOrdna(profile.id, mode).then((res) => {
+    window.api.startOrdna(instanceKey, profileId, cwd, mode).then((res) => {
       if (cancelled) return;
       if (res.error) {
         setError(res.error);
@@ -46,9 +53,9 @@ export function KanbanViewer({ profile, settings, hidden }: KanbanViewerProps) {
 
     return () => {
       cancelled = true;
-      window.api.stopOrdna(profile.id).catch((): void => undefined);
+      window.api.stopOrdna(instanceKey).catch((): void => undefined);
     };
-  }, [profile.id, mode]);
+  }, [instanceKey, profileId, cwd, mode]);
 
   const wrapperStyle: React.CSSProperties = hidden
     ? { display: 'none' }

@@ -9,9 +9,10 @@ type WebHandle = {
 };
 
 interface OrdnaInstance {
-  profileId: string;
+  instanceKey: string; // opaque key from the renderer (parent: profileId, parallel: `${profileId}|${parallelId}`)
+  profileId: string;   // parent profile that owns this instance — used for hook routing
   mode: 'web' | 'tui';
-  cwd: string; // resolved (no ~)
+  cwd: string;         // resolved (no ~)
   web?: WebHandle;
   tuiPtyId?: string;
 }
@@ -42,28 +43,36 @@ export class OrdnaManager {
   }
 
   /**
-   * Idempotent: if an instance is already running for this profile in the
+   * Idempotent: if an instance is already running for this instanceKey in the
    * requested mode, return its connection info. If the mode changed, the old
-   * instance is stopped before the new one is created so the user only sees
-   * one Ordna per profile at a time.
+   * instance is stopped before the new one is created.
+   *
+   * `instanceKey` is the renderer's opaque view key — parent profile uses
+   * just the profileId, a parallel agent uses `${profileId}|${parallelId}`.
+   * Each instance gets its own cwd so a parallel agent can run Ordna over
+   * its worktree independently of the parent profile's instance.
    */
-  async start(profile: Profile, mode: 'web' | 'tui'): Promise<{ webUrl?: string; tuiPtyId?: string }> {
-    const existing = this.instances.get(profile.id);
+  async start(
+    instanceKey: string,
+    profileId: string,
+    cwd: string,
+    mode: 'web' | 'tui',
+  ): Promise<{ webUrl?: string; tuiPtyId?: string }> {
+    const existing = this.instances.get(instanceKey);
     if (existing) {
       if (existing.mode === mode) {
         return { webUrl: existing.web?.url, tuiPtyId: existing.tuiPtyId };
       }
-      // Mode changed — tear down the existing instance before creating the new one.
-      await this.stop(profile.id);
+      await this.stop(instanceKey);
     }
 
-    let cwd = profile.workingDirectory || os.homedir();
-    if (cwd.startsWith('~')) cwd = cwd.replace(/^~/, os.homedir());
+    let resolvedCwd = cwd || os.homedir();
+    if (resolvedCwd.startsWith('~')) resolvedCwd = resolvedCwd.replace(/^~/, os.homedir());
 
     if (mode === 'web') {
       const mod = await import('@frehilm/ordna-web');
       const handle = await mod.runWeb({
-        cwd,
+        cwd: resolvedCwd,
         port: 0,
         openBrowser: false,
         agentHook: this.hookEnv.url
@@ -77,29 +86,29 @@ export class OrdnaManager {
       const port = handle.port;
       const url = `http://127.0.0.1:${port}/`;
       const web: WebHandle = { port, url, close: handle.close.bind(handle) };
-      this.instances.set(profile.id, { profileId: profile.id, mode: 'web', cwd, web });
+      this.instances.set(instanceKey, { instanceKey, profileId, mode: 'web', cwd: resolvedCwd, web });
       return { webUrl: url };
     }
 
     // TUI mode — spawn `npx -y @frehilm/ordna-cli` via PtyManager
-    const tuiPtyId = `ordna:${profile.id}`;
+    const tuiPtyId = `ordna:${instanceKey}`;
     const tuiProfile: Profile = {
       id: tuiPtyId,
       name: 'Ordna',
       icon: '',
-      workingDirectory: cwd,
+      workingDirectory: resolvedCwd,
       command: 'npx',
       args: ['-y', '@frehilm/ordna-cli'],
     };
     this.ptyManager.create(tuiPtyId, tuiProfile, undefined, undefined, this.envForOrdna());
-    this.instances.set(profile.id, { profileId: profile.id, mode: 'tui', cwd, tuiPtyId });
+    this.instances.set(instanceKey, { instanceKey, profileId, mode: 'tui', cwd: resolvedCwd, tuiPtyId });
     return { tuiPtyId };
   }
 
-  async stop(profileId: string): Promise<void> {
-    const inst = this.instances.get(profileId);
+  async stop(instanceKey: string): Promise<void> {
+    const inst = this.instances.get(instanceKey);
     if (!inst) return;
-    this.instances.delete(profileId);
+    this.instances.delete(instanceKey);
     if (inst.mode === 'web' && inst.web) {
       try {
         await inst.web.close();
@@ -112,13 +121,22 @@ export class OrdnaManager {
     }
   }
 
+  /** Stop every instance whose owning profile matches — used when a parent
+   * profile is stopped/deleted to clean up its parent + parallel instances. */
+  async stopForProfile(profileId: string): Promise<void> {
+    const keys = [...this.instances.entries()]
+      .filter(([, inst]) => inst.profileId === profileId)
+      .map(([key]) => key);
+    await Promise.all(keys.map((k) => this.stop(k)));
+  }
+
   async stopAll(): Promise<void> {
     const ids = [...this.instances.keys()];
     await Promise.all(ids.map((id) => this.stop(id)));
   }
 
-  getInstance(profileId: string): { mode: 'web' | 'tui'; webUrl?: string; tuiPtyId?: string } | null {
-    const inst = this.instances.get(profileId);
+  getInstance(instanceKey: string): { mode: 'web' | 'tui'; webUrl?: string; tuiPtyId?: string } | null {
+    const inst = this.instances.get(instanceKey);
     if (!inst) return null;
     return { mode: inst.mode, webUrl: inst.web?.url, tuiPtyId: inst.tuiPtyId };
   }
@@ -127,16 +145,18 @@ export class OrdnaManager {
    * Called when an Ordna TUI PTY has already exited (e.g. user pressed `q`).
    * Drops the bookkeeping entry without trying to kill the process.
    */
-  handlePtyExit(profileId: string): void {
-    const inst = this.instances.get(profileId);
+  handlePtyExit(instanceKey: string): void {
+    const inst = this.instances.get(instanceKey);
     if (!inst || inst.mode !== 'tui') return;
-    this.instances.delete(profileId);
+    this.instances.delete(instanceKey);
   }
 
-  /** Find the profileId whose Ordna instance owns this resolved cwd. */
+  /** Find the parent profileId whose Ordna instance owns this resolved cwd.
+   * Used by the hook receiver to route incoming tasks back to the right
+   * profile (parent or parallel both feed back to the parent profileId). */
   resolveProfileByCwd(cwd: string): string | null {
-    for (const [id, inst] of this.instances) {
-      if (inst.cwd === cwd) return id;
+    for (const inst of this.instances.values()) {
+      if (inst.cwd === cwd) return inst.profileId;
     }
     return null;
   }

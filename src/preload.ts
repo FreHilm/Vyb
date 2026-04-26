@@ -172,18 +172,20 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.LAYOUT_SAVE, layout),
 
   startOrdna: (
+    instanceKey: string,
     profileId: string,
+    cwd: string,
     mode: 'web' | 'tui',
   ): Promise<{ webUrl?: string; tuiPtyId?: string; error?: string }> =>
-    ipcRenderer.invoke(IPC_CHANNELS.ORDNA_START, profileId, mode),
+    ipcRenderer.invoke(IPC_CHANNELS.ORDNA_START, instanceKey, profileId, cwd, mode),
 
-  stopOrdna: (profileId: string): Promise<void> =>
-    ipcRenderer.invoke(IPC_CHANNELS.ORDNA_STOP, profileId),
+  stopOrdna: (instanceKey: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ORDNA_STOP, instanceKey),
 
   getOrdnaInstance: (
-    profileId: string,
+    instanceKey: string,
   ): Promise<{ mode: 'web' | 'tui'; webUrl: string | null; tuiPtyId: string | null } | null> =>
-    ipcRenderer.invoke(IPC_CHANNELS.ORDNA_GET_WEB_URL, profileId),
+    ipcRenderer.invoke(IPC_CHANNELS.ORDNA_GET_WEB_URL, instanceKey),
 
   getOrdnaHookInfo: (): Promise<{ url: string; port: number }> =>
     ipcRenderer.invoke(IPC_CHANNELS.ORDNA_HOOK_INFO),
@@ -195,8 +197,8 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.ORDNA_TASK_RECEIVED, handler);
   },
 
-  onOrdnaExited: (callback: (payload: { profileId: string }) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, payload: { profileId: string }) =>
+  onOrdnaExited: (callback: (payload: { instanceKey: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { instanceKey: string }) =>
       callback(payload);
     ipcRenderer.on(IPC_CHANNELS.ORDNA_EXITED, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.ORDNA_EXITED, handler);
