@@ -205,6 +205,16 @@ export function App() {
         console.warn('Ordna task received but no active profile to receive it');
         return;
       }
+
+      // Close every overlay so the agent terminal becomes visible.
+      // Files uses the close-requested dance to respect unsaved changes.
+      setReadmeVisible(false);
+      setKanbanVisible(false);
+      setFilesCloseRequested(true);
+      setEditorOpen(false);
+      setSettingsOpen(false);
+      setFocusedPane({ pane: 'agent', shellIndex: 0 });
+
       const t = payload.task;
       const priority = t.priority || 'unset';
       const tags = t.tags && t.tags.length > 0 ? t.tags.join(', ') : 'none';
