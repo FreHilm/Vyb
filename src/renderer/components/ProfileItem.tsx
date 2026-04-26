@@ -94,12 +94,9 @@ export function ProfileItem({
 
   const itemStyle: React.CSSProperties | undefined =
     hasUpdate && !isActive
-      ? {
-          '--update-color': STATUS_COLORS[status],
-          '--update-bg': STATUS_COLORS[status] + '14',
-        } as React.CSSProperties
+      ? ({ '--update-color': STATUS_COLORS[status] } as React.CSSProperties)
       : isActive && (isAnimated || isCalm)
-        ? { '--flame-color': STATUS_COLORS[status] } as React.CSSProperties
+        ? ({ '--flame-color': STATUS_COLORS[status] } as React.CSSProperties)
         : undefined;
 
   return (
@@ -166,6 +163,13 @@ export function ProfileItem({
       <div className="profile-info">
         <span className="profile-name">{profile.name}</span>
       </div>
+      {hasUpdate && !isActive && (
+        <div className="profile-update-indicator" title={STATUS_LABELS[status]}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+            <path d="M8 0c-.7 0-1.3.6-1.3 1.3v.4A4 4 0 0 0 4 5.5v3l-1 2.5h10l-1-2.5v-3a4 4 0 0 0-2.7-3.8v-.4C9.3.6 8.7 0 8 0zM6.4 13a1.6 1.6 0 0 0 3.2 0H6.4z" />
+          </svg>
+        </div>
+      )}
       {isRunning && (
         <div className="profile-controls">
           <button

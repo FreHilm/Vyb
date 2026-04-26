@@ -152,6 +152,7 @@ export const IPC_CHANNELS = {
   PROFILES_LOAD: 'profiles:load',
   PROFILES_SAVE: 'profiles:save',
   PROFILE_STATUS_CHANGE: 'profile:status-change',
+  PROFILE_STATUS_QUERY: 'profile:status-query',
   SHELL_SHOW_IN_FOLDER: 'shell:showInFolder',
   SHELL_OPEN_VSCODE: 'shell:openVSCode',
   SHELL_OPEN_FORK: 'shell:openFork',

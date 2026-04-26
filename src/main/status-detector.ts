@@ -66,6 +66,9 @@ const claudeAdapter: AgentAdapter = {
       /Yes.*No.*Always/,
       /Run\s*command/i,
       /Bash\s*command/i,
+      // Interactive picker footer (Ask-me-questions plugin, plan mode menus, etc.)
+      /Enter\s*to\s*select/i,
+      /to\s*navigate.*to\s*cancel/i,
     ]) {
       if (pattern.test(last)) return { status: 'needs-input' };
     }
@@ -289,6 +292,14 @@ export class StatusDetector {
 
   getStatus(profileId: string): AgentStatus {
     return this.states.get(profileId)?.status ?? 'offline';
+  }
+
+  getAll(): Record<string, AgentStatus> {
+    const out: Record<string, AgentStatus> = {};
+    for (const [id, state] of this.states) {
+      out[id] = state.status;
+    }
+    return out;
   }
 
   private checkStatus(profileId: string): void {

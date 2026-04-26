@@ -394,9 +394,16 @@
   background: color-mix(in srgb, var(--flame-color, transparent) 6%, transparent);
 }
 
-.profile-item.has-update {
-  box-shadow: inset 3px 0 0 var(--update-color, #22c55e);
-  background: var(--update-bg, rgba(34, 197, 94, 0.08));
+/* Update signal: a bell icon in the status color (no border, no bg tint).
+   Border on the row is reserved for the active profile (its flame-base). */
+.profile-update-indicator {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 2px;
+  color: var(--update-color, #22c55e);
+  pointer-events: none;
 }
 
 .profile-icon {

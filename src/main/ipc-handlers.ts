@@ -362,6 +362,10 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     activeProfileId = profileId;
   });
 
+  ipcMain.handle(IPC_CHANNELS.PROFILE_STATUS_QUERY, () => {
+    return statusDetector.getAll();
+  });
+
   ipcMain.handle(IPC_CHANNELS.SETTINGS_LOAD, () => {
     return loadSettings();
   });
