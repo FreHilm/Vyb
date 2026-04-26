@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Profile, AppSettings, DEFAULT_SETTINGS, SidebarLayout, ProfileMemoryMap } from '../shared/types';
+import { Profile, AppSettings, DEFAULT_SETTINGS, DEFAULT_AGENTS, SidebarLayout, ProfileMemoryMap } from '../shared/types';
 
 export function loadProfiles(): Profile[] {
   const userDataPath = app.getPath('userData');
@@ -65,7 +65,19 @@ export function loadSettings(): AppSettings {
   }
   try {
     const content = fs.readFileSync(settingsPath, 'utf-8');
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(content) };
+    const merged: AppSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(content) };
+    // Soft-migrate: fill in default permissionModeArgs for built-in agent ids
+    // that pre-date this field, so existing users get the defaults.
+    if (Array.isArray(merged.agents)) {
+      const defaultsById = new Map(DEFAULT_AGENTS.map((a) => [a.id, a]));
+      merged.agents = merged.agents.map((a) => {
+        if (a.permissionModeArgs !== undefined) return a;
+        const def = defaultsById.get(a.id);
+        if (!def) return a;
+        return { ...a, permissionModeArgs: [...(def.permissionModeArgs ?? [])] };
+      });
+    }
+    return merged;
   } catch {
     return { ...DEFAULT_SETTINGS };
   }

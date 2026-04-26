@@ -4,17 +4,20 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, ParallelAgent, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
 import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout, loadProfileMemory, saveProfileMemory, loadScrollback, saveScrollback } from './config-loader';
 import * as ordnaHookServer from './ordna-hook-server';
 import { OrdnaManager } from './ordna-manager';
+import { ParallelAgentManager } from './parallel-agent-manager';
+import { applyAgentArgsGuards } from './agent-args-guard';
 
 
 let ptyManager: PtyManager;
 let statusDetector: StatusDetector;
 let ordnaManager: OrdnaManager;
+let parallelManager: ParallelAgentManager;
 let mainWindow: BrowserWindow;
 let profiles: Profile[] = [];
 let isQuitting = false;
@@ -52,6 +55,26 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
   statusDetector = new StatusDetector((profileId, status, previousStatus, output) => {
     safeSend(IPC_CHANNELS.PROFILE_STATUS_CHANGE, { profileId, status });
+
+    // Parallel agent: bubble status into the agent record. Only trigger
+    // finish() when the agent has actually marked the task as `status: done`
+    // in the task md file — otherwise working→ready just means an interim
+    // idle prompt (Claude shows it after every response).
+    if (profileId.startsWith('parallel:') && parallelManager) {
+      const id = profileId.slice('parallel:'.length);
+      const agent = parallelManager.get(id);
+      if (agent && agent.phase !== 'completed' && agent.phase !== 'pushing') {
+        if (status === 'working') {
+          parallelManager.updatePhase(id, 'running');
+        } else if (status === 'ready' && previousStatus === 'working') {
+          if (parallelManager.isTaskDone(id)) {
+            const ownerProfile = profiles.find((p) => p.id === agent.profileId);
+            const autoPush = ownerProfile?.parallelAgentAutoPush === true;
+            parallelManager.finish(id, autoPush).catch((): void => undefined);
+          }
+        }
+      }
+    }
 
     // Only notify on meaningful transitions:
     // - working → ready (task completed)
@@ -93,7 +116,9 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
   ptyManager = new PtyManager(
     (profileId, data) => {
-      // Skip status detection for shell and ordna PTYs
+      // Skip status detection for shell and ordna PTYs.
+      // Parallel agents use the status detector with their `parallel:<id>`
+      // prefix so we can react to working→ready transitions for auto-push.
       if (!profileId.startsWith('shell:') && !profileId.startsWith('ordna:')) {
         statusDetector.feedData(profileId, data);
       }
@@ -129,6 +154,13 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         if (ordnaManager) ordnaManager.handlePtyExit(realProfileId);
         safeSend(IPC_CHANNELS.SHELL_TERMINAL_EXITED, { terminalId: profileId });
         safeSend(IPC_CHANNELS.ORDNA_EXITED, { profileId: realProfileId });
+      } else if (profileId.startsWith('parallel:')) {
+        const id = profileId.slice('parallel:'.length);
+        statusDetector.unregister(profileId);
+        if (parallelManager) {
+          // Tear down the worktree and emit exit notification
+          parallelManager.destroy(id).catch((): void => undefined);
+        }
       } else {
         statusDetector.unregister(profileId);
         safeSend(IPC_CHANNELS.PROFILE_STATUS_CHANGE, {
@@ -140,6 +172,10 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   );
 
   ordnaManager = new OrdnaManager(ptyManager);
+  parallelManager = new ParallelAgentManager(ptyManager, statusDetector, {
+    onChange: (a) => safeSend(IPC_CHANNELS.PARALLEL_AGENT_CHANGE, a),
+    onExited: (a) => safeSend(IPC_CHANNELS.PARALLEL_AGENT_EXITED, a),
+  });
   initOrdnaHookServer();
 
   ipcMain.handle(IPC_CHANNELS.PROFILES_LOAD, () => {
@@ -155,53 +191,13 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       const agents = settings.agents || DEFAULT_AGENTS;
       const resolved = resolveAgent(profile, agents);
 
-      // Build effective profile with resolved command/args
-      let effectiveProfile: Profile = { ...profile, command: resolved.command, args: resolved.args };
-
-      // If claude --continue but no .claude folder exists, drop --continue
-      if (
-        effectiveProfile.command === 'claude' &&
-        effectiveProfile.args?.includes('--continue')
-      ) {
-        let cwd = effectiveProfile.workingDirectory || os.homedir();
-        if (cwd.startsWith('~')) cwd = cwd.replace(/^~/, os.homedir());
-        if (!fs.existsSync(path.join(cwd, '.claude'))) {
-          effectiveProfile = {
-            ...effectiveProfile,
-            args: effectiveProfile.args.filter((a) => a !== '--continue'),
-          };
-        }
-      }
-
-      // Codex --resume guard: similar to Claude's --continue
-      if (
-        effectiveProfile.command === 'codex' &&
-        effectiveProfile.args?.includes('resume')
-      ) {
-        let cwd = effectiveProfile.workingDirectory || os.homedir();
-        if (cwd.startsWith('~')) cwd = cwd.replace(/^~/, os.homedir());
-        if (!fs.existsSync(path.join(cwd, '.codex'))) {
-          effectiveProfile = {
-            ...effectiveProfile,
-            args: effectiveProfile.args.filter((a) => a !== '--resume'),
-          };
-        }
-      }
-
-      // Gemini --resume guard
-      if (
-        effectiveProfile.command === 'gemini' &&
-        effectiveProfile.args?.includes('resume')
-      ) {
-        let cwd = effectiveProfile.workingDirectory || os.homedir();
-        if (cwd.startsWith('~')) cwd = cwd.replace(/^~/, os.homedir());
-        if (!fs.existsSync(path.join(cwd, '.gemini'))) {
-          effectiveProfile = {
-            ...effectiveProfile,
-            args: effectiveProfile.args.filter((a) => a !== '--resume'),
-          };
-        }
-      }
+      // Build effective profile with resolved command/args, then drop any
+      // resume flags whose required state directory doesn't exist in cwd.
+      const effectiveProfile = applyAgentArgsGuards({
+        ...profile,
+        command: resolved.command,
+        args: resolved.args,
+      });
 
       statusDetector.register(profileId, effectiveProfile);
       ptyManager.create(profileId, effectiveProfile, cols, rows);
@@ -871,6 +867,37 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   });
 
   ipcMain.handle(
+    IPC_CHANNELS.PARALLEL_AGENT_SPAWN,
+    async (_, profileId: string, task: { id: string; title: string; filePath?: string }) => {
+      const profile = profiles.find((p) => p.id === profileId);
+      if (!profile) return { error: 'profile not found' };
+      const settings = loadSettings();
+      const agentsCfg = settings.agents || DEFAULT_AGENTS;
+      try {
+        const agent = await parallelManager.spawn(profile, agentsCfg, task);
+        return agent;
+      } catch (err) {
+        return { error: (err as Error).message };
+      }
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.PARALLEL_AGENT_DESTROY, async (_, id: string) => {
+    await parallelManager.destroy(id);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PARALLEL_AGENT_LIST, (_, profileId?: string): ParallelAgent[] => {
+    return parallelManager.list(profileId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PARALLEL_AGENT_FINISH, async (_, id: string) => {
+    const agent = parallelManager.get(id);
+    const ownerProfile = agent ? profiles.find((p) => p.id === agent.profileId) : undefined;
+    const autoPush = ownerProfile?.parallelAgentAutoPush === true;
+    await parallelManager.finish(id, autoPush);
+  });
+
+  ipcMain.handle(
     IPC_CHANNELS.GENERATE_ICON,
     async (_, profileId: string, projectName: string): Promise<string | null> => {
       const settings = loadSettings();
@@ -1081,6 +1108,9 @@ export function cleanupIpcHandlers(): void {
   }
   if (ordnaManager) {
     ordnaManager.stopAll().catch((): void => undefined);
+  }
+  if (parallelManager) {
+    parallelManager.destroyAll().catch((): void => undefined);
   }
   ordnaHookServer.stop().catch((): void => undefined);
   if (ptyManager) {

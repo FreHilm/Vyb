@@ -59,6 +59,8 @@ export function ProfileEditor({
   const [icon, setIcon] = useState('');
   const [workingDirectory, setWorkingDirectory] = useState('');
   const [agentId, setAgentId] = useState('claude');
+  const [parallelAgentEnabled, setParallelAgentEnabled] = useState(false);
+  const [parallelAgentAutoPush, setParallelAgentAutoPush] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState('');
   const [iconCacheBust, setIconCacheBust] = useState(0);
@@ -68,6 +70,8 @@ export function ProfileEditor({
       setName(profile.name);
       setIcon(profile.icon);
       setWorkingDirectory(profile.workingDirectory);
+      setParallelAgentEnabled(profile.parallelAgentEnabled === true);
+      setParallelAgentAutoPush(profile.parallelAgentAutoPush === true);
       // Resolve agentId: use stored agentId, or match by command
       if (profile.agentId) {
         setAgentId(profile.agentId);
@@ -119,6 +123,8 @@ export function ProfileEditor({
       icon,
       workingDirectory: workingDirectory.trim(),
       agentId,
+      parallelAgentEnabled,
+      parallelAgentAutoPush,
       // Store resolved command/args for backwards compat with older versions
       command: agent?.command || 'claude',
       args: agent?.args || [],
@@ -255,6 +261,46 @@ export function ProfileEditor({
             )}
             {genError && <div className="field-error">{genError}</div>}
           </label>
+
+          <label className="field field-row-toggle">
+            <span className="field-label">Run Kanban tasks in parallel agents</span>
+            <label className="integration-toggle">
+              <input
+                type="checkbox"
+                checked={parallelAgentEnabled}
+                onChange={(e) => setParallelAgentEnabled(e.target.checked)}
+              />
+              <span className="toggle-slider" />
+            </label>
+          </label>
+          <span className="field-hint" style={{ marginTop: -8 }}>
+            When on, dispatching a Kanban task creates an isolated git worktree
+            and a fresh agent for it on a feature branch — leaving this profile&apos;s
+            main agent free.
+          </span>
+
+          {parallelAgentEnabled && (
+            <>
+              <label className="field field-row-toggle">
+                <span className="field-label">Auto-push branch and open PR</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={parallelAgentAutoPush}
+                    onChange={(e) => setParallelAgentAutoPush(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+              <span className="field-hint" style={{ marginTop: -8 }}>
+                When the parallel agent marks the task <code>status: done</code>,
+                automatically <code>git push -u origin &lt;branch&gt;</code> and
+                run <code>gh pr create --fill</code>. Requires the <code>gh</code>
+                {' '}CLI authenticated; the branch is pushed first so manual PR
+                creation still works if <code>gh</code> fails.
+              </span>
+            </>
+          )}
 
         </div>
 

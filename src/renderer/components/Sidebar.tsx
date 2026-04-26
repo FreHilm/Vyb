@@ -6,6 +6,7 @@ import {
   SidebarLayout,
   SidebarFolder,
   SidebarItem,
+  ParallelAgent,
 } from '../../shared/types';
 
 interface SidebarProps {
@@ -24,6 +25,105 @@ interface SidebarProps {
   onReloadProfile: (profileId: string) => void;
   initialized: Set<string>;
   showAgentBadge: boolean;
+  parallelAgents: ParallelAgent[];
+  selectedParallelId: string | null;
+  onSelectParallel: (parallelId: string | null) => void;
+  onRunParallel: (parallelId: string) => void;
+  onStopParallel: (parallelId: string) => void;
+}
+
+const PARALLEL_PHASE_COLORS: Record<string, string> = {
+  starting: '#6b7280',
+  awaiting: '#eab308',
+  running: '#3b82f6',
+  pushing: '#3b82f6',
+  completed: '#22c55e',
+  failed: '#ef4444',
+};
+
+const PARALLEL_PHASE_LABELS: Record<string, string> = {
+  starting: 'Starting…',
+  awaiting: 'Awaiting run',
+  running: 'Working',
+  pushing: 'Pushing & opening PR',
+  completed: 'Completed',
+  failed: 'Failed',
+};
+
+function ParallelAgentRow({
+  agent,
+  status,
+  selected,
+  onSelect,
+  onRun,
+  onStop,
+}: {
+  agent: ParallelAgent;
+  status: AgentStatus | undefined;
+  selected: boolean;
+  onSelect: () => void;
+  onRun: () => void;
+  onStop: () => void;
+}) {
+  // Prefer the live PTY status (working / needs-input / ready) over the
+  // coarse phase, except when there's a pushing/failed/completed phase.
+  const phase = agent.phase;
+  let dotColor = PARALLEL_PHASE_COLORS[phase] || '#6b7280';
+  let label = PARALLEL_PHASE_LABELS[phase] || phase;
+  if (phase === 'running' && status === 'needs-input') {
+    dotColor = '#eab308';
+    label = 'Needs input';
+  } else if (phase === 'running' && status === 'ready') {
+    dotColor = '#22c55e';
+    label = 'Idle';
+  }
+
+  return (
+    <div
+      className={`parallel-agent-row ${selected ? 'parallel-agent-row-active' : ''}`}
+      onClick={onSelect}
+      title={agent.errorMessage || label}
+    >
+      <span className="parallel-agent-dot" style={{ backgroundColor: dotColor }} />
+      <div className="parallel-agent-text">
+        <span className="parallel-agent-task">
+          {agent.taskId} · {agent.taskTitle}
+        </span>
+        <span className="parallel-agent-meta">
+          {label}
+          {agent.prUrl && ' · PR opened'}
+        </span>
+      </div>
+      <div className="parallel-agent-controls">
+        {phase === 'awaiting' && (
+          <button
+            className="parallel-agent-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRun();
+            }}
+            title="Run task"
+          >
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M3 2l11 6-11 6z" />
+            </svg>
+          </button>
+        )}
+        <button
+          className="parallel-agent-btn parallel-agent-btn-stop"
+          onClick={(e) => {
+            e.stopPropagation();
+            onStop();
+          }}
+          title="Stop & remove"
+        >
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+            <rect x="3" y="3" width="10" height="10" rx="1.5" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
 }
 
 type DragData =
@@ -87,6 +187,11 @@ export function Sidebar({
   iconRevision,
   hasUpdates,
   navActive,
+  parallelAgents,
+  selectedParallelId,
+  onSelectParallel,
+  onRunParallel,
+  onStopParallel,
 }: SidebarProps) {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [folderNameInput, setFolderNameInput] = useState('');
@@ -270,35 +375,58 @@ export function Sidebar({
     [effective, onLayoutChange],
   );
 
-  // Render a profile item with drag support
+  // Render a profile item with drag support, plus any parallel sub-agents
   const renderProfile = (profileId: string, indent: boolean, folderId?: string) => {
     const profile = profileMap.get(profileId);
     if (!profile) return null;
+    const subAgents = parallelAgents.filter((a) => a.profileId === profileId);
     return (
-      <div
-        key={profileId}
-        className={`sidebar-drag-item ${indent ? 'sidebar-indent' : ''} ${
-          dropTarget === profileId ? 'drop-before' : ''
-        }`}
-        draggable
-        onDragStart={handleDragStart({ type: 'profile', profileId })}
-        onDragOver={handleDragOver(profileId)}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop(profileId, 'before', folderId)}
-      >
-        <ProfileItem
-          profile={profile}
-          isActive={profile.id === activeProfileId}
-          status={statuses.get(profile.id) || 'offline'}
-          hasUpdate={hasUpdates.has(profile.id)}
-          iconRevision={iconRevision}
-          isRunning={initialized.has(profile.id)}
-          showAgentBadge={showAgentBadge}
-          onClick={() => onSelectProfile(profile.id)}
-          onEdit={() => onEditProfile(profile)}
-          onStop={() => onStopProfile(profile.id)}
-          onReload={() => onReloadProfile(profile.id)}
-        />
+      <div key={profileId}>
+        <div
+          className={`sidebar-drag-item ${indent ? 'sidebar-indent' : ''} ${
+            dropTarget === profileId ? 'drop-before' : ''
+          }`}
+          draggable
+          onDragStart={handleDragStart({ type: 'profile', profileId })}
+          onDragOver={handleDragOver(profileId)}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop(profileId, 'before', folderId)}
+        >
+          <ProfileItem
+            profile={profile}
+            isActive={profile.id === activeProfileId && selectedParallelId === null}
+            status={statuses.get(profile.id) || 'offline'}
+            hasUpdate={hasUpdates.has(profile.id)}
+            iconRevision={iconRevision}
+            isRunning={initialized.has(profile.id)}
+            showAgentBadge={showAgentBadge}
+            onClick={() => {
+              onSelectProfile(profile.id);
+              onSelectParallel(null);
+            }}
+            onEdit={() => onEditProfile(profile)}
+            onStop={() => onStopProfile(profile.id)}
+            onReload={() => onReloadProfile(profile.id)}
+          />
+        </div>
+        {subAgents.length > 0 && (
+          <div className={`parallel-agent-list ${indent ? 'sidebar-indent' : ''}`}>
+            {subAgents.map((sa) => (
+              <ParallelAgentRow
+                key={sa.id}
+                agent={sa}
+                status={statuses.get(`parallel:${sa.id}`)}
+                selected={selectedParallelId === sa.id && profile.id === activeProfileId}
+                onSelect={() => {
+                  onSelectProfile(profile.id);
+                  onSelectParallel(sa.id);
+                }}
+                onRun={() => onRunParallel(sa.id)}
+                onStop={() => onStopParallel(sa.id)}
+              />
+            ))}
+          </div>
+        )}
       </div>
     );
   };

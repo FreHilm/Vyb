@@ -14,6 +14,13 @@ export interface Profile {
   args: string[];        // kept for backwards compat
   agentId?: string;      // references AgentConfig.id from settings
   statusPatterns?: StatusPatterns;
+  /** When true, Kanban tasks dispatched against this profile spawn a new
+   * isolated worktree + agent instead of being injected into the main agent. */
+  parallelAgentEnabled?: boolean;
+  /** When a parallel agent for this profile finishes (task marked
+   * `status: done`), automatically commit, push the branch, and open a PR
+   * via `gh`. Per-profile so different repos can use different policies. */
+  parallelAgentAutoPush?: boolean;
 }
 
 export interface ProfileMemory {
@@ -56,6 +63,10 @@ export interface AppSettings {
   ordnaMode: 'web' | 'tui'; // Kanban mode for Ordna integration
   ordnaHookPort: number; // Local HTTP port for receiving Ordna agent hooks
   ordnaHookToken: string; // Random shared secret for the X-Token header
+  /** When true, the prefixed Kanban task message is sent into a freshly
+   * spawned parallel agent automatically after a short delay. When false,
+   * the task waits in the agent's prompt until the user clicks ▶ Run. */
+  parallelAgentAutoRun: boolean;
 }
 
 export interface AgentConfig {
@@ -63,12 +74,34 @@ export interface AgentConfig {
   name: string;
   command: string;
   args: string[];
+  /** Extra CLI args injected only when the agent is started by a parallel
+   * (Kanban-dispatched) worktree spawn. Lets each agent run with a
+   * permissive auto-approve mode in that isolated context. */
+  permissionModeArgs?: string[];
 }
 
 export const DEFAULT_AGENTS: AgentConfig[] = [
-  { id: 'claude', name: 'Claude', command: 'claude', args: ['--continue'] },
-  { id: 'codex', name: 'Codex', command: 'codex', args: ['resume'] },
-  { id: 'gemini', name: 'Gemini', command: 'gemini', args: ['--resume'] },
+  {
+    id: 'claude',
+    name: 'Claude',
+    command: 'claude',
+    args: ['--continue'],
+    permissionModeArgs: ['--permission-mode', 'acceptEdits'],
+  },
+  {
+    id: 'codex',
+    name: 'Codex',
+    command: 'codex',
+    args: ['resume'],
+    permissionModeArgs: ['--full-auto'],
+  },
+  {
+    id: 'gemini',
+    name: 'Gemini',
+    command: 'gemini',
+    args: ['--resume'],
+    permissionModeArgs: ['--approval-mode', 'yolo'],
+  },
 ];
 
 export interface ExternalApp {
@@ -112,6 +145,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ordnaMode: 'web',
   ordnaHookPort: 9876,
   ordnaHookToken: '',
+  parallelAgentAutoRun: true,
 };
 
 /** Resolve the command and args for a profile, looking up the agent config if set */
@@ -195,7 +229,35 @@ export const IPC_CHANNELS = {
   ORDNA_TASK_RECEIVED: 'ordna:taskReceived',
   ORDNA_HOOK_INFO: 'ordna:hookInfo',
   ORDNA_EXITED: 'ordna:exited',
+  PARALLEL_AGENT_SPAWN: 'parallel:spawn',
+  PARALLEL_AGENT_DESTROY: 'parallel:destroy',
+  PARALLEL_AGENT_LIST: 'parallel:list',
+  PARALLEL_AGENT_FINISH: 'parallel:finish',
+  PARALLEL_AGENT_CHANGE: 'parallel:change',
+  PARALLEL_AGENT_EXITED: 'parallel:exited',
 } as const;
+
+export type ParallelAgentPhase =
+  | 'starting'      // worktree being created, PTY about to spawn
+  | 'awaiting'      // task message inserted, waiting for user to Run
+  | 'running'       // PTY running task
+  | 'completed'     // agent reached ready after working; PR may be open
+  | 'pushing'       // commit + push + gh pr create in flight
+  | 'failed';       // worktree, push, or PR creation failed
+
+export interface ParallelAgent {
+  id: string;            // unique id, used as PTY id `parallel:<id>`
+  profileId: string;     // owning profile
+  taskId: string;        // Ordna task id (e.g. T-014)
+  taskTitle: string;
+  branch: string;        // e.g. agent/T-014-make-open-tab-local
+  worktreePath: string;  // absolute path of the isolated worktree
+  parentRepoPath: string; // absolute path of the parent repo the worktree was created from
+  phase: ParallelAgentPhase;
+  prUrl?: string;
+  errorMessage?: string;
+  createdAt: number;
+}
 
 export interface OrdnaTask {
   id: string;

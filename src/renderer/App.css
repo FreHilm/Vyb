@@ -2271,6 +2271,132 @@
   outline: none;
 }
 
+.parallel-agent-terminal {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-base);
+  min-height: 0;
+}
+
+.parallel-agent-terminal-container {
+  flex: 1;
+  position: relative;
+  background: var(--c-base);
+  padding: 8px;
+  min-height: 0;
+}
+
+.parallel-agent-terminal-instance {
+  width: 100%;
+  height: 100%;
+}
+
+.parallel-agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 6px 4px 28px;
+}
+
+.sidebar-indent .parallel-agent-list {
+  padding-left: 44px;
+}
+
+.parallel-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  font-size: 11px;
+  color: var(--c-subtext0);
+  transition: background 100ms, border-color 100ms;
+  min-width: 0;
+}
+
+.parallel-agent-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.parallel-agent-row-active {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--c-surface1);
+  color: var(--c-text);
+}
+
+.parallel-agent-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.parallel-agent-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.parallel-agent-task {
+  color: var(--c-text);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.parallel-agent-meta {
+  font-size: 10px;
+  color: var(--c-overlay0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.parallel-agent-controls {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 100ms;
+}
+
+.parallel-agent-row:hover .parallel-agent-controls,
+.parallel-agent-row-active .parallel-agent-controls {
+  opacity: 1;
+}
+
+.parallel-agent-btn {
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: var(--c-overlay0);
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 100ms, color 100ms;
+}
+
+.parallel-agent-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--c-text);
+}
+
+.parallel-agent-btn-stop:hover {
+  color: var(--c-red);
+}
+
 .kanban-viewer {
   flex: 1;
   display: flex;
