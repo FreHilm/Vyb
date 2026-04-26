@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { EditorView, keymap } from '@codemirror/view';
-import { EditorState, type Extension } from '@codemirror/state';
+import { EditorState, EditorSelection, type Extension } from '@codemirror/state';
+import { undo, redo } from '@codemirror/commands';
+import { openSearchPanel } from '@codemirror/search';
 import { javascript } from '@codemirror/lang-javascript';
 import { json } from '@codemirror/lang-json';
 import { css } from '@codemirror/lang-css';
@@ -9,7 +11,7 @@ import { python } from '@codemirror/lang-python';
 import { markdown } from '@codemirror/lang-markdown';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { basicSetup } from 'codemirror';
-import { FileEntry } from '../../shared/types';
+import { EditMenuAction, FileEntry } from '../../shared/types';
 import { FileIcon } from '../file-icons';
 import { ResizeHandle } from './ResizeHandle';
 
@@ -351,6 +353,10 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
   useEffect(() => {
     return () => {
       viewRef.current?.destroy();
+      // Disable the Edit menu when the file explorer goes away. The menu
+      // lives in the application menu (main process), so we have to tell
+      // main that we're no longer the editor in scope.
+      window.api.setEditMenuState({ hasFile: false, canSave: false });
     };
   }, []);
 
@@ -790,6 +796,67 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
 
   const activeIsImage = activeTabPath ? isImageFile(fileName(activeTabPath)) : false;
   const activeIsModified = activeTabPath ? modifiedSet.has(activeTabPath) : false;
+
+  // Keep the application Edit menu (main process) in sync with what's actually
+  // editable here: text-file open ⇒ items enabled; modified ⇒ Save enabled too.
+  useEffect(() => {
+    window.api.setEditMenuState({
+      hasFile: !!activeTabPath && !activeIsImage,
+      canSave: !!activeTabPath && !activeIsImage && activeIsModified,
+    });
+  }, [activeTabPath, activeIsImage, activeIsModified]);
+
+  // Handle clicks coming back from the Edit menu in the application menu.
+  // CodeMirror's basicSetup already binds Cmd+Z / Cmd+F / etc. to the editor,
+  // so this only runs when the user clicks the menu item itself.
+  useEffect(() => {
+    const unsub = window.api.onEditMenuAction(async (action: EditMenuAction) => {
+      if (action === 'save') { handleSave(); return; }
+      if (action === 'saveAs') { handleSaveAs(); return; }
+
+      const view = viewRef.current;
+      if (!view) return;
+      view.focus();
+
+      if (action === 'undo') { undo(view); return; }
+      if (action === 'redo') { redo(view); return; }
+      if (action === 'find') { openSearchPanel(view); return; }
+      if (action === 'selectAll') {
+        view.dispatch({
+          selection: EditorSelection.single(0, view.state.doc.length),
+        });
+        return;
+      }
+
+      const sel = view.state.selection.main;
+      if (action === 'copy' || action === 'cut') {
+        const text = view.state.sliceDoc(sel.from, sel.to);
+        if (text) {
+          try { await navigator.clipboard.writeText(text); } catch { /* ignore */ }
+        }
+        if (action === 'cut' && !sel.empty) {
+          view.dispatch({
+            changes: { from: sel.from, to: sel.to, insert: '' },
+            selection: EditorSelection.cursor(sel.from),
+            scrollIntoView: true,
+          });
+        }
+        return;
+      }
+      if (action === 'paste') {
+        let text = '';
+        try { text = await navigator.clipboard.readText(); } catch { /* ignore */ }
+        if (!text) return;
+        view.dispatch({
+          changes: { from: sel.from, to: sel.to, insert: text },
+          selection: EditorSelection.cursor(sel.from + text.length),
+          scrollIntoView: true,
+        });
+        return;
+      }
+    });
+    return unsub;
+  }, [handleSave, handleSaveAs]);
 
   return (
     <div className="file-explorer">
