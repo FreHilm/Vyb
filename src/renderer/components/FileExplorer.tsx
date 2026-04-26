@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { EditorView, keymap } from '@codemirror/view';
-import { EditorState } from '@codemirror/state';
+import { EditorState, type Extension } from '@codemirror/state';
 import { javascript } from '@codemirror/lang-javascript';
 import { json } from '@codemirror/lang-json';
 import { css } from '@codemirror/lang-css';
@@ -26,7 +26,7 @@ function isImageFile(filename: string): boolean {
   return IMAGE_EXTENSIONS.has(ext);
 }
 
-function getLanguageExtension(filename: string) {
+function getLanguageExtension(filename: string): Extension {
   const ext = filename.split('.').pop()?.toLowerCase();
   switch (ext) {
     case 'js':
@@ -306,6 +306,9 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
   const activePathRef = useRef<string | null>(null);
   // Store editor doc content per tab so we can restore on switch
   const docCacheRef = useRef<Map<string, string>>(new Map());
+  // Last-saved (baseline) content per file — used to clear the dirty flag
+  // when the user undoes back to the saved state.
+  const savedContentRef = useRef<Map<string, string>>(new Map());
 
   // Context menu state
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; entry: FileEntry | null } | null>(null);
@@ -365,6 +368,7 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
     const content = viewRef.current.state.doc.toString();
     await window.api.saveFile(activePathRef.current, content);
     docCacheRef.current.set(activePathRef.current, content);
+    savedContentRef.current.set(activePathRef.current, content);
     setModifiedSet((s) => { const n = new Set(s); n.delete(activePathRef.current!); return n; });
     setSaving(false);
   }, []);
@@ -378,6 +382,8 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
       const oldPath = activePathRef.current;
       docCacheRef.current.delete(oldPath);
       docCacheRef.current.set(newPath, content);
+      savedContentRef.current.delete(oldPath);
+      savedContentRef.current.set(newPath, content);
       setTabs((t) => t.map((tab) => tab.path === oldPath ? { path: newPath, name: fileName(newPath) } : tab));
       setActiveTabPath(newPath);
       activePathRef.current = newPath;
@@ -404,6 +410,10 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
       content = await window.api.readFile(filePath) || '';
       docCacheRef.current.set(filePath, content);
     }
+    // Capture the disk baseline once per file — used to detect undo-to-clean.
+    if (!savedContentRef.current.has(filePath)) {
+      savedContentRef.current.set(filePath, content);
+    }
 
     const lang = getLanguageExtension(fileName(filePath));
     const thisPath = filePath;
@@ -419,9 +429,17 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
           { key: 'Mod-Shift-s', run: () => { handleSaveAs(); return true; } },
         ]),
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
-            setModifiedSet((s) => new Set(s).add(thisPath));
-          }
+          if (!update.docChanged) return;
+          const baseline = savedContentRef.current.get(thisPath);
+          const matchesSaved = baseline !== undefined && update.state.doc.toString() === baseline;
+          setModifiedSet((s) => {
+            if (matchesSaved) {
+              if (!s.has(thisPath)) return s;
+              const n = new Set(s); n.delete(thisPath); return n;
+            }
+            if (s.has(thisPath)) return s;
+            return new Set(s).add(thisPath);
+          });
         }),
         EditorView.theme({
           '&': { height: '100%', fontSize: '13px' },
@@ -465,6 +483,7 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
       saveCurrentDoc();
       const activePath = activePathRef.current;
       docCacheRef.current.delete(activePath || '');
+      savedContentRef.current.delete(activePath || '');
       setTabs((t) => t.map((tab) => tab.path === activePath ? newTab : tab));
       mountEditor(filePath);
     }
@@ -486,6 +505,7 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
 
   const doCloseTab = useCallback((filePath: string) => {
     docCacheRef.current.delete(filePath);
+    savedContentRef.current.delete(filePath);
     setModifiedSet((s) => { const n = new Set(s); n.delete(filePath); return n; });
     setTabs((prev) => {
       const next = prev.filter((t) => t.path !== filePath);
@@ -620,6 +640,11 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
     if (cached !== undefined) {
       docCacheRef.current.delete(oldPath);
       docCacheRef.current.set(newPath, cached);
+    }
+    const baseline = savedContentRef.current.get(oldPath);
+    if (baseline !== undefined) {
+      savedContentRef.current.delete(oldPath);
+      savedContentRef.current.set(newPath, baseline);
     }
     setRenamingPath(null);
     refresh();

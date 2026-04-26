@@ -3,14 +3,18 @@ import { exec, execSync } from 'child_process';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
+import * as crypto from 'crypto';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
 import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout, loadProfileMemory, saveProfileMemory, loadScrollback, saveScrollback } from './config-loader';
+import * as ordnaHookServer from './ordna-hook-server';
+import { OrdnaManager } from './ordna-manager';
 
 
 let ptyManager: PtyManager;
 let statusDetector: StatusDetector;
+let ordnaManager: OrdnaManager;
 let mainWindow: BrowserWindow;
 let profiles: Profile[] = [];
 let isQuitting = false;
@@ -89,7 +93,10 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
   ptyManager = new PtyManager(
     (profileId, data) => {
-      statusDetector.feedData(profileId, data);
+      // Skip status detection for shell and ordna PTYs
+      if (!profileId.startsWith('shell:') && !profileId.startsWith('ordna:')) {
+        statusDetector.feedData(profileId, data);
+      }
       // Accumulate scrollback for shell terminals
       if (profileId.startsWith('shell:')) {
         let buf = scrollbackBuffers.get(profileId) || '';
@@ -117,6 +124,8 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     (profileId) => {
       if (profileId.startsWith('shell:')) {
         safeSend(IPC_CHANNELS.SHELL_TERMINAL_EXITED, { terminalId: profileId });
+      } else if (profileId.startsWith('ordna:')) {
+        safeSend(IPC_CHANNELS.SHELL_TERMINAL_EXITED, { terminalId: profileId });
       } else {
         statusDetector.unregister(profileId);
         safeSend(IPC_CHANNELS.PROFILE_STATUS_CHANGE, {
@@ -126,6 +135,9 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       }
     },
   );
+
+  ordnaManager = new OrdnaManager(ptyManager);
+  initOrdnaHookServer();
 
   ipcMain.handle(IPC_CHANNELS.PROFILES_LOAD, () => {
     profiles = loadProfiles();
@@ -825,6 +837,32 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     return null;
   });
 
+  ipcMain.handle(IPC_CHANNELS.ORDNA_START, async (_, profileId: string, mode: 'web' | 'tui') => {
+    const profile = profiles.find((p) => p.id === profileId);
+    if (!profile) return { error: 'profile not found' };
+    try {
+      const result = await ordnaManager.start(profile, mode);
+      return result;
+    } catch (err) {
+      console.error('Ordna start failed:', err);
+      return { error: (err as Error).message };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.ORDNA_STOP, async () => {
+    await ordnaManager.stop();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.ORDNA_GET_WEB_URL, () => {
+    const active = ordnaManager.getActive();
+    if (!active) return null;
+    return { mode: active.mode, webUrl: active.webUrl ?? null, tuiPtyId: active.tuiPtyId ?? null };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.ORDNA_HOOK_INFO, () => {
+    return { url: ordnaHookServer.getHookUrl(), port: ordnaHookServer.getActivePort() };
+  });
+
   ipcMain.handle(
     IPC_CHANNELS.GENERATE_ICON,
     async (_, profileId: string, projectName: string): Promise<string | null> => {
@@ -1001,6 +1039,28 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   );
 }
 
+async function initOrdnaHookServer(): Promise<void> {
+  const settings = loadSettings();
+  let token = settings.ordnaHookToken;
+  if (!token) {
+    token = crypto.randomBytes(16).toString('hex');
+    saveSettings({ ...settings, ordnaHookToken: token });
+  }
+
+  try {
+    const port = await ordnaHookServer.start({
+      preferredPort: settings.ordnaHookPort || 9876,
+      token,
+      onTask: (payload: OrdnaTaskPayload) => {
+        safeSend(IPC_CHANNELS.ORDNA_TASK_RECEIVED, payload);
+      },
+    });
+    ordnaManager.setHookEnv(`http://127.0.0.1:${port}/agent`, token);
+  } catch (err) {
+    console.error('Failed to start Ordna hook server:', err);
+  }
+}
+
 export function cleanupIpcHandlers(): void {
   isQuitting = true;
   // Save scrollback only for shells where user actually typed commands
@@ -1009,6 +1069,10 @@ export function cleanupIpcHandlers(): void {
       saveScrollback(profileId, data);
     }
   }
+  if (ordnaManager) {
+    ordnaManager.stop().catch((): void => undefined);
+  }
+  ordnaHookServer.stop().catch((): void => undefined);
   if (ptyManager) {
     ptyManager.destroyAll();
   }

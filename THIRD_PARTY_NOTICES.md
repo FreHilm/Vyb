@@ -24,6 +24,8 @@ with the MIT license of this project.
 | [archiver](https://github.com/archiverjs/node-archiver) | MIT | ZIP archive creation |
 | [adm-zip](https://github.com/cthackers/adm-zip) | MIT | ZIP archive extraction |
 | [electron-squirrel-startup](https://github.com/mongodb-js/electron-squirrel-startup) | Apache-2.0 | Windows installer integration |
+| [@frehilm/ordna-core](https://github.com/FreHilm/ordna) | MIT | Git-native task data layer for Kanban integration |
+| [@frehilm/ordna-web](https://github.com/FreHilm/ordna) | MIT | Embedded Hono+React Kanban server (web mode) |
 
 ## Dev Dependencies
 

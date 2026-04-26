@@ -7,11 +7,12 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { ResizeHandle } from './components/ResizeHandle';
 import { ReadmeViewer } from './components/ReadmeViewer';
 import { FileExplorer } from './components/FileExplorer';
+import { KanbanViewer } from './components/KanbanViewer';
 import { StatusBar } from './components/StatusBar';
 import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp, FileEntry, ProfileMemoryMap } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskPayload } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -72,6 +73,14 @@ declare global {
       generateIcon: (profileId: string, projectName: string) => Promise<string | null>;
       loadLayout: () => Promise<SidebarLayout>;
       saveLayout: (layout: SidebarLayout) => Promise<void>;
+      startOrdna: (
+        profileId: string,
+        mode: 'web' | 'tui',
+      ) => Promise<{ webUrl?: string; tuiPtyId?: string; error?: string }>;
+      stopOrdna: () => Promise<void>;
+      getOrdnaActive: () => Promise<{ mode: 'web' | 'tui'; webUrl: string | null; tuiPtyId: string | null } | null>;
+      getOrdnaHookInfo: () => Promise<{ url: string; port: number }>;
+      onOrdnaTask: (callback: (payload: OrdnaTaskPayload) => void) => () => void;
     };
   }
 }
@@ -102,6 +111,7 @@ export function App() {
   const profileMemoryRef = useRef<ProfileMemoryMap>({});
   const [filesVisible, setFilesVisible] = useState(false);
   const [filesCloseRequested, setFilesCloseRequested] = useState(false);
+  const [kanbanVisible, setKanbanVisible] = useState(false);
   const [hasUpdates, setHasUpdates] = useState<Set<string>>(new Set());
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState('');
@@ -189,12 +199,42 @@ export function App() {
       });
     });
 
+    const unsubOrdnaTask = window.api.onOrdnaTask((payload) => {
+      const target = activeProfileIdRef.current;
+      if (!target) {
+        console.warn('Ordna task received but no active profile to receive it');
+        return;
+      }
+      const t = payload.task;
+      const priority = t.priority || 'unset';
+      const tags = t.tags && t.tags.length > 0 ? t.tags.join(', ') : 'none';
+      const message =
+        '[Ordna Task — please implement]\n\n' +
+        'This is a task from the Kanban board. Please read it carefully, and ' +
+        'before starting work, ask clarifying questions about anything ambiguous ' +
+        'or unspecified — do not make assumptions about scope or intent.\n\n' +
+        `Task: ${t.title}\n` +
+        `ID: ${t.id}\n` +
+        `Status: ${t.status}\n` +
+        `Priority: ${priority}\n` +
+        `Tags: ${tags}\n\n` +
+        (t.rawContent || '');
+      window.api.sendInput(target, message + '\r');
+    });
+
     return () => {
       unsubStatus();
       unsubSettings();
       unsubActivate();
+      unsubOrdnaTask();
     };
   }, []);
+
+  // Keep a ref to the active profile id so async listeners read the current value
+  const activeProfileIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeProfileIdRef.current = activeProfileId;
+  }, [activeProfileId]);
 
   // Apply theme whenever settings change
   useEffect(() => {
@@ -459,6 +499,7 @@ export function App() {
   // Command bar action builders
   const toggleReadme = useCallback(() => {
     if (filesVisible) setFilesCloseRequested(true);
+    setKanbanVisible(false);
     setReadmeVisible((v) => !v);
   }, [filesVisible]);
 
@@ -468,7 +509,19 @@ export function App() {
     } else {
       setFilesVisible(true);
       setReadmeVisible(false);
+      setKanbanVisible(false);
     }
+  }, [filesVisible]);
+
+  const toggleKanban = useCallback(() => {
+    setKanbanVisible((v) => {
+      const next = !v;
+      if (next) {
+        if (filesVisible) setFilesCloseRequested(true);
+        setReadmeVisible(false);
+      }
+      return next;
+    });
   }, [filesVisible]);
 
   const toggleShell = useCallback(() => {
@@ -504,8 +557,8 @@ export function App() {
   }, [activeProfile]);
 
   const navActions = useMemo(() => {
-    const actions = [toggleReadme, toggleFiles, toggleShell, openFolder];
-    const labels = ['README', 'Files', 'Terminal', 'Folder'];
+    const actions = [toggleReadme, toggleFiles, toggleShell, openFolder, toggleKanban];
+    const labels = ['README', 'Files', 'Terminal', 'Folder', 'Kanban'];
     for (const app of settings.externalApps || []) {
       const cmd = app.command;
       const wd = activeProfile?.workingDirectory || '';
@@ -513,7 +566,7 @@ export function App() {
       labels.push(app.name);
     }
     return { actions, labels };
-  }, [toggleReadme, toggleFiles, toggleShell, openFolder, settings.externalApps, activeProfile]);
+  }, [toggleReadme, toggleFiles, toggleShell, openFolder, toggleKanban, settings.externalApps, activeProfile]);
 
   // Keyboard profile navigation — only updates visual selection.
   // The auto-init effect (2s debounce) handles terminal initialization.
@@ -670,6 +723,8 @@ export function App() {
           onToggleReadme={toggleReadme}
           filesVisible={filesVisible}
           onToggleFiles={toggleFiles}
+          kanbanVisible={kanbanVisible}
+          onToggleKanban={toggleKanban}
           externalApps={settings.externalApps || []}
           navActive={navActive}
           dictationListening={dictation.listening}
@@ -695,13 +750,16 @@ export function App() {
             }}
           />
         )}
-        <div style={{ display: readmeVisible || filesVisible ? 'none' : 'contents' }}>
+        {kanbanVisible && activeProfile && (
+          <KanbanViewer profile={activeProfile} settings={settings} />
+        )}
+        <div style={{ display: readmeVisible || filesVisible || kanbanVisible ? 'none' : 'contents' }}>
           <TerminalPane
             profiles={profiles}
             activeProfileId={activeProfileId}
             initialized={initialized}
             shellOpen={activeProfileId ? shellOpenSet.has(activeProfileId) : false}
-            hidden={readmeVisible || filesVisible}
+            hidden={readmeVisible || filesVisible || kanbanVisible}
             onShellExited={() => {
               if (!activeProfileId) return;
               setShellOpenSet((prev) => {

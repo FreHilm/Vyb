@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap } from './shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap, OrdnaTaskPayload } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
@@ -167,4 +167,26 @@ contextBridge.exposeInMainWorld('api', {
 
   saveLayout: (layout: SidebarLayout): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.LAYOUT_SAVE, layout),
+
+  startOrdna: (
+    profileId: string,
+    mode: 'web' | 'tui',
+  ): Promise<{ webUrl?: string; tuiPtyId?: string; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ORDNA_START, profileId, mode),
+
+  stopOrdna: (): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ORDNA_STOP),
+
+  getOrdnaActive: (): Promise<{ mode: 'web' | 'tui'; webUrl: string | null; tuiPtyId: string | null } | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ORDNA_GET_WEB_URL),
+
+  getOrdnaHookInfo: (): Promise<{ url: string; port: number }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ORDNA_HOOK_INFO),
+
+  onOrdnaTask: (callback: (payload: OrdnaTaskPayload) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: OrdnaTaskPayload) =>
+      callback(payload);
+    ipcRenderer.on(IPC_CHANNELS.ORDNA_TASK_RECEIVED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.ORDNA_TASK_RECEIVED, handler);
+  },
 });

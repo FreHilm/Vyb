@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AppSettings, ExternalApp, AgentConfig, DEFAULT_AGENTS } from '../../shared/types';
 
 // Built-in agent IDs that cannot be deleted
@@ -44,7 +44,7 @@ interface SettingsDialogProps {
   profilesWithoutIcons: number;
 }
 
-type SettingsTab = 'appearance' | 'flames' | 'agents' | 'icons' | 'apps' | 'integrations' | 'backup';
+type SettingsTab = 'appearance' | 'flames' | 'agents' | 'icons' | 'apps' | 'integrations' | 'ordna' | 'backup';
 
 function BackupTab() {
   const [exporting, setExporting] = useState(false);
@@ -167,6 +167,13 @@ export function SettingsDialog({
   const [flamePreviewMode, setFlamePreviewMode] = useState<'working' | 'ready' | 'needs-input'>('working');
   const [editingAgentIdx, setEditingAgentIdx] = useState<number | null>(null);
   const [showAgentBadge, setShowAgentBadge] = useState(settings.showAgentBadge !== false);
+  const [ordnaMode, setOrdnaMode] = useState<'web' | 'tui'>(settings.ordnaMode || 'web');
+  const [ordnaHookPort, setOrdnaHookPort] = useState(settings.ordnaHookPort || 9876);
+  const [ordnaHookInfo, setOrdnaHookInfo] = useState<{ url: string; port: number } | null>(null);
+
+  useEffect(() => {
+    window.api.getOrdnaHookInfo().then(setOrdnaHookInfo).catch((): void => undefined);
+  }, []);
 
   const handleSave = () => {
     onSave({
@@ -195,6 +202,8 @@ export function SettingsDialog({
       flameLength,
       flameSpeed,
       showAgentBadge,
+      ordnaMode,
+      ordnaHookPort,
     });
   };
 
@@ -252,6 +261,12 @@ export function SettingsDialog({
             onClick={() => setTab('integrations')}
           >
             Integrations
+          </button>
+          <button
+            className={`settings-tab ${tab === 'ordna' ? 'settings-tab-active' : ''}`}
+            onClick={() => setTab('ordna')}
+          >
+            Ordna
           </button>
           <button
             className={`settings-tab ${tab === 'backup' ? 'settings-tab-active' : ''}`}
@@ -988,6 +1003,68 @@ export function SettingsDialog({
                   </span>
                 </label>
               </div>
+            </>
+          )}
+
+          {tab === 'ordna' && (
+            <>
+              <span className="field-hint" style={{ marginBottom: 12 }}>
+                Ordna is a git-native Kanban board. The Kanban tab opens it scoped to the active profile&apos;s working directory.
+                Tasks dispatched from Ordna (TUI: <code>g</code> key, web: agent button) are injected into the active agent.
+              </span>
+
+              <div className="field">
+                <span className="field-label">Mode</span>
+                <div className="field-row">
+                  <button
+                    className={`provider-btn ${ordnaMode === 'web' ? 'provider-btn-active' : ''}`}
+                    onClick={() => setOrdnaMode('web')}
+                  >
+                    Web
+                  </button>
+                  <button
+                    className={`provider-btn ${ordnaMode === 'tui' ? 'provider-btn-active' : ''}`}
+                    onClick={() => setOrdnaMode('tui')}
+                  >
+                    TUI
+                  </button>
+                </div>
+                <span className="field-hint">
+                  Web embeds the Ordna SPA in an iframe. TUI runs <code>npx -y @frehilm/ordna-cli</code> in an embedded terminal.
+                </span>
+              </div>
+
+              <label className="field">
+                <span className="field-label">Hook Receiver Port</span>
+                <div className="field-row">
+                  <input
+                    type="number"
+                    min="1024"
+                    max="65535"
+                    value={ordnaHookPort}
+                    onChange={(e) => setOrdnaHookPort(Number(e.target.value) || 9876)}
+                    style={{ width: 100 }}
+                  />
+                  <span className="field-hint">
+                    Restart required. Falls back to next free port if taken.
+                  </span>
+                </div>
+              </label>
+
+              {ordnaHookInfo && ordnaHookInfo.url && (
+                <div className="field">
+                  <span className="field-label">Active Hook URL</span>
+                  <input
+                    type="text"
+                    value={ordnaHookInfo.url}
+                    readOnly
+                    style={{ fontFamily: 'monospace' }}
+                  />
+                  <span className="field-hint">
+                    Set automatically via env vars when Ordna is launched from the Kanban tab.
+                  </span>
+                </div>
+              )}
             </>
           )}
 

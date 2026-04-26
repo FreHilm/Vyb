@@ -11,7 +11,7 @@ import { execSync } from 'child_process';
 
 // Modules that are externalized in vite.main.config.ts and need to be
 // copied into the packaged app's node_modules so require() finds them.
-const externalModules = ['node-pty', 'archiver', 'adm-zip'];
+const externalModules = ['node-pty', 'archiver', 'adm-zip', '@frehilm/ordna-core', '@frehilm/ordna-web'];
 
 function copyModuleWithDeps(moduleName: string, srcBase: string, destBase: string) {
   const srcDir = path.join(srcBase, 'node_modules', moduleName);
