@@ -1,9 +1,9 @@
-import { app, BrowserWindow, Menu, protocol, net, nativeImage } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, protocol, net, nativeImage } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
 import { setupIpcHandlers, cleanupIpcHandlers } from './main/ipc-handlers';
-import { IPC_CHANNELS } from './shared/types';
+import { IPC_CHANNELS, EditMenuAction, EditMenuState } from './shared/types';
 
 if (started) {
   app.quit();
@@ -27,12 +27,29 @@ app.name = APP_NAME;
 
 let mainWindow: BrowserWindow | null = null;
 
+// File-editor Edit menu state, kept in sync with the renderer's FileExplorer.
+// `hasFile` enables the menu's edit/clipboard/find items; `canSave` only
+// enables Save (Save As is enabled whenever a file is open).
+const editMenuState: EditMenuState = { hasFile: false, canSave: false };
+
+function sendEditAction(action: EditMenuAction) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC_CHANNELS.EDIT_MENU_ACTION, action);
+  }
+}
+
 function buildMenu() {
   const isMac = process.platform === 'darwin';
   // IMPORTANT: menu role items (copy/paste/undo/selectAll/reload/etc.) install
   // OS-level key handlers on macOS packaged apps that intercept keys BEFORE
   // the renderer/xterm.js can receive them. Keep the menu minimal — no roles
   // with keyboard accelerators that could conflict with terminal input.
+  //
+  // The Edit menu below uses click handlers + IPC instead of roles so the
+  // editor's CodeMirror still owns Cmd+C / Cmd+Z / Cmd+F natively while
+  // letting xterm.js handle the same keys when the terminal is focused.
+  const hasFile = editMenuState.hasFile;
+  const canSave = editMenuState.hasFile && editMenuState.canSave;
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(isMac
       ? [
@@ -64,6 +81,23 @@ function buildMenu() {
       ],
     },
     {
+      label: 'Edit',
+      submenu: [
+        { label: 'Save', enabled: canSave, click: () => sendEditAction('save') },
+        { label: 'Save As…', enabled: hasFile, click: () => sendEditAction('saveAs') },
+        { type: 'separator' as const },
+        { label: 'Undo', enabled: hasFile, click: () => sendEditAction('undo') },
+        { label: 'Redo', enabled: hasFile, click: () => sendEditAction('redo') },
+        { type: 'separator' as const },
+        { label: 'Cut', enabled: hasFile, click: () => sendEditAction('cut') },
+        { label: 'Copy', enabled: hasFile, click: () => sendEditAction('copy') },
+        { label: 'Paste', enabled: hasFile, click: () => sendEditAction('paste') },
+        { label: 'Select All', enabled: hasFile, click: () => sendEditAction('selectAll') },
+        { type: 'separator' as const },
+        { label: 'Find / Search…', enabled: hasFile, click: () => sendEditAction('find') },
+      ],
+    },
+    {
       label: 'View',
       submenu: [
         { label: 'Toggle Full Screen', accelerator: isMac ? 'Ctrl+Cmd+F' : 'F11', role: 'togglefullscreen' as const },
@@ -73,6 +107,18 @@ function buildMenu() {
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
+
+ipcMain.on(IPC_CHANNELS.EDIT_MENU_STATE, (_event, state: EditMenuState) => {
+  if (
+    editMenuState.hasFile === state.hasFile &&
+    editMenuState.canSave === state.canSave
+  ) {
+    return;
+  }
+  editMenuState.hasFile = state.hasFile;
+  editMenuState.canSave = state.canSave;
+  buildMenu();
+});
 
 function openSettings() {
   if (mainWindow && !mainWindow.isDestroyed()) {
