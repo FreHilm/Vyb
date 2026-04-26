@@ -122,8 +122,11 @@ declare global {
       loadScrollback: (profileId: string) => Promise<string | null>;
       loadReadme: (workingDirectory: string) => Promise<string | null>;
       setActiveProfile: (profileId: string | null) => void;
+      setSelectedParallelAgent: (parallelAgentId: string | null) => void;
       queryStatuses: () => Promise<Record<string, string>>;
-      onActivateProfileRequest: (callback: (profileId: string) => void) => () => void;
+      onActivateProfileRequest: (
+        callback: (payload: { profileId: string; parallelAgentId: string | null }) => void,
+      ) => () => void;
       generateIcon: (profileId: string, projectName: string) => Promise<string | null>;
       loadLayout: () => Promise<SidebarLayout>;
       saveLayout: (layout: SidebarLayout) => Promise<void>;
@@ -289,10 +292,12 @@ export function App() {
       setSettingsOpen(true);
     });
 
-    // Handle notification click — switch to the profile that needs attention
-    const unsubActivate = window.api.onActivateProfileRequest((profileId) => {
+    // Handle notification click — switch to the profile (and parallel sub-
+    // agent if any) that needs attention.
+    const unsubActivate = window.api.onActivateProfileRequest(({ profileId, parallelAgentId }) => {
       stoppedRef.current.delete(profileId);
       setActiveProfileId(profileId);
+      setSelectedParallelId(parallelAgentId);
       setHasUpdates((prev) => {
         if (!prev.has(profileId)) return prev;
         const next = new Set(prev);
@@ -433,6 +438,12 @@ export function App() {
   useEffect(() => {
     profilesRef.current = profiles;
   }, [profiles]);
+
+  // Mirror the selected parallel agent to the main process so it can suppress
+  // notifications for the sub-agent the user is currently looking at.
+  useEffect(() => {
+    window.api.setSelectedParallelAgent(selectedParallelId);
+  }, [selectedParallelId]);
 
   // Pending task messages awaiting paste into a freshly-spawned parallel agent.
   // Keyed by parallel agent id. The TerminalPane is responsible for writing

@@ -235,6 +235,7 @@ export const IPC_CHANNELS = {
   PARALLEL_AGENT_FINISH: 'parallel:finish',
   PARALLEL_AGENT_CHANGE: 'parallel:change',
   PARALLEL_AGENT_EXITED: 'parallel:exited',
+  PARALLEL_AGENT_SET_SELECTED: 'parallel:setSelected',
 } as const;
 
 export type ParallelAgentPhase =

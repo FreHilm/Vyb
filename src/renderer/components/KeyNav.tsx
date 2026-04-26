@@ -99,6 +99,16 @@ export function useKeyNav({
     };
   }, [settings.navModifierKey, isModifier, commandBarActions, onProfileUp, onProfileDown, onPaneLeft, onPaneRight]);
 
+  // Safety auto-hide: if the keyup or blur events get swallowed (e.g. another
+  // window steals focus while the modifier is still held, or a system dialog
+  // intercepts the release), the overlay can stay stuck. Force it off after
+  // 15s of being active.
+  useEffect(() => {
+    if (!navActive) return;
+    const t = setTimeout(() => setNavActive(false), 15000);
+    return () => clearTimeout(t);
+  }, [navActive]);
+
   return navActive;
 }
 
