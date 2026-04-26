@@ -50,13 +50,10 @@ const claudeAdapter: AgentAdapter = {
     // Check only the VERY end of the stripped buffer — old content is stale
     const last = strippedBuffer.slice(-300);
 
-    // Ready patterns — these appear at the very end when Claude is idle
-    // Check these FIRST because they're the most reliable idle indicators
-    if (/for\s*shortcuts/.test(last)) return { status: 'ready' };
-    if (/accept\s*edits/i.test(last)) return { status: 'ready' };
-    if (/❯\s*$/.test(last)) return { status: 'ready' };
-
-    // Needs-input: permission prompts and menus
+    // Needs-input FIRST. If a permission prompt or interactive picker is
+    // present at the bottom of the screen we want to reflect that, even
+    // when Claude's persistent "accept edits" / "for shortcuts" footer hint
+    // is also somewhere in the last 300 chars.
     for (const pattern of [
       /\(y\/n\)/i,
       /\(Y\)es/,
@@ -66,12 +63,19 @@ const claudeAdapter: AgentAdapter = {
       /Yes.*No.*Always/,
       /Run\s*command/i,
       /Bash\s*command/i,
-      // Interactive picker footer (Ask-me-questions plugin, plan mode menus, etc.)
+      // Interactive picker footer (Ask-me-questions plugin, plan mode menus,
+      // permission prompts, etc.). All of Claude's pickers end with a footer
+      // line containing "Esc to cancel".
       /Enter\s*to\s*select/i,
-      /to\s*navigate.*to\s*cancel/i,
+      /Esc\s*to\s*cancel/i,
     ]) {
       if (pattern.test(last)) return { status: 'needs-input' };
     }
+
+    // Ready patterns — Claude's idle hints
+    if (/for\s*shortcuts/.test(last)) return { status: 'ready' };
+    if (/accept\s*edits/i.test(last)) return { status: 'ready' };
+    if (/❯\s*$/.test(last)) return { status: 'ready' };
 
     // If we were working and the debounce fired (no new data for 800ms)
     // but no ready/needs-input pattern matched, Claude likely just finished

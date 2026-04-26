@@ -25,6 +25,7 @@ const scrollbackBuffers: Map<string, string> = new Map();
 const shellHadInput: Set<string> = new Set(); // tracks shells where user typed commands
 const MAX_BUFFER = 512 * 1024;
 let activeProfileId: string | null = null;
+let activeParallelAgentId: string | null = null;
 
 // Flow control — prevent renderer flooding on fast terminal output
 const FLOW_HIGH_WATERMARK = 256 * 1024;
@@ -87,30 +88,55 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       (status === 'needs-input' && (previousStatus === 'working' || previousStatus === 'ready'));
     if (!isNotifiable) return;
 
-    const profile = profiles.find((p) => p.id === profileId);
-    if (profile) {
-      // OS notification only if not focused on this profile
-      const isFocusedOnThis =
-        mainWindow.isFocused() && profileId === activeProfileId;
-      if (!isFocusedOnThis) {
-        const opts: Electron.NotificationConstructorOptions = {
-          title: profile.name,
-          body: status === 'ready' ? 'Task completed' : 'Needs your input',
-        };
-        if (profile.icon && fs.existsSync(profile.icon)) {
-          opts.icon = profile.icon;
-        }
-        const notification = new Notification(opts);
-        notification.on('click', () => {
-          if (mainWindow.isDestroyed()) return;
-          if (mainWindow.isMinimized()) mainWindow.restore();
-          mainWindow.show();
-          mainWindow.focus();
-          // Tell renderer to switch to this profile
-          safeSend(IPC_CHANNELS.PROFILE_ACTIVATE_REQUEST, profileId);
-        });
-        notification.show();
+    // Resolve which profile + optional parallel agent this status belongs to,
+    // and whether the user is currently looking at it.
+    let ownerProfile: Profile | undefined;
+    let parallelAgentId: string | null = null;
+    let titleSuffix = '';
+    let isFocusedOnThis = false;
+    if (profileId.startsWith('parallel:') && parallelManager) {
+      parallelAgentId = profileId.slice('parallel:'.length);
+      const agent = parallelManager.get(parallelAgentId);
+      if (agent) {
+        ownerProfile = profiles.find((p) => p.id === agent.profileId);
+        titleSuffix = ` · ${agent.taskId}`;
+        isFocusedOnThis =
+          mainWindow.isFocused() &&
+          activeProfileId === agent.profileId &&
+          activeParallelAgentId === parallelAgentId;
       }
+    } else {
+      ownerProfile = profiles.find((p) => p.id === profileId);
+      // The parent terminal is "focused" only when no parallel agent is selected
+      isFocusedOnThis =
+        mainWindow.isFocused() &&
+        profileId === activeProfileId &&
+        activeParallelAgentId === null;
+    }
+
+    if (ownerProfile && !isFocusedOnThis) {
+      const opts: Electron.NotificationConstructorOptions = {
+        title: ownerProfile.name + titleSuffix,
+        body: status === 'ready' ? 'Task completed' : 'Needs your input',
+      };
+      if (ownerProfile.icon && fs.existsSync(ownerProfile.icon)) {
+        opts.icon = ownerProfile.icon;
+      }
+      const notification = new Notification(opts);
+      const targetProfileId = ownerProfile.id;
+      const targetParallelId = parallelAgentId;
+      notification.on('click', () => {
+        if (mainWindow.isDestroyed()) return;
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+        // Tell renderer to switch to this profile (and parallel agent if any)
+        safeSend(IPC_CHANNELS.PROFILE_ACTIVATE_REQUEST, {
+          profileId: targetProfileId,
+          parallelAgentId: targetParallelId,
+        });
+      });
+      notification.show();
     }
   });
 
@@ -356,6 +382,10 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
   ipcMain.on(IPC_CHANNELS.PROFILE_SET_ACTIVE, (_, profileId: string | null) => {
     activeProfileId = profileId;
+  });
+
+  ipcMain.on(IPC_CHANNELS.PARALLEL_AGENT_SET_SELECTED, (_, parallelAgentId: string | null) => {
+    activeParallelAgentId = parallelAgentId;
   });
 
   ipcMain.handle(IPC_CHANNELS.PROFILE_STATUS_QUERY, () => {

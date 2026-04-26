@@ -100,11 +100,19 @@ contextBridge.exposeInMainWorld('api', {
   setActiveProfile: (profileId: string | null): void =>
     ipcRenderer.send(IPC_CHANNELS.PROFILE_SET_ACTIVE, profileId),
 
+  setSelectedParallelAgent: (parallelAgentId: string | null): void =>
+    ipcRenderer.send(IPC_CHANNELS.PARALLEL_AGENT_SET_SELECTED, parallelAgentId),
+
   queryStatuses: (): Promise<Record<string, string>> =>
     ipcRenderer.invoke(IPC_CHANNELS.PROFILE_STATUS_QUERY),
 
-  onActivateProfileRequest: (callback: (profileId: string) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, profileId: string) => callback(profileId);
+  onActivateProfileRequest: (
+    callback: (payload: { profileId: string; parallelAgentId: string | null }) => void,
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      payload: { profileId: string; parallelAgentId: string | null },
+    ) => callback(payload);
     ipcRenderer.on(IPC_CHANNELS.PROFILE_ACTIVATE_REQUEST, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PROFILE_ACTIVATE_REQUEST, handler);
   },
