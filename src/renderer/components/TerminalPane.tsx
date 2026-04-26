@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 // ClipboardAddon removed — it intercepts Escape key, breaking vi/vim
 import '@xterm/xterm/css/xterm.css';
 import { Profile, AppSettings, ProfileMemoryMap } from '../../shared/types';
@@ -239,6 +240,13 @@ function openTerminal(instance: TerminalInstance, gpuMode: string, profileId: st
   const sendInput = (data: string) => window.api.sendInput(profileId, data);
   instance.terminal.attachCustomKeyEventHandler(
     makeTerminalKeyHandler(instance.terminal, sendInput),
+  );
+  // Make http(s) URLs in agent output clickable — opens in OS default browser
+  // via shell.openExternal instead of the addon's default window.open.
+  instance.terminal.loadAddon(
+    new WebLinksAddon((_event, uri) => {
+      window.api.openUrl(uri);
+    }),
   );
   activateWebgl(instance, gpuMode);
   // Attach native drop handler to the xterm.js element
