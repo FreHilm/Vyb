@@ -102,16 +102,22 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [layout, setLayout] = useState<SidebarLayout>({ items: [], folders: [] });
-  const [readmeVisible, setReadmeVisible] = useState(false);
+  // Overlay visibility is per-profile so switching profiles preserves the open tab
+  const [readmeProfiles, setReadmeProfiles] = useState<Set<string>>(new Set());
+  const [filesProfiles, setFilesProfiles] = useState<Set<string>>(new Set());
+  const [kanbanProfiles, setKanbanProfiles] = useState<Set<string>>(new Set());
   const [hasReadme, setHasReadme] = useState(false);
   const [changesVisible, setChangesVisible] = useState(false);
   const [changesWidth, setChangesWidth] = useState(50); // percent of agent pane
   const [focusedPane, setFocusedPane] = useState<{ pane: 'agent' | 'shell'; shellIndex: number }>({ pane: 'agent', shellIndex: 0 });
   const shellCountRef = useRef(1);
   const profileMemoryRef = useRef<ProfileMemoryMap>({});
-  const [filesVisible, setFilesVisible] = useState(false);
   const [filesCloseRequested, setFilesCloseRequested] = useState(false);
-  const [kanbanVisible, setKanbanVisible] = useState(false);
+
+  // Derived: visible state for the currently-active profile
+  const readmeVisible = activeProfileId ? readmeProfiles.has(activeProfileId) : false;
+  const filesVisible = activeProfileId ? filesProfiles.has(activeProfileId) : false;
+  const kanbanVisible = activeProfileId ? kanbanProfiles.has(activeProfileId) : false;
   const [hasUpdates, setHasUpdates] = useState<Set<string>>(new Set());
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState('');
@@ -206,10 +212,21 @@ export function App() {
         return;
       }
 
-      // Close every overlay so the agent terminal becomes visible.
-      // Files uses the close-requested dance to respect unsaved changes.
-      setReadmeVisible(false);
-      setKanbanVisible(false);
+      // Close every overlay for the receiving profile so the agent terminal
+      // becomes visible. Files uses the close-requested dance to respect
+      // unsaved changes.
+      setReadmeProfiles((prev) => {
+        if (!prev.has(target)) return prev;
+        const next = new Set(prev);
+        next.delete(target);
+        return next;
+      });
+      setKanbanProfiles((prev) => {
+        if (!prev.has(target)) return prev;
+        const next = new Set(prev);
+        next.delete(target);
+        return next;
+      });
       setFilesCloseRequested(true);
       setEditorOpen(false);
       setSettingsOpen(false);
@@ -435,6 +452,17 @@ export function App() {
     setProfiles(updated);
     setEditorOpen(false);
 
+    // Drop overlay state for the removed profile
+    const drop = (prev: Set<string>): Set<string> => {
+      if (!prev.has(profileId)) return prev;
+      const next = new Set(prev);
+      next.delete(profileId);
+      return next;
+    };
+    setReadmeProfiles(drop);
+    setFilesProfiles(drop);
+    setKanbanProfiles(drop);
+
     if (activeProfileId === profileId) {
       setActiveProfileId(updated.length > 0 ? updated[0].id : null);
     }
@@ -506,33 +534,57 @@ export function App() {
     return ids;
   }, [layout, profiles]);
 
+  // Helpers for the per-profile overlay sets
+  const toggleInSet = (set: Set<string>, id: string): Set<string> => {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  };
+  const removeFromSet = (set: Set<string>, id: string): Set<string> => {
+    if (!set.has(id)) return set;
+    const next = new Set(set);
+    next.delete(id);
+    return next;
+  };
+  const ensureInSet = (set: Set<string>, id: string): Set<string> => {
+    if (set.has(id)) return set;
+    const next = new Set(set);
+    next.add(id);
+    return next;
+  };
+
   // Command bar action builders
   const toggleReadme = useCallback(() => {
-    if (filesVisible) setFilesCloseRequested(true);
-    setKanbanVisible(false);
-    setReadmeVisible((v) => !v);
-  }, [filesVisible]);
+    const id = activeProfileId;
+    if (!id) return;
+    if (filesProfiles.has(id)) setFilesCloseRequested(true);
+    setKanbanProfiles((prev) => removeFromSet(prev, id));
+    setReadmeProfiles((prev) => toggleInSet(prev, id));
+  }, [activeProfileId, filesProfiles]);
 
   const toggleFiles = useCallback(() => {
-    if (filesVisible) {
+    const id = activeProfileId;
+    if (!id) return;
+    if (filesProfiles.has(id)) {
       setFilesCloseRequested(true);
     } else {
-      setFilesVisible(true);
-      setReadmeVisible(false);
-      setKanbanVisible(false);
+      setFilesProfiles((prev) => ensureInSet(prev, id));
+      setReadmeProfiles((prev) => removeFromSet(prev, id));
+      setKanbanProfiles((prev) => removeFromSet(prev, id));
     }
-  }, [filesVisible]);
+  }, [activeProfileId, filesProfiles]);
 
   const toggleKanban = useCallback(() => {
-    setKanbanVisible((v) => {
-      const next = !v;
-      if (next) {
-        if (filesVisible) setFilesCloseRequested(true);
-        setReadmeVisible(false);
-      }
-      return next;
-    });
-  }, [filesVisible]);
+    const id = activeProfileId;
+    if (!id) return;
+    const opening = !kanbanProfiles.has(id);
+    setKanbanProfiles((prev) => toggleInSet(prev, id));
+    if (opening) {
+      if (filesProfiles.has(id)) setFilesCloseRequested(true);
+      setReadmeProfiles((prev) => removeFromSet(prev, id));
+    }
+  }, [activeProfileId, filesProfiles, kanbanProfiles]);
 
   const toggleShell = useCallback(() => {
     if (!activeProfileId) return;
@@ -754,8 +806,13 @@ export function App() {
             closeRequested={filesCloseRequested}
             onCloseHandled={(proceed) => {
               setFilesCloseRequested(false);
-              if (proceed) {
-                setFilesVisible(false);
+              if (proceed && activeProfileId) {
+                setFilesProfiles((prev) => {
+                  if (!prev.has(activeProfileId)) return prev;
+                  const next = new Set(prev);
+                  next.delete(activeProfileId);
+                  return next;
+                });
               }
             }}
           />
