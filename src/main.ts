@@ -1,15 +1,18 @@
 import { app, BrowserWindow, Menu, ipcMain, protocol, net, nativeImage } from 'electron';
 import path from 'node:path';
+import * as fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
 import { setupIpcHandlers, cleanupIpcHandlers } from './main/ipc-handlers';
+import { resolveShellEnv } from './main/shell-env';
 import { IPC_CHANNELS, EditMenuAction, EditMenuState } from './shared/types';
 
 if (started) {
   app.quit();
 }
 
-const APP_NAME = 'AgentDispatch';
+const APP_NAME = 'Vyb';
+const LEGACY_APP_NAME = 'AgentDispatch';
 
 // On macOS in dev mode, the menu shows "Electron" because the binary is Electron.app.
 // This overrides it by patching the dock and about panel name.
@@ -24,6 +27,60 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 app.name = APP_NAME;
+
+// Rebrand AgentDispatch → Vyb: a fresh app name moves userData to a new
+// directory, which would orphan the user's existing settings.json /
+// profiles.json / parallel-agents/ / icons/. Migrate per-file so we still
+// recover data even if the new dir already exists with Electron defaults
+// (which happens after the very first launch under the new name).
+function migrateLegacyUserData(): void {
+  try {
+    const newDir = app.getPath('userData');
+    const legacyDir = newDir.replace(
+      new RegExp(`(^|/)${APP_NAME}(/|$)`),
+      `$1${LEGACY_APP_NAME}$2`,
+    );
+    if (legacyDir === newDir) return;
+    if (!fs.existsSync(legacyDir)) return;
+    if (!fs.existsSync(newDir)) fs.mkdirSync(newDir, { recursive: true });
+
+    // Items that contain user data (vs. Electron's internal cache/cookies).
+    const items = [
+      'profiles.json',
+      'settings.json',
+      'layout.json',
+      'profile-memory.json',
+      'icons',
+      'parallel-agents',
+      'terminal-states',
+    ];
+    let moved = 0;
+    for (const name of items) {
+      const src = path.join(legacyDir, name);
+      const dst = path.join(newDir, name);
+      if (!fs.existsSync(src)) continue;
+      if (fs.existsSync(dst)) continue; // never clobber existing data
+      try {
+        fs.renameSync(src, dst);
+        moved++;
+      } catch (err) {
+        // Cross-device move can fail with EXDEV — fall back to a recursive copy.
+        try {
+          fs.cpSync(src, dst, { recursive: true });
+          moved++;
+        } catch (err2) {
+          console.error(`[Vyb] migrate ${name} failed:`, err2);
+        }
+      }
+    }
+    if (moved > 0) {
+      console.log(`[Vyb] migrated ${moved} item(s) from ${legacyDir} → ${newDir}`);
+    }
+  } catch (err) {
+    console.error('[Vyb] userData migration failed:', err);
+  }
+}
+migrateLegacyUserData();
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -165,7 +222,11 @@ const createWindow = () => {
   }
 };
 
-app.on('ready', () => {
+app.on('ready', async () => {
+  // Resolve the user's shell PATH/env (zshrc/zshenv etc.) before any PTY
+  // spawns — Electron processes get a minimal PATH from launchd otherwise.
+  await resolveShellEnv();
+
   // Handle local-file:// protocol to serve icons from disk
   protocol.handle('local-file', (request) => {
     // Strip query string (used for cache busting) before resolving file path

@@ -36,7 +36,7 @@ const config: ForgeConfig = {
     asar: {
       unpack: '**/node_modules/node-pty/**/{*.node,spawn-helper}',
     },
-    name: 'AgentDispatch',
+    name: 'Vyb',
     icon: './build/icon',
   },
   rebuildConfig: {},

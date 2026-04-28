@@ -62,7 +62,7 @@ PTY creation is **lazy and order-sensitive** — the PTY must not be spawned unt
 
 ### Config & Persistence
 
-All in `app.getPath('userData')` (`~/Library/Application Support/AgentDispatch/`):
+All in `app.getPath('userData')` (`~/Library/Application Support/Vyb/` — auto-migrated from the legacy `AgentDispatch/` directory on first launch after the rebrand):
 
 - `profiles.json` — profile definitions (tilde-collapsed paths)
 - `settings.json` — appearance, fonts, AI keys, external apps, flame settings, pane sizes, nav key, last active profile, GPU acceleration

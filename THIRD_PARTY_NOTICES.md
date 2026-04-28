@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-AgentDispatch uses the following open-source libraries. All dependencies use
+Vyb uses the following open-source libraries. All dependencies use
 permissive licenses (MIT, Apache-2.0, BSD-2-Clause, ISC) and are compatible
 with the MIT license of this project.
 
@@ -27,6 +27,7 @@ with the MIT license of this project.
 | [electron-squirrel-startup](https://github.com/mongodb-js/electron-squirrel-startup) | Apache-2.0 | Windows installer integration |
 | [@frehilm/ordna-core](https://github.com/FreHilm/ordna) | MIT | Git-native task data layer for Kanban integration |
 | [@frehilm/ordna-web](https://github.com/FreHilm/ordna) | MIT | Embedded Hono+React Kanban server (web mode) |
+| [@frehilm/ordna-cli](https://github.com/FreHilm/ordna) | MIT | Ordna TUI (run on demand via `npx -y` so its Ink + React 18 stay isolated from the app's React 19) |
 
 ## Dev Dependencies
 

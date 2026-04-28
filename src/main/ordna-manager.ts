@@ -2,6 +2,29 @@ import * as os from 'os';
 import { Profile } from '../shared/types';
 import { PtyManager } from './pty-manager';
 
+/** Pinned version of @frehilm/ordna-cli we run via npx. Bump alongside
+ * @frehilm/ordna-core / @frehilm/ordna-web in package.json. */
+const ORDNA_CLI_VERSION = '0.1.2';
+
+/** Build the package spec for `npx -y …`.
+ *
+ * Why npx (not bundling the CLI as a dep): the CLI's UI uses Ink 5 → React
+ * 18, but Vyb itself uses React 19. If `@frehilm/ordna-cli` is installed in
+ * our node_modules, Node's module resolution walks up from Ink to the
+ * top-level React 19 and Ink crashes with "Cannot read properties of
+ * undefined (reading 'ReactCurrentOwner')". The crash is silent on most
+ * profiles but reproducible on the Vyb profile itself, because npx happens
+ * to prefer a local install over its cache when the cwd contains one — so
+ * any cwd inside Vyb's repo would hit the broken local install.
+ *
+ * Running through npx-with-no-local-install routes every profile through
+ * npx's isolated cache directory (`~/.npm/_npx/<hash>/`), where the CLI's
+ * full dep tree (with React 18 nested correctly next to Ink) lives outside
+ * Vyb's node_modules. That's the only setup that works on every profile. */
+function resolveOrdnaCliSpec(): string {
+  return `@frehilm/ordna-cli@${ORDNA_CLI_VERSION}`;
+}
+
 type WebHandle = {
   port: number;
   url: string;
@@ -22,7 +45,7 @@ export class OrdnaManager {
   private ptyManager: PtyManager;
   private hookEnv: { url: string; label: string; token: string } = {
     url: '',
-    label: 'AgentDispatch',
+    label: 'Vyb',
     token: '',
   };
 
@@ -30,7 +53,7 @@ export class OrdnaManager {
     this.ptyManager = ptyManager;
   }
 
-  setHookEnv(url: string, token: string, label = 'AgentDispatch'): void {
+  setHookEnv(url: string, token: string, label = 'Vyb'): void {
     this.hookEnv = { url, label, token };
   }
 
@@ -90,7 +113,10 @@ export class OrdnaManager {
       return { webUrl: url };
     }
 
-    // TUI mode — spawn `npx -y @frehilm/ordna-cli` via PtyManager
+    // TUI mode — run @frehilm/ordna-cli through `npx`, pinned to the exact
+    // version we have installed in node_modules. See resolveOrdnaCliSpec()
+    // for the React 18/19 reasoning. After the first run npx serves from
+    // cache, so subsequent launches are fast.
     const tuiPtyId = `ordna:${instanceKey}`;
     const tuiProfile: Profile = {
       id: tuiPtyId,
@@ -98,7 +124,7 @@ export class OrdnaManager {
       icon: '',
       workingDirectory: resolvedCwd,
       command: 'npx',
-      args: ['-y', '@frehilm/ordna-cli'],
+      args: ['-y', resolveOrdnaCliSpec()],
     };
     this.ptyManager.create(tuiPtyId, tuiProfile, undefined, undefined, this.envForOrdna());
     this.instances.set(instanceKey, { instanceKey, profileId, mode: 'tui', cwd: resolvedCwd, tuiPtyId });
