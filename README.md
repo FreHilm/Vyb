@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="logo.png" alt="AgentDispatch" width="200" />
+  <img src="logo.png" alt="Vyb" width="200" />
 </p>
 
-<h1 align="center">AgentDispatch</h1>
+<h1 align="center">Vyb</h1>
 
 <p align="center">
   A desktop app for running and monitoring multiple AI agent terminal sessions in one unified interface.
@@ -21,7 +21,7 @@
 
 ## Overview
 
-AgentDispatch lets you manage multiple AI coding agents (Claude Code, Aider, Copilot CLI, or any terminal-based tool) from a single window. Each agent runs in its own embedded terminal with live status detection, so you always know which agents are working, waiting for input, or ready for the next task.
+Vyb lets you manage multiple AI coding agents (Claude Code, Aider, Copilot CLI, or any terminal-based tool) from a single window. Each agent runs in its own embedded terminal with live status detection, so you always know which agents are working, waiting for input, or ready for the next task.
 
 ### Key Features
 
@@ -55,7 +55,7 @@ AgentDispatch lets you manage multiple AI coding agents (Claude Code, Aider, Cop
 
 ```bash
 git clone <repo-url>
-cd AgentDispatch
+cd Vyb
 npm install
 ```
 

@@ -94,6 +94,12 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     let parallelAgentId: string | null = null;
     let titleSuffix = '';
     let isFocusedOnThis = false;
+    // Parallel agents get a longer notification grace so the user isn't
+    // pinged about the very first permission prompt that often appears
+    // moments after auto-run submits the task. Status badges still update
+    // immediately — this only suppresses the OS-level pop.
+    let inStartupGrace = false;
+    const PARALLEL_NOTIF_GRACE_MS = 5000;
     if (profileId.startsWith('parallel:') && parallelManager) {
       parallelAgentId = profileId.slice('parallel:'.length);
       const agent = parallelManager.get(parallelAgentId);
@@ -104,6 +110,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
           mainWindow.isFocused() &&
           activeProfileId === agent.profileId &&
           activeParallelAgentId === parallelAgentId;
+        inStartupGrace = Date.now() - agent.createdAt < PARALLEL_NOTIF_GRACE_MS;
       }
     } else {
       ownerProfile = profiles.find((p) => p.id === profileId);
@@ -114,7 +121,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         activeParallelAgentId === null;
     }
 
-    if (ownerProfile && !isFocusedOnThis) {
+    if (ownerProfile && !isFocusedOnThis && !inStartupGrace) {
       const opts: Electron.NotificationConstructorOptions = {
         title: ownerProfile.name + titleSuffix,
         body: status === 'ready' ? 'Task completed' : 'Needs your input',
@@ -414,7 +421,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
     const result = await dialog.showSaveDialog(mainWindow, {
       title: 'Export Backup',
-      defaultPath: `pacc-backup-${new Date().toISOString().slice(0, 10)}.zip`,
+      defaultPath: `vyb-backup-${new Date().toISOString().slice(0, 10)}.zip`,
       filters: [{ name: 'ZIP Archive', extensions: ['zip'] }],
     });
     if (result.canceled || !result.filePath) return null;

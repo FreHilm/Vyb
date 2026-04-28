@@ -2,26 +2,31 @@ import * as pty from 'node-pty';
 import * as os from 'os';
 import * as fs from 'fs';
 import { Profile } from '../shared/types';
+import { getResolvedShellEnv } from './shell-env';
 
-// Packaged Electron apps launched from Finder have a minimal PATH.
-// Add common bin directories where CLI tools get installed.
-let fullPath = process.env.PATH || '';
-try {
-  if (os.platform() !== 'win32') {
-    const home = os.homedir();
-    const commonPaths = [
-      `${home}/.local/bin`,
-      '/usr/local/bin',
-      '/opt/homebrew/bin',
-      '/opt/homebrew/sbin',
-    ];
-    const extra = commonPaths.filter((p) => fs.existsSync(p) && !fullPath.includes(p));
-    if (extra.length > 0) {
-      fullPath = extra.join(':') + ':' + fullPath;
-    }
-  }
-} catch {
-  // keep default PATH
+// Final fallback PATH if the user's interactive shell didn't resolve cleanly.
+// Electron launched from Finder/dock inherits a minimal PATH from launchd
+// that is missing tool-prefix dirs the user has in their ~/.zshrc.
+function fallbackPath(): string {
+  let p = process.env.PATH || '';
+  if (os.platform() === 'win32') return p;
+  const home = os.homedir();
+  const candidates = [
+    `${home}/.local/bin`,
+    `${home}/.opencode/bin`,
+    `${home}/.bun/bin`,
+    `${home}/.cargo/bin`,
+    `${home}/.deno/bin`,
+    `${home}/.npm-global/bin`,
+    '/usr/local/bin',
+    '/opt/homebrew/bin',
+    '/opt/homebrew/sbin',
+  ];
+  try {
+    const extra = candidates.filter((c) => fs.existsSync(c) && !p.includes(c));
+    if (extra.length > 0) p = extra.join(':') + ':' + p;
+  } catch { /* keep p as-is */ }
+  return p;
 }
 
 interface PtyInstance {
@@ -82,17 +87,24 @@ export class PtyManager {
       cwd = cwd.replace(/^~/, os.homedir());
     }
 
-    // Build clean env for child processes
+    // Build clean env for child processes. Prefer the env resolved from the
+    // user's interactive shell (zshrc/zshenv/etc.) so PATH and tool managers
+    // (asdf/mise/nvm/rbenv/pyenv/...) are visible. Fall back to process.env
+    // if the resolution didn't run or hadn't completed.
+    const shellResolved = getResolvedShellEnv();
+    const baseEnv: Record<string, string> = shellResolved
+      ? { ...shellResolved }
+      : { ...(process.env as Record<string, string>), PATH: fallbackPath() };
+
     const spawnEnv: Record<string, string> = {
-      ...(process.env as Record<string, string>),
-      PATH: fullPath,
-      HOME: os.homedir(),
-      USER: process.env.USER || os.userInfo().username,
-      LOGNAME: process.env.LOGNAME || os.userInfo().username,
-      SHELL: '/bin/zsh',
-      LANG: process.env.LANG || 'en_US.UTF-8',
+      ...baseEnv,
+      HOME: baseEnv.HOME || os.homedir(),
+      USER: baseEnv.USER || process.env.USER || os.userInfo().username,
+      LOGNAME: baseEnv.LOGNAME || process.env.LOGNAME || os.userInfo().username,
+      SHELL: baseEnv.SHELL || process.env.SHELL || '/bin/zsh',
+      LANG: baseEnv.LANG || process.env.LANG || 'en_US.UTF-8',
       TERM: 'xterm-256color',
-      TMPDIR: process.env.TMPDIR || '/tmp',
+      TMPDIR: baseEnv.TMPDIR || process.env.TMPDIR || '/tmp',
     };
     // Remove vars that interfere with child CLI tools
     delete spawnEnv.NODE_ENV;

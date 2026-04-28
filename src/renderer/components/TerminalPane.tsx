@@ -172,7 +172,19 @@ export function setupTerminalDrop(
 const resizeTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 const lastDims: Map<string, { cols: number; rows: number }> = new Map();
 
+// Minimum sensible terminal dimensions. Anything smaller is almost certainly
+// a transient mid-layout fit (e.g. parent grid still resizing after a Kanban
+// overlay collapsed), and would leave Claude / Codex / Gemini rendering all
+// their output at ~8 cols even after the layout settles.
+const MIN_USABLE_COLS = 20;
+const MIN_USABLE_ROWS = 5;
+
 export function debouncedPtyResize(terminalId: string, cols: number, rows: number): void {
+  // Reject obviously-broken sizes from a transient layout fit. xterm.js will
+  // produce another (correct) fit shortly; this just keeps the PTY from being
+  // locked at 8 cols until the user manually resizes the window.
+  if (cols < MIN_USABLE_COLS || rows < MIN_USABLE_ROWS) return;
+
   const prev = lastDims.get(terminalId);
   if (prev && prev.cols === cols && prev.rows === rows) return;
   lastDims.set(terminalId, { cols, rows });
@@ -372,6 +384,11 @@ export function TerminalPane({
         activateWebgl(instance, settings.gpuAcceleration);
 
         requestAnimationFrame(() => {
+          // Don't fit before the parent grid has settled — a fit on a half-
+          // sized container locks cols at a tiny value and the agent will
+          // render all subsequent output at that width.
+          const ac = agentContainerRef.current;
+          if (!ac || ac.clientWidth < 100 || ac.clientHeight < 60) return;
           instance.fitAddon.fit();
           instance.terminal.focus();
 
@@ -407,20 +424,28 @@ export function TerminalPane({
     }
   }, [focusedPane, activeProfileId, hidden]);
 
-  // Refit when returning from hidden (README/Files → terminal view)
+  // Refit when returning from hidden (README/Files/Kanban → terminal view).
+  // Done in two passes — 50 ms catches a quickly-settled layout, 250 ms is a
+  // safety net for slower transitions (e.g. an iframe-heavy Kanban tab tearing
+  // down). Both honor the dimension floor so a transient mid-layout container
+  // can't lock the PTY at a tiny cols value.
   useEffect(() => {
     if (hidden) return;
-    const timer = setTimeout(() => {
-      if (activeProfileId) {
-        const agentInst = agentTerminalsRef.current.get(activeProfileId);
-        if (agentInst && agentInst.opened) {
-          agentInst.fitAddon.fit();
-          // Only resize PTY if dimensions truly changed (e.g. window was resized while hidden)
-          resizeIfChanged(activeProfileId, agentInst);
-        }
-      }
-    }, 50);
-    return () => clearTimeout(timer);
+    const refit = () => {
+      if (!activeProfileId) return;
+      const agentInst = agentTerminalsRef.current.get(activeProfileId);
+      if (!agentInst || !agentInst.opened) return;
+      const ac = agentContainerRef.current;
+      if (!ac || ac.clientWidth < 100 || ac.clientHeight < 60) return;
+      agentInst.fitAddon.fit();
+      resizeIfChanged(activeProfileId, agentInst);
+    };
+    const t1 = setTimeout(refit, 50);
+    const t2 = setTimeout(refit, 250);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [hidden, activeProfileId, shellOpen]);
 
   const handleTerminalSplitResize = useCallback((delta: number) => {
@@ -447,7 +472,10 @@ export function TerminalPane({
     const refit = () => {
       if (rafId) cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
-        if (agentContainer.clientHeight < 10 || agentContainer.clientWidth < 10) return;
+        // Floor needs to be high enough that a transient mid-layout container
+        // (e.g. just after a Kanban overlay collapsed) can't slip through and
+        // lock the PTY at ~1 col. 100×60 px ≈ 12 cols × 4 rows minimum.
+        if (agentContainer.clientHeight < 60 || agentContainer.clientWidth < 100) return;
         if (activeProfileId) {
           const agentInst = agentTerminalsRef.current.get(activeProfileId);
           if (agentInst && agentInst.opened && agentInst.element.style.display !== 'none') {
