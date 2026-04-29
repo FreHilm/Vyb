@@ -348,7 +348,7 @@ export function TerminalPane({
 
   // Apply settings changes to agent terminals
   useEffect(() => {
-    const theme = getTerminalTheme(settings.baseHue, settings.darkness);
+    const theme = getTerminalTheme(settings.baseHue, settings.darkness, settings.textLightness);
     agentTerminalsRef.current.forEach((instance) => {
       instance.terminal.options.fontSize = settings.agentFontSize;
       instance.terminal.options.theme = theme;
@@ -358,7 +358,7 @@ export function TerminalPane({
 
   // Create xterm.js instances for initialized profiles, dispose removed ones
   useEffect(() => {
-    const theme = getTerminalTheme(settings.baseHue, settings.darkness);
+    const theme = getTerminalTheme(settings.baseHue, settings.darkness, settings.textLightness);
 
     // Dispose terminals that are no longer in the initialized set
     for (const [profileId, instance] of agentTerminalsRef.current.entries()) {

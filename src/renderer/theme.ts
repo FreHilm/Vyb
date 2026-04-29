@@ -10,6 +10,7 @@ interface PaletteEntry {
 const PALETTE: PaletteEntry[] = [
   { name: 'base', h: 240, s: 21, l: 15 },
   { name: 'mantle', h: 240, s: 21, l: 12 },
+  { name: 'crust', h: 240, s: 21, l: 9 },
   { name: 'surface0', h: 234, s: 13, l: 23 },
   { name: 'surface1', h: 233, s: 12, l: 31 },
   { name: 'surface2', h: 232, s: 10, l: 39 },
@@ -60,12 +61,54 @@ function darken(l: number, darkness: number): number {
   return l * factor;
 }
 
-// Text entries whose lightness is controlled by the textLightness slider
+// Background tones — these follow the user's `baseHue` setting (so the user
+// can tint the whole UI). Their lightness is also affected by the darkness
+// slider.
+const BG_ENTRIES = new Set([
+  'base', 'mantle', 'crust', 'surface0', 'surface1', 'surface2',
+]);
+
+// Neutral text/grays — kept on the white-to-black axis (saturation 0) at all
+// times, regardless of baseHue, so changing the background tint never colors
+// the text. Lightness is driven by the textLightness slider.
 const TEXT_ENTRIES = new Set(['text', 'subtext0', 'overlay0', 'white']);
+
+// All other palette names (blue / red / green / yellow / magenta / cyan /
+// sapphire / rosewater) are accents — their hue + saturation are pinned to
+// the original Catppuccin values regardless of baseHue, so the "selected"
+// blue, status colors, syntax highlighting, etc. stay consistent across themes.
 
 // textLightness 0 = white (100%), 100 = black (0%)
 function textLight(_defaultL: number, textLightness: number): number {
   return 100 - textLightness;
+}
+
+/** Resolve the {h, s, l} for a palette entry given the user's hue/darkness/
+ * textLightness settings, applying the per-category rules above. Shared
+ * between the renderer CSS variable pass and the xterm.js terminal theme. */
+function resolveHSL(
+  c: PaletteEntry,
+  baseHue: number,
+  darkness: number,
+  textLightness: number,
+): { h: number; s: number; l: number } {
+  if (BG_ENTRIES.has(c.name)) {
+    const shift = baseHue >= 360 ? 0 : baseHue - BASE_HUE;
+    return {
+      h: shiftHue(c.h, shift),
+      s: satFor(c.s, baseHue),
+      l: darken(c.l, darkness),
+    };
+  }
+  if (TEXT_ENTRIES.has(c.name)) {
+    return {
+      h: 0,
+      s: 0,
+      l: textLight(c.l, textLightness),
+    };
+  }
+  // Accent — original Catppuccin tone, untouched by baseHue or darkness
+  return { h: c.h, s: c.s, l: c.l };
 }
 
 export interface FlameSettings {
@@ -82,33 +125,28 @@ export function applyTheme(
   profileFontSize: number,
   flame?: FlameSettings,
 ): void {
-  const shift = baseHue >= 360 ? 0 : baseHue - BASE_HUE;
   const root = document.documentElement;
 
   for (const c of PALETTE) {
-    const h = shiftHue(c.h, shift);
-    const s = satFor(c.s, baseHue);
-    let l = darken(c.l, darkness);
-    if (TEXT_ENTRIES.has(c.name)) {
-      l = textLight(l > 0 ? l : c.l, textLightness);
-    }
+    const { h, s, l } = resolveHSL(c, baseHue, darkness, textLightness);
     root.style.setProperty(`--c-${c.name}`, `hsl(${h}, ${s}%, ${l}%)`);
   }
 
-  // Selection with alpha
+  // Selection with alpha — derived from surface2 (a background entry, so it
+  // follows the hue shift like the rest of the chrome).
   const s2 = find('surface2');
-  const s2h = shiftHue(s2.h, shift);
+  const s2res = resolveHSL(s2, baseHue, darkness, textLightness);
   root.style.setProperty(
     '--c-selection',
-    `hsla(${s2h}, ${satFor(s2.s, baseHue)}%, ${darken(s2.l, darkness)}%, 0.4)`,
+    `hsla(${s2res.h}, ${s2res.s}%, ${s2res.l}%, 0.4)`,
   );
 
-  // Red with alpha for delete hover
+  // Red with alpha for delete hover — accent, fixed Catppuccin red.
   const red = find('red');
-  const rh = shiftHue(red.h, shift);
+  const redRes = resolveHSL(red, baseHue, darkness, textLightness);
   root.style.setProperty(
     '--c-red-dim',
-    `hsla(${rh}, ${satFor(red.s, baseHue)}%, ${darken(red.l, darkness)}%, 0.1)`,
+    `hsla(${redRes.h}, ${redRes.s}%, ${redRes.l}%, 0.1)`,
   );
 
   root.style.setProperty('--profile-font-size', `${profileFontSize}px`);
@@ -137,16 +175,11 @@ export function applyTheme(
   }
 }
 
-export function getTerminalTheme(baseHue: number, darkness: number) {
-  const shift = baseHue >= 360 ? 0 : baseHue - BASE_HUE;
-
+export function getTerminalTheme(baseHue: number, darkness: number, textLightness: number) {
   function hex(name: string): string {
     const c = find(name);
-    return hslToHex(
-      shiftHue(c.h, shift),
-      satFor(c.s, baseHue),
-      darken(c.l, darkness),
-    );
+    const { h, s, l } = resolveHSL(c, baseHue, darkness, textLightness);
+    return hslToHex(h, s, l);
   }
 
   return {
@@ -171,6 +204,16 @@ export function getTerminalTheme(baseHue: number, darkness: number) {
     brightCyan: hex('cyan'),
     brightWhite: hex('subtext0'),
   };
+}
+
+/** Same as `getTerminalTheme` but uses the deeper `crust` tone for the
+ * background. Intended for shell terminals (which sit below the agent
+ * terminal) so they read as visually nested / lower in the layer stack. */
+export function getShellTerminalTheme(baseHue: number, darkness: number, textLightness: number) {
+  const base = getTerminalTheme(baseHue, darkness, textLightness);
+  const c = find('crust');
+  const { h, s, l } = resolveHSL(c, baseHue, darkness, textLightness);
+  return { ...base, background: hslToHex(h, s, l) };
 }
 
 export function hueToPreviewColor(hue: number, darkness: number): string {

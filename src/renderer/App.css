@@ -16,7 +16,7 @@
   justify-content: center;
   gap: 10px;
   height: 38px;
-  background: var(--c-mantle);
+  background: var(--c-base);
   border-bottom: 1px solid var(--c-surface0);
   -webkit-app-region: drag;
   user-select: none;
@@ -49,7 +49,6 @@
 
 .sidebar-header {
   padding: 10px 20px;
-  border-bottom: 1px solid var(--c-surface0);
   position: relative;
   z-index: 10;
   background: var(--c-mantle);
@@ -60,7 +59,7 @@
 
 .sidebar-header h2 {
   margin: 0;
-  font-size: var(--profile-font-size);
+  font-size: calc(var(--profile-font-size) - 2px);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -239,13 +238,15 @@
 .profile-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 5px 10px;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 4px 10px;
   border-radius: 10px;
   cursor: pointer;
   transition: background 0.15s;
   user-select: none;
   position: relative;
+  text-align: left;
 }
 
 .profile-item:hover {
@@ -410,12 +411,12 @@
 }
 
 .profile-icon {
-  width: 48px;
-  height: 48px;
+  width: 42px;
+  height: 42px;
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: 10px;
 }
 
 /* Bounce animation on profile select */
@@ -448,16 +449,16 @@
 }
 
 .profile-icon img {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
   object-fit: cover;
 }
 
 .profile-icon-placeholder {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
   background: linear-gradient(135deg, var(--c-surface1), var(--c-surface2));
   display: flex;
   align-items: center;
@@ -589,11 +590,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.3;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  white-space: normal;
-  word-break: break-word;
+  white-space: nowrap;
+  text-align: left;
+  display: block;
 }
 
 /* Main Area */
@@ -609,8 +608,7 @@
   align-items: center;
   justify-content: flex-end;
   padding: 6px 16px;
-  background: var(--c-mantle);
-  border-bottom: 1px solid var(--c-surface0);
+  background: var(--c-base);
   min-height: 36px;
 }
 
@@ -670,27 +668,51 @@
   min-height: 0;
 }
 
-/* Resize Handles */
+/* Resize Handles — 1px visible line with a wider transparent hit area so
+ * the divider stays thin but is still easy to grab with the mouse. */
 .resize-handle {
   flex-shrink: 0;
-  background: var(--c-surface0);
-  transition: background 0.15s;
+  background: transparent;
+  position: relative;
   z-index: 10;
 }
 
-.resize-handle:hover,
-.resize-handle:active {
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  background: var(--c-surface0);
+  transition: background 0.15s;
+}
+
+.resize-handle:hover::after,
+.resize-handle:active::after {
   background: var(--c-blue);
 }
 
 .resize-handle-h {
-  width: 4px;
+  width: 6px;
   cursor: col-resize;
 }
 
+.resize-handle-h::after {
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-50%);
+}
+
 .resize-handle-v {
-  height: 4px;
+  height: 6px;
   cursor: row-resize;
+}
+
+.resize-handle-v::after {
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  transform: translateY(-50%);
 }
 
 .terminal-instance {
@@ -777,14 +799,22 @@
   flex-shrink: 0;
 }
 
-.action-btn-active {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.025));
-  border-color: rgba(255, 255, 255, 0.12);
-  color: var(--c-text);
+.action-btn-active,
+.action-btn.action-btn-active {
+  background: var(--c-blue);
+  border-color: var(--c-blue);
+  color: var(--c-base);
 }
 
-.action-btn-active svg {
-  color: var(--c-blue);
+.action-btn-active:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--c-blue) 85%, white);
+  border-color: color-mix(in srgb, var(--c-blue) 85%, white);
+}
+
+.action-btn-active svg,
+.action-btn.action-btn-active svg {
+  color: var(--c-base);
+  opacity: 1;
 }
 
 /* Modal */
@@ -2197,22 +2227,16 @@
 }
 
 .shell-panel + .shell-panel {
-  border-left: 1px solid var(--c-surface1);
+  border-left: 1px solid var(--c-surface0);
 }
 
 .shell-panel > .resize-handle-h {
   position: absolute;
-  left: -2px;
+  left: -3px;
   top: 0;
   height: 100%;
   width: 6px;
   z-index: 20;
-  background: transparent;
-}
-
-.shell-panel > .resize-handle-h:hover,
-.shell-panel > .resize-handle-h:active {
-  background: var(--c-blue);
 }
 
 .shell-instance {
@@ -2678,8 +2702,8 @@
 }
 
 .agent-card-icon {
-  width: 36px;
-  height: 36px;
+  width: 42px;
+  height: 42px;
   border-radius: 8px;
   background: var(--c-surface1);
   display: flex;
@@ -2824,8 +2848,8 @@
 }
 
 .ext-app-icon-btn {
-  width: 36px;
-  height: 36px;
+  width: 42px;
+  height: 42px;
   border-radius: 8px;
   background: var(--c-surface0);
   border: 1px solid var(--c-surface1);
