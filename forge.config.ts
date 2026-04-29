@@ -38,6 +38,11 @@ const config: ForgeConfig = {
     },
     name: 'Vyb',
     icon: './build/icon',
+    // Ship vendor/ alongside the asar (at <app>/Contents/Resources/vendor/).
+    // Holds the isolated @frehilm/ordna-cli dep tree (Ink + React 18) that
+    // can't live inside the main asar without colliding with the app's
+    // React 19. Resolved at runtime via process.resourcesPath.
+    extraResource: ['./vendor'],
   },
   rebuildConfig: {},
   makers: [

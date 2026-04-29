@@ -6,7 +6,7 @@
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {
-    "postinstall": "node -e \"const{execSync}=require('child_process');const path=require('path');const fs=require('fs');const eBase=path.join(require('electron'),'../../..');const p=path.join(eBase,'Contents','Info.plist');try{execSync('/usr/libexec/PlistBuddy -c \\'Set :CFBundleName Vyb\\' \\''+p+'\\'');execSync('/usr/libexec/PlistBuddy -c \\'Set :CFBundleDisplayName Vyb\\' \\''+p+'\\'');}catch(e){}const src=path.join(__dirname,'build','icon.icns');const dst=path.join(eBase,'Contents','Resources','electron.icns');if(fs.existsSync(src))fs.copyFileSync(src,dst);\"",
+    "postinstall": "node scripts/postinstall.js",
     "start": "electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make",

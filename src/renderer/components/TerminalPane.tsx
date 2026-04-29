@@ -71,6 +71,25 @@ export function makeTerminalKeyHandler(terminal: Terminal, sendInput: (data: str
       }
     }
 
+    // Shift+Enter → newline within the agent's input (don't submit).
+    // xterm.js sends plain \r for both Enter and Shift+Enter by default, so
+    // the agent CLI can't tell them apart. We send Claude's documented
+    // line-continuation sequence — literal backslash + carriage return —
+    // which works regardless of whether the agent's terminal parser has
+    // modifyOtherKeys / CSI-u enabled.
+    //
+    // preventDefault() is critical: returning false blocks xterm.js from
+    // processing the key, but xterm's hidden input textarea still receives
+    // the browser-default Shift+Enter, inserts a newline, fires `input`,
+    // and that newline is forwarded to the PTY as a stray `\r` that
+    // immediately submits. Without preventDefault, every Shift+Enter after
+    // the first becomes a plain Enter.
+    if (e.key === 'Enter' && e.shiftKey) {
+      e.preventDefault();
+      sendInput('\\\r');
+      return false;
+    }
+
     // Cmd+C (macOS) / Ctrl+Shift+C (linux/win) → copy selection if any
     if ((e.metaKey || (e.ctrlKey && e.shiftKey)) && (e.key === 'c' || e.key === 'C')) {
       const sel = terminal.getSelection();

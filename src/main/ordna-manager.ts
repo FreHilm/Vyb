@@ -1,28 +1,43 @@
 import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
+import { app } from 'electron';
 import { Profile } from '../shared/types';
 import { PtyManager } from './pty-manager';
 
-/** Pinned version of @frehilm/ordna-cli we run via npx. Bump alongside
- * @frehilm/ordna-core / @frehilm/ordna-web in package.json. */
+/** Pinned version of @frehilm/ordna-cli. Mirrored in vendor/ordna-cli/package.json. */
 const ORDNA_CLI_VERSION = '0.1.2';
 
-/** Build the package spec for `npx -y …`.
+/** Resolve the directory containing the vendor tree.
  *
- * Why npx (not bundling the CLI as a dep): the CLI's UI uses Ink 5 → React
- * 18, but Vyb itself uses React 19. If `@frehilm/ordna-cli` is installed in
- * our node_modules, Node's module resolution walks up from Ink to the
- * top-level React 19 and Ink crashes with "Cannot read properties of
- * undefined (reading 'ReactCurrentOwner')". The crash is silent on most
- * profiles but reproducible on the Vyb profile itself, because npx happens
- * to prefer a local install over its cache when the cwd contains one — so
- * any cwd inside Vyb's repo would hit the broken local install.
+ * - Dev: `<repo>/vendor/`, populated by scripts/postinstall.js after npm install.
+ * - Packaged: `<app>/Contents/Resources/vendor/`, copied by Forge's `extraResource`.
  *
- * Running through npx-with-no-local-install routes every profile through
- * npx's isolated cache directory (`~/.npm/_npx/<hash>/`), where the CLI's
- * full dep tree (with React 18 nested correctly next to Ink) lives outside
- * Vyb's node_modules. That's the only setup that works on every profile. */
-function resolveOrdnaCliSpec(): string {
-  return `@frehilm/ordna-cli@${ORDNA_CLI_VERSION}`;
+ * The vendor tree is an isolated npm-managed dep graph for @frehilm/ordna-cli.
+ * Why isolated: the CLI uses Ink 5 → React 18; Vyb itself uses React 19. If the
+ * CLI lives in Vyb's node_modules, Node's module resolution walks up from Ink to
+ * the top-level React 19 and Ink crashes ("Cannot read properties of undefined
+ * (reading 'ReactCurrentOwner')"). With the CLI in `<vendorRoot>/ordna-cli/
+ * node_modules/`, Ink's React resolution stays within the vendor tree (React 18
+ * is hoisted there) and never reaches Vyb's React 19. */
+function vendorRoot(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'vendor')
+    : path.join(app.getAppPath(), 'vendor');
+}
+
+function vendoredOrdnaCliBin(): string | null {
+  const bin = path.join(
+    vendorRoot(),
+    'ordna-cli',
+    'node_modules',
+    '@frehilm',
+    'ordna-cli',
+    'dist',
+    'bin',
+    'ordna.js',
+  );
+  return fs.existsSync(bin) ? bin : null;
 }
 
 type WebHandle = {
@@ -113,18 +128,20 @@ export class OrdnaManager {
       return { webUrl: url };
     }
 
-    // TUI mode — run @frehilm/ordna-cli through `npx`, pinned to the exact
-    // version we have installed in node_modules. See resolveOrdnaCliSpec()
-    // for the React 18/19 reasoning. After the first run npx serves from
-    // cache, so subsequent launches are fast.
+    // TUI mode — prefer the embedded vendor build of @frehilm/ordna-cli so
+    // we don't need network on launch. See vendoredOrdnaCliBin() for the
+    // React 18/19 reasoning. Falls back to `npx -y` if the vendor tree
+    // somehow isn't there (e.g. someone deleted it locally before running
+    // postinstall).
     const tuiPtyId = `ordna:${instanceKey}`;
+    const cliBin = vendoredOrdnaCliBin();
     const tuiProfile: Profile = {
       id: tuiPtyId,
       name: 'Ordna',
       icon: '',
       workingDirectory: resolvedCwd,
-      command: 'npx',
-      args: ['-y', resolveOrdnaCliSpec()],
+      command: cliBin ? 'node' : 'npx',
+      args: cliBin ? [cliBin] : ['-y', `@frehilm/ordna-cli@${ORDNA_CLI_VERSION}`],
     };
     this.ptyManager.create(tuiPtyId, tuiProfile, undefined, undefined, this.envForOrdna());
     this.instances.set(instanceKey, { instanceKey, profileId, mode: 'tui', cwd: resolvedCwd, tuiPtyId });
