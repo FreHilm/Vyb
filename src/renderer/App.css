@@ -222,8 +222,15 @@
   outline-offset: -1px;
 }
 
+/* Visual indent for profiles inside folders. We push the inner content of
+ * .profile-item rather than padding the wrapper, so the active/hover
+ * background still extends all the way to the sidebar's left edge. */
 .sidebar-indent {
-  padding-left: 6px;
+  padding-left: 0;
+}
+
+.sidebar-drag-item.sidebar-indent .profile-item {
+  padding-left: 22px;
 }
 
 .sidebar-profiles {
@@ -586,7 +593,7 @@
 
 .profile-name {
   font-size: var(--profile-font-size);
-  font-weight: 500;
+  font-weight: 400;
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.3;

@@ -36,9 +36,9 @@ export interface AppSettings {
   baseHue: number; // 0-360, default 240 (purple), 360 = grayscale
   darkness: number; // 0-100, default 0. Scales lightness down toward black.
   textLightness: number; // 0-100, default 50. Controls UI text brightness.
-  profileFontSize: number; // 10-20, default 13
-  agentFontSize: number; // 10-24, default 14
-  shellFontSize: number; // 10-24, default 14
+  profileFontSize: number; // 10-20, default 14
+  agentFontSize: number; // 10-24, default 12
+  shellFontSize: number; // 10-24, default 10
   iconProvider: 'gemini' | 'openai'; // Which AI to use for icon generation
   geminiModel: string; // Gemini model for image generation
   geminiApiKey: string; // Google Gemini API key
@@ -115,9 +115,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   baseHue: 360,
   darkness: 0,
   textLightness: 12,
-  profileFontSize: 13,
-  agentFontSize: 14,
-  shellFontSize: 14,
+  profileFontSize: 14,
+  agentFontSize: 12,
+  shellFontSize: 10,
   iconProvider: 'gemini',
   geminiModel: 'gemini-3.1-flash-image-preview',
   geminiApiKey: '',
