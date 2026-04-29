@@ -165,8 +165,9 @@ export function ProfileItem({
       </div>
       {hasUpdate && !isActive && (
         <div className="profile-update-indicator" title={STATUS_LABELS[status]}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
-            <path d="M8 0c-.7 0-1.3.6-1.3 1.3v.4A4 4 0 0 0 4 5.5v3l-1 2.5h10l-1-2.5v-3a4 4 0 0 0-2.7-3.8v-.4C9.3.6 8.7 0 8 0zM6.4 13a1.6 1.6 0 0 0 3.2 0H6.4z" />
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M4 11V8a4 4 0 0 1 8 0v3l1.2 1.2H2.8L4 11Z" />
+            <path d="M6.5 13.5a1.5 1.5 0 0 0 3 0" />
           </svg>
         </div>
       )}
@@ -177,8 +178,11 @@ export function ProfileItem({
             onClick={(e) => { e.stopPropagation(); setPendingAction('reload'); }}
             title="Reload agent"
           >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 3V1L4.5 4.5 8 8V6a4 4 0 11-4 4H2.5A5.5 5.5 0 108 3z" />
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 8a5 5 0 0 1 8.5-3.5L13 6" />
+              <polyline points="13 3 13 6 10 6" />
+              <path d="M13 8a5 5 0 0 1-8.5 3.5L3 10" />
+              <polyline points="3 13 3 10 6 10" />
             </svg>
           </button>
           <button
@@ -186,8 +190,8 @@ export function ProfileItem({
             onClick={(e) => { e.stopPropagation(); setPendingAction('stop'); }}
             title="Stop agent"
           >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-              <rect x="3" y="3" width="10" height="10" rx="1.5" />
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3.5" y="3.5" width="9" height="9" rx="1" />
             </svg>
           </button>
         </div>

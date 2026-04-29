@@ -29,6 +29,17 @@ function NavNum({ active, idx }: { active: boolean; idx: number }) {
   return <NavBadge label={idx < 9 ? String(idx + 1) : '0'} />;
 }
 
+const ICON_PROPS = {
+  width: 16,
+  height: 16,
+  viewBox: '0 0 16 16',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.5,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+};
+
 export function CommandBar({
   profile,
   shellOpen,
@@ -75,8 +86,11 @@ export function CommandBar({
           title={hasReadme ? 'Toggle README' : 'No README.md found'}
         >
           <NavNum active={navActive} idx={0} />
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M1 2.5A1.5 1.5 0 012.5 1h3.204a1.5 1.5 0 011.06.44L8.122 2.8a.5.5 0 00.354.147H13.5A1.5 1.5 0 0115 4.5v8a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-10zM4 7a.5.5 0 000 1h8a.5.5 0 000-1H4zm0 2.5a.5.5 0 000 1h5a.5.5 0 000-1H4z" />
+          <svg {...ICON_PROPS}>
+            <path d="M9 2H5A1.5 1.5 0 0 0 3.5 3.5v9A1.5 1.5 0 0 0 5 14h6a1.5 1.5 0 0 0 1.5-1.5V5.5L9 2Z" />
+            <path d="M9 2v3.5h3.5" />
+            <line x1="6" y1="9" x2="10" y2="9" />
+            <line x1="6" y1="11" x2="10" y2="11" />
           </svg>
           <span>README</span>
         </button>
@@ -86,8 +100,9 @@ export function CommandBar({
           title="Toggle file explorer"
         >
           <NavNum active={navActive} idx={1} />
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M3.5 1a1 1 0 00-1 1v12a1 1 0 001 1h9a1 1 0 001-1V5.414a1 1 0 00-.293-.707L9.793 1.293A1 1 0 009.086 1H3.5zm5.5 1.5L12.5 6H9.5a.5.5 0 01-.5-.5V2.5z" />
+          <svg {...ICON_PROPS}>
+            <path d="M9 2H5A1.5 1.5 0 0 0 3.5 3.5v9A1.5 1.5 0 0 0 5 14h6a1.5 1.5 0 0 0 1.5-1.5V5.5L9 2Z" />
+            <path d="M9 2v3.5h3.5" />
           </svg>
           <span>Files</span>
         </button>
@@ -97,8 +112,10 @@ export function CommandBar({
           title="Toggle Kanban (Ordna)"
         >
           <NavNum active={navActive} idx={2} />
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M1.5 2h3a.5.5 0 01.5.5v11a.5.5 0 01-.5.5h-3a.5.5 0 01-.5-.5v-11a.5.5 0 01.5-.5zM6.5 2h3a.5.5 0 01.5.5v7a.5.5 0 01-.5.5h-3a.5.5 0 01-.5-.5v-7a.5.5 0 01.5-.5zM11.5 2h3a.5.5 0 01.5.5v4a.5.5 0 01-.5.5h-3a.5.5 0 01-.5-.5v-4a.5.5 0 01.5-.5z" />
+          <svg {...ICON_PROPS}>
+            <rect x="2" y="3" width="3.2" height="10" rx="0.5" />
+            <rect x="6.4" y="3" width="3.2" height="7" rx="0.5" />
+            <rect x="10.8" y="3" width="3.2" height="4" rx="0.5" />
           </svg>
           <span>Kanban</span>
         </button>
@@ -108,8 +125,10 @@ export function CommandBar({
           title="Toggle terminal"
         >
           <NavNum active={navActive} idx={3} />
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M1 3a1 1 0 011-1h12a1 1 0 011 1v10a1 1 0 01-1 1H2a1 1 0 01-1-1V3zm1.5 1.5v8h11v-8h-11zM4 7l2.5 2L4 11v-4z" />
+          <svg {...ICON_PROPS}>
+            <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
+            <polyline points="4.5 7 6.5 9 4.5 11" />
+            <line x1="8" y1="11" x2="11" y2="11" />
           </svg>
           <span>Terminal</span>
         </button>
@@ -126,8 +145,10 @@ export function CommandBar({
             title={`Dictation (Ctrl+Shift+D) — ${dictationMode === 'hold' ? 'hold to talk' : 'click to toggle'}`}
           >
             {navActive && <NavBadge label="^⇧D" />}
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 1a2 2 0 00-2 2v4a2 2 0 104 0V3a2 2 0 00-2-2zM4 6.5a.5.5 0 00-1 0v.5A5 5 0 007.5 12H7v2H5.5a.5.5 0 000 1h5a.5.5 0 000-1H9v-2h-.5A5 5 0 0013 7v-.5a.5.5 0 00-1 0v.5a4 4 0 11-8 0v-.5z" />
+            <svg {...ICON_PROPS}>
+              <rect x="6" y="2" width="4" height="7" rx="2" />
+              <path d="M3.5 7.5v.5a4.5 4.5 0 0 0 9 0v-.5" />
+              <line x1="8" y1="12.5" x2="8" y2="14" />
             </svg>
             {dictationListening && dictationInterim && (
               <span className="dictation-interim">{dictationInterim}</span>
@@ -138,8 +159,8 @@ export function CommandBar({
         )}
         <button className="action-btn" onClick={handleOpenFolder} title="Open in Finder">
           <NavNum active={navActive} idx={4} />
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M1.5 1A1.5 1.5 0 000 2.5v11A1.5 1.5 0 001.5 15h13a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0014.5 4H7.71L6.85 2.15A1.5 1.5 0 005.57 1.5H1.5z" />
+          <svg {...ICON_PROPS}>
+            <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.5h5A1.5 1.5 0 0 1 14 6v6a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12V4.5Z" />
           </svg>
           <span>Folder</span>
         </button>
@@ -147,7 +168,7 @@ export function CommandBar({
         {externalApps.length > 0 && <div className="command-bar-separator" />}
 
         {externalApps.map((app, i) => {
-          const iconPath = APP_ICONS[app.icon] || APP_ICONS['file'];
+          const iconContent = APP_ICONS[app.icon] || APP_ICONS['file'];
           return (
             <button
               key={app.id}
@@ -156,9 +177,7 @@ export function CommandBar({
               title={`Open in ${app.name}`}
             >
               <NavNum active={navActive} idx={extStart + i} />
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d={iconPath} />
-              </svg>
+              <svg {...ICON_PROPS} dangerouslySetInnerHTML={{ __html: iconContent }} />
               <span>{app.name}</span>
             </button>
           );
