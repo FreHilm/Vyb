@@ -1,0 +1,9 @@
+{
+  "name": "vyb-vendor-ordna-cli",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Isolated dep tree for @frehilm/ordna-cli so Ink's React 18 doesn't collide with Vyb's React 19. Installed via root postinstall.",
+  "dependencies": {
+    "@frehilm/ordna-cli": "^0.1.2"
+  }
+}
