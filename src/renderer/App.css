@@ -23,15 +23,17 @@
 }
 
 .titlebar-name {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--c-text);
+  letter-spacing: -0.01em;
 }
 
 .titlebar-path {
-  font-size: 11px;
-  color: var(--c-overlay0);
-  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+  font-weight: 400;
+  color: color-mix(in srgb, hsl(0deg 0% 12.84%) 55%, var(--c-overlay0) 45%);
+  font-family: inherit;
   max-width: 450px;
   overflow: hidden;
   text-overflow: ellipsis;
