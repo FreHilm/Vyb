@@ -912,9 +912,17 @@ export function SettingsDialog({
                       }}
                       title={`Icon: ${APP_ICON_LABELS[app.icon] || app.icon} (click to change)`}
                     >
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                        <path d={APP_ICONS[app.icon] || APP_ICONS['file']} />
-                      </svg>
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={1.5}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        dangerouslySetInnerHTML={{ __html: APP_ICONS[app.icon] || APP_ICONS['file'] }}
+                      />
                     </button>
                     <select
                       className="ext-app-icon-select"

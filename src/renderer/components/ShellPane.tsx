@@ -373,8 +373,9 @@ export function ShellPane({
               onClick={() => handleClose(shell.id)}
               title="Close terminal"
             >
-              <svg width="10" height="10" viewBox="0 0 14 14" fill="currentColor">
-                <path d="M1.7 0.3a1 1 0 00-1.4 1.4L5.6 7l-5.3 5.3a1 1 0 101.4 1.4L7 8.4l5.3 5.3a1 1 0 001.4-1.4L8.4 7l5.3-5.3a1 1 0 00-1.4-1.4L7 5.6 1.7 0.3z" />
+              <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="4" y1="4" x2="12" y2="12" />
+                <line x1="12" y1="4" x2="4" y2="12" />
               </svg>
             </button>
             {navActive && navFocusedPane.pane === 'shell' && navFocusedPane.shellIndex === idx && (

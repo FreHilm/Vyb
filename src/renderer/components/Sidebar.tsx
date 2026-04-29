@@ -104,8 +104,8 @@ function ParallelAgentRow({
             }}
             title="Run task"
           >
-            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M3 2l11 6-11 6z" />
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" stroke="none">
+              <polygon points="4 3 13 8 4 13" />
             </svg>
           </button>
         )}
@@ -117,7 +117,7 @@ function ParallelAgentRow({
           }}
           title="Stop & remove"
         >
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" stroke="none">
             <rect x="3" y="3" width="10" height="10" rx="1.5" />
           </svg>
         </button>
@@ -476,8 +476,10 @@ export function Sidebar({
             }}
           >
             <span className="file-ctx-icon">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M1.5 3A1.5 1.5 0 013 1.5h3.3l1.2 1.5H13a1.5 1.5 0 011.5 1.5v8A1.5 1.5 0 0113 14H3a1.5 1.5 0 01-1.5-1.5V3zM7 7v4m-2-2h4" />
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.5h5A1.5 1.5 0 0 1 14 6v6a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12V4.5Z" />
+                <line x1="8" y1="7.5" x2="8" y2="11" />
+                <line x1="6.5" y1="9.25" x2="9.5" y2="9.25" />
               </svg>
             </span>
             New Folder
@@ -496,9 +498,13 @@ export function Sidebar({
               width="14"
               height="14"
               viewBox="0 0 16 16"
-              fill="currentColor"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              <path d="M1.5 1A1.5 1.5 0 000 2.5v11A1.5 1.5 0 001.5 15h13a1.5 1.5 0 001.5-1.5v-8A1.5 1.5 0 0014.5 4H7.71L6.85 2.15A1.5 1.5 0 005.57 1.5H1.5z" />
+              <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.5h5A1.5 1.5 0 0 1 14 6v6a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12V4.5Z" />
             </svg>
           </button>
           <button
@@ -509,10 +515,15 @@ export function Sidebar({
             <svg
               width="14"
               height="14"
-              viewBox="0 0 14 14"
-              fill="currentColor"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              <path d="M7 0a1 1 0 011 1v5h5a1 1 0 110 2H8v5a1 1 0 11-2 0V8H1a1 1 0 010-2h5V1a1 1 0 011-1z" />
+              <line x1="8" y1="3" x2="8" y2="13" />
+              <line x1="3" y1="8" x2="13" y2="8" />
             </svg>
           </button>
         </div>
@@ -574,8 +585,12 @@ export function Sidebar({
                   <svg
                     width="10"
                     height="10"
-                    viewBox="0 0 10 10"
-                    fill="currentColor"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                     style={{
                       transform: folder.isOpen
                         ? 'rotate(90deg)'
@@ -583,7 +598,7 @@ export function Sidebar({
                       transition: 'transform 0.15s',
                     }}
                   >
-                    <path d="M3 1l5 4-5 4V1z" />
+                    <polyline points="6 3 11 8 6 13" />
                   </svg>
                 </button>
                 {editingFolderId === folder.id ? (
@@ -621,10 +636,15 @@ export function Sidebar({
                   <svg
                     width="10"
                     height="10"
-                    viewBox="0 0 14 14"
-                    fill="currentColor"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   >
-                    <path d="M1.7 0.3a1 1 0 00-1.4 1.4L5.6 7l-5.3 5.3a1 1 0 101.4 1.4L7 8.4l5.3 5.3a1 1 0 001.4-1.4L8.4 7l5.3-5.3a1 1 0 00-1.4-1.4L7 5.6 1.7 0.3z" />
+                    <line x1="4" y1="4" x2="12" y2="12" />
+                    <line x1="12" y1="4" x2="4" y2="12" />
                   </svg>
                 </button>
               </div>

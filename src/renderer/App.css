@@ -223,14 +223,14 @@
 }
 
 .sidebar-indent {
-  padding-left: 12px;
+  padding-left: 6px;
 }
 
 .sidebar-profiles {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 4px 6px;
+  padding: 4px 0;
   position: relative;
 }
 
@@ -240,8 +240,8 @@
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
-  padding: 3px 8px;
-  border-radius: 8px;
+  padding: 3px 10px;
+  border-radius: 0;
   cursor: pointer;
   transition: background 0.15s;
   user-select: none;
@@ -411,12 +411,12 @@
 }
 
 .profile-icon {
-  width: 30px;
-  height: 30px;
+  width: 42px;
+  height: 42px;
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: 10px;
 }
 
 /* Bounce animation on profile select */
@@ -449,22 +449,22 @@
 }
 
 .profile-icon img {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
   object-fit: cover;
 }
 
 .profile-icon-placeholder {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
   background: linear-gradient(135deg, var(--c-surface1), var(--c-surface2));
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 13px;
+  font-size: 18px;
   color: var(--c-text);
   text-shadow: 0 1px 2px rgba(0,0,0,0.2);
 }
@@ -474,12 +474,12 @@
   position: absolute;
   bottom: 0;
   right: 0;
-  width: 11px;
-  height: 11px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  border: 2px solid var(--c-mantle);
+  border: 2.5px solid var(--c-mantle);
   transition: background-color 0.3s;
-  box-shadow: 0 0 4px currentColor;
+  box-shadow: 0 0 5px currentColor;
 }
 
 @keyframes pulse {
