@@ -114,7 +114,7 @@ function KanbanTui({ ptyId, settings, hidden }: { ptyId: string; settings: AppSe
     const container = containerRef.current;
     if (!container) return;
 
-    const theme = getTerminalTheme(settings.baseHue, settings.darkness);
+    const theme = getTerminalTheme(settings.baseHue, settings.darkness, settings.textLightness);
     const terminal = new Terminal({
       cursorBlink: true,
       fontSize: settings.shellFontSize,

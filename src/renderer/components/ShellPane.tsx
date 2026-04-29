@@ -5,7 +5,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 // ClipboardAddon removed — it intercepts Escape key, breaking vi/vim
 import '@xterm/xterm/css/xterm.css';
 import { AppSettings } from '../../shared/types';
-import { getTerminalTheme } from '../theme';
+import { getShellTerminalTheme } from '../theme';
 import { ResizeHandle } from './ResizeHandle';
 import { setupTerminalDrop, debouncedPtyResize, makeTerminalKeyHandler } from './TerminalPane';
 
@@ -98,7 +98,7 @@ export function ShellPane({
   useEffect(() => {
     if (hidden) return;
 
-    const theme = getTerminalTheme(settings.baseHue, settings.darkness);
+    const theme = getShellTerminalTheme(settings.baseHue, settings.darkness, settings.textLightness);
 
     for (const shell of shells) {
       const panelDiv = panelRefs.current.get(shell.id);
@@ -325,7 +325,7 @@ export function ShellPane({
 
   // Apply settings to existing terminals
   useEffect(() => {
-    const theme = getTerminalTheme(settings.baseHue, settings.darkness);
+    const theme = getShellTerminalTheme(settings.baseHue, settings.darkness, settings.textLightness);
     terminalsRef.current.forEach((entry) => {
       entry.terminal.options.fontSize = settings.shellFontSize;
       entry.terminal.options.theme = theme;

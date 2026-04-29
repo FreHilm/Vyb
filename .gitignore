@@ -97,3 +97,7 @@ dist/
 # Claude Code per-project local settings
 .claude/
 
+# Vendor trees built by postinstall (kept out of git, regenerated locally)
+vendor/*/node_modules/
+vendor/*/package-lock.json
+

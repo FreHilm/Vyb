@@ -112,7 +112,7 @@ export interface ExternalApp {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  baseHue: 240,
+  baseHue: 360,
   darkness: 0,
   textLightness: 12,
   profileFontSize: 13,
