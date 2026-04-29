@@ -84,15 +84,11 @@ function FileDiff({ diff }: { diff: string }) {
           );
         }
         const cls = line.type === 'add' ? 'git-diff-add' : line.type === 'del' ? 'git-diff-del' : 'git-diff-ctx';
-        const prefix = line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' ';
         return (
           <div key={idx} className={`git-diff-line ${cls}`}>
             <span className="git-diff-gutter">{line.oldLine ?? ''}</span>
             <span className="git-diff-gutter">{line.newLine ?? ''}</span>
-            <code className="git-diff-content">
-              <span className="git-diff-prefix">{prefix}</span>
-              {line.content}
-            </code>
+            <code className="git-diff-content">{line.content}</code>
           </div>
         );
       })}
@@ -178,13 +174,17 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
         </span>
         <div className="git-changes-actions">
           <button className="git-changes-btn" onClick={load} title="Refresh">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 3V1L4.5 4.5 8 8V6a4 4 0 11-4 4H2.5A5.5 5.5 0 108 3z" />
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 8a5 5 0 0 1 8.5-3.5L13 6" />
+              <polyline points="13 3 13 6 10 6" />
+              <path d="M13 8a5 5 0 0 1-8.5 3.5L3 10" />
+              <polyline points="3 13 3 10 6 10" />
             </svg>
           </button>
           <button className="git-changes-btn" onClick={onClose} title="Close">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M1.7 0.3a1 1 0 00-1.4 1.4L5.6 7l-5.3 5.3a1 1 0 101.4 1.4L7 8.4l5.3 5.3a1 1 0 001.4-1.4L8.4 7l5.3-5.3a1 1 0 00-1.4-1.4L7 5.6 1.7 0.3z" />
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <line x1="4" y1="4" x2="12" y2="12" />
+              <line x1="12" y1="4" x2="4" y2="12" />
             </svg>
           </button>
         </div>
@@ -207,18 +207,21 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
                 title={file.path}
               >
                 <span className={`git-changes-arrow ${isOpen ? 'git-changes-arrow-open' : ''}`}>
-                  ▸
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="6 3 11 8 6 13" />
+                  </svg>
                 </span>
                 <FileIcon filename={name} isDirectory={false} />
                 <span className="git-changes-filename">{name}</span>
-                {dir && <span className="git-changes-filedir">{dir}</span>}
-                <span className="git-changes-status" data-status={file.status}>
-                  {file.staged ? '●' : ''}
-                  {file.status === 'untracked' ? 'U' : file.status === 'added' ? 'A' : file.status === 'deleted' ? 'D' : file.status === 'renamed' ? 'R' : 'M'}
-                </span>
-                <span className="git-changes-counts">
-                  {file.added > 0 && <span className="git-changes-added">+{file.added}</span>}
-                  {file.deleted > 0 && <span className="git-changes-deleted">−{file.deleted}</span>}
+                <span className="git-changes-filedir">{dir}</span>
+                <span className="git-changes-meta">
+                  <span className="git-changes-counts">
+                    {file.added > 0 && <span className="git-changes-added">+{file.added}</span>}
+                    {file.deleted > 0 && <span className="git-changes-deleted">−{file.deleted}</span>}
+                  </span>
+                  <span className="git-changes-status" data-status={file.status}>
+                    {file.status === 'untracked' ? 'U' : file.status === 'added' ? 'A' : file.status === 'deleted' ? 'D' : file.status === 'renamed' ? 'R' : 'M'}
+                  </span>
                 </span>
               </button>
               {isOpen && (
