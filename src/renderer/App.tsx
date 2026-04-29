@@ -239,6 +239,99 @@ export function App() {
     };
   }, []);
 
+  // Cmd/Ctrl + C/V/X/A in HTML text fields. We can't add the standard Edit
+  // menu role items because their OS-level accelerators (on macOS) intercept
+  // Cmd+C from xterm.js terminals. Without the menu items, those shortcuts
+  // also stop reaching plain HTML inputs/textareas — so we wire them up here
+  // at the renderer level for inputs only. xterm.js terminals are skipped:
+  // they have their own handler in makeTerminalKeyHandler.
+  useEffect(() => {
+    const isTextField = (el: EventTarget | null): el is HTMLInputElement | HTMLTextAreaElement => {
+      if (!el || !(el instanceof HTMLElement)) return false;
+      // Skip xterm.js — its hidden helper textarea has class `xterm-helper-textarea`
+      // and any DOM inside `.xterm` belongs to it.
+      if (el.classList.contains('xterm-helper-textarea')) return false;
+      if (el.closest('.xterm')) return false;
+      const tag = el.tagName;
+      if (tag === 'INPUT') {
+        const type = (el as HTMLInputElement).type;
+        // Editable input types only (skip checkbox, radio, button, etc.)
+        return ['text', 'search', 'url', 'email', 'password', 'tel', 'number', ''].includes(type);
+      }
+      if (tag === 'TEXTAREA') return true;
+      if ((el as HTMLElement).isContentEditable) return true;
+      return false;
+    };
+
+    const insertAtCursor = (el: HTMLInputElement | HTMLTextAreaElement, text: string): void => {
+      const start = el.selectionStart ?? el.value.length;
+      const end = el.selectionEnd ?? el.value.length;
+      const before = el.value.slice(0, start);
+      const after = el.value.slice(end);
+      const next = before + text + after;
+      // Use the property setter that React sees as a real input event
+      const setter = Object.getOwnPropertyDescriptor(
+        el.tagName === 'INPUT' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype,
+        'value',
+      )?.set;
+      if (setter) setter.call(el, next);
+      else el.value = next;
+      const cursor = start + text.length;
+      el.setSelectionRange(cursor, cursor);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (!['c', 'v', 'x', 'a'].includes(key)) return;
+      const target = e.target;
+      if (!isTextField(target)) return;
+      const el = target as HTMLInputElement | HTMLTextAreaElement;
+
+      if (key === 'a') {
+        e.preventDefault();
+        if ('select' in el) el.select();
+        return;
+      }
+
+      const start = el.selectionStart ?? 0;
+      const end = el.selectionEnd ?? 0;
+      const selected = el.value.slice(start, end);
+
+      if (key === 'c') {
+        if (!selected) return; // nothing to copy
+        e.preventDefault();
+        navigator.clipboard.writeText(selected).catch((): void => undefined);
+        return;
+      }
+
+      if (key === 'x') {
+        if (!selected) return;
+        e.preventDefault();
+        navigator.clipboard.writeText(selected).catch((): void => undefined);
+        // Remove the selected range
+        insertAtCursor(el, '');
+        return;
+      }
+
+      if (key === 'v') {
+        e.preventDefault();
+        navigator.clipboard
+          .readText()
+          .then((text) => {
+            if (text) insertAtCursor(el, text);
+          })
+          .catch((): void => undefined);
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   // Load settings and profiles on mount
   useEffect(() => {
     window.api.loadSettings().then((loaded) => {
@@ -964,8 +1057,10 @@ export function App() {
   }, [activeProfile]);
 
   const navActions = useMemo(() => {
-    const actions = [toggleReadme, toggleFiles, toggleShell, openFolder, toggleKanban];
-    const labels = ['README', 'Files', 'Terminal', 'Folder', 'Kanban'];
+    // Keep this in sync with CommandBar.tsx button order:
+    // README(0) Files(1) Kanban(2) Terminal(3) | Mic | Folder(4) | external(5+)
+    const actions = [toggleReadme, toggleFiles, toggleKanban, toggleShell, openFolder];
+    const labels = ['README', 'Files', 'Kanban', 'Terminal', 'Folder'];
     for (const app of settings.externalApps || []) {
       const cmd = app.command;
       const wd = activeProfile?.workingDirectory || '';
