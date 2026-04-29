@@ -103,8 +103,8 @@
 .sidebar-folder-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px 4px;
+  gap: 5px;
+  padding: 5px 8px 2px;
   border-radius: 6px;
   cursor: default;
   user-select: none;
@@ -239,9 +239,9 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 10px;
-  padding: 4px 10px;
-  border-radius: 10px;
+  gap: 8px;
+  padding: 3px 8px;
+  border-radius: 8px;
   cursor: pointer;
   transition: background 0.15s;
   user-select: none;
@@ -411,12 +411,12 @@
 }
 
 .profile-icon {
-  width: 42px;
-  height: 42px;
+  width: 30px;
+  height: 30px;
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 /* Bounce animation on profile select */
@@ -449,22 +449,22 @@
 }
 
 .profile-icon img {
-  width: 42px;
-  height: 42px;
-  border-radius: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   object-fit: cover;
 }
 
 .profile-icon-placeholder {
-  width: 42px;
-  height: 42px;
-  border-radius: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   background: linear-gradient(135deg, var(--c-surface1), var(--c-surface2));
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 18px;
+  font-size: 13px;
   color: var(--c-text);
   text-shadow: 0 1px 2px rgba(0,0,0,0.2);
 }
@@ -474,12 +474,12 @@
   position: absolute;
   bottom: 0;
   right: 0;
-  width: 14px;
-  height: 14px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
-  border: 2.5px solid var(--c-mantle);
+  border: 2px solid var(--c-mantle);
   transition: background-color 0.3s;
-  box-shadow: 0 0 5px currentColor;
+  box-shadow: 0 0 4px currentColor;
 }
 
 @keyframes pulse {
@@ -642,16 +642,13 @@
 }
 
 .action-btn svg {
-  color: var(--c-overlay0);
+  color: currentColor;
+  opacity: 0.9;
 }
 
 .action-btn:disabled {
   opacity: 0.3;
   cursor: default;
-}
-
-.action-btn svg {
-  opacity: 0.8;
 }
 
 /* Terminal Split Layout */
@@ -668,55 +665,56 @@
   min-height: 0;
 }
 
-/* Resize Handles — 1px visible line with a wider transparent hit area so
- * the divider stays thin but is still easy to grab with the mouse. */
+/* Resize Handles — the handle itself IS the 1px divider line. The wider
+ * grab area is provided by an absolutely-positioned ::before that extends
+ * outward without taking layout space, so panes sit flush against the line. */
 .resize-handle {
   flex-shrink: 0;
-  background: transparent;
+  background: var(--c-surface0);
   position: relative;
   z-index: 10;
-}
-
-.resize-handle::after {
-  content: '';
-  position: absolute;
-  background: var(--c-surface0);
   transition: background 0.15s;
 }
 
-.resize-handle:hover::after,
-.resize-handle:active::after {
+.resize-handle::before {
+  content: '';
+  position: absolute;
+  inset: -3px 0;
+}
+
+.resize-handle:hover,
+.resize-handle:active {
   background: var(--c-blue);
 }
 
 .resize-handle-h {
-  width: 6px;
+  width: 1px;
   cursor: col-resize;
 }
 
-.resize-handle-h::after {
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  transform: translateX(-50%);
+.resize-handle-h::before {
+  inset: 0 -3px;
 }
 
 .resize-handle-v {
-  height: 6px;
+  height: 1px;
   cursor: row-resize;
 }
 
-.resize-handle-v::after {
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 1px;
-  transform: translateY(-50%);
+.terminal-instance {
+  padding: 8px;
+  background: var(--c-base);
 }
 
-.terminal-instance {
-  padding: 4px;
+/* Pane backgrounds match each terminal's xterm theme so any unfilled row gap
+ * (xterm only renders whole cells) blends seamlessly instead of showing a
+ * lighter band underneath. */
+.terminal-pane.agent-pane {
+  background: var(--c-base);
+}
+
+.terminal-pane.shell-pane {
+  background: var(--c-crust);
 }
 
 .terminal-placeholder {
@@ -794,26 +792,25 @@
 
 .command-bar-separator {
   width: 1px;
-  height: 20px;
-  background: var(--c-surface1);
+  height: 18px;
+  background: var(--c-surface0);
   flex-shrink: 0;
 }
 
 .action-btn-active,
 .action-btn.action-btn-active {
-  background: var(--c-blue);
-  border-color: var(--c-blue);
-  color: var(--c-base);
+  background: color-mix(in srgb, var(--c-blue) 14%, transparent);
+  border-color: transparent;
+  color: var(--c-blue);
 }
 
 .action-btn-active:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--c-blue) 85%, white);
-  border-color: color-mix(in srgb, var(--c-blue) 85%, white);
+  background: color-mix(in srgb, var(--c-blue) 22%, transparent);
 }
 
 .action-btn-active svg,
 .action-btn.action-btn-active svg {
-  color: var(--c-base);
+  color: var(--c-blue);
   opacity: 1;
 }
 
@@ -2211,12 +2208,14 @@
   height: 100%;
   overflow: hidden;
   position: relative;
+  background: var(--c-crust);
 }
 
 .shell-panels {
   display: flex;
   width: 100%;
   height: 100%;
+  background: var(--c-crust);
 }
 
 .shell-panel {
@@ -2224,26 +2223,45 @@
   overflow: hidden;
   min-width: 0;
   height: 100%;
+  background: var(--c-crust);
 }
 
 .shell-panel + .shell-panel {
   border-left: 1px solid var(--c-surface0);
 }
 
+/* The visible divider between side-by-side shell panels is the panel's own
+ * border-left; this overlay is purely a transparent hit zone for grabbing. */
 .shell-panel > .resize-handle-h {
   position: absolute;
   left: -3px;
   top: 0;
   height: 100%;
   width: 6px;
+  background: transparent;
   z-index: 20;
+}
+
+.shell-panel > .resize-handle-h::before {
+  content: none;
+}
+
+.shell-panel + .shell-panel:has(> .resize-handle-h:hover),
+.shell-panel + .shell-panel:has(> .resize-handle-h:active) {
+  border-left-color: var(--c-blue);
+}
+
+.shell-panel > .resize-handle-h:hover,
+.shell-panel > .resize-handle-h:active {
+  background: transparent;
 }
 
 .shell-instance {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  padding: 2px;
+  padding: 8px;
+  background: var(--c-crust);
   position: relative;
   z-index: 1;
 }
