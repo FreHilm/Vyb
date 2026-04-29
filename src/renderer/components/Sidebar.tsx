@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { ProfileItem } from './ProfileItem';
 import {
   Profile,
@@ -197,6 +197,7 @@ export function Sidebar({
   const [folderNameInput, setFolderNameInput] = useState('');
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const dragDataRef = useRef<DragData | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
   const effective = buildEffectiveLayout(layout, profiles);
   const folderMap = new Map(effective.folders.map((f) => [f.id, f]));
@@ -431,8 +432,58 @@ export function Sidebar({
     );
   };
 
+  // Right-click on the sidebar background → "New Folder". Skip if the click
+  // was on a profile or folder row (those have their own affordances).
+  const handleSidebarContextMenu = (e: React.MouseEvent) => {
+    const targetEl = e.target as HTMLElement;
+    if (
+      targetEl.closest('.profile-item') ||
+      targetEl.closest('.parallel-agent-row') ||
+      targetEl.closest('.sidebar-folder-header') ||
+      targetEl.closest('.sidebar-header-actions')
+    ) {
+      return;
+    }
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  // Close the context menu on any click anywhere
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('contextmenu', close, { once: true });
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('contextmenu', close);
+    };
+  }, [ctxMenu]);
+
   return (
-    <div className="sidebar">
+    <div className="sidebar" onContextMenu={handleSidebarContextMenu}>
+      {ctxMenu && (
+        <div
+          className="file-context-menu"
+          style={{ left: ctxMenu.x, top: ctxMenu.y, position: 'fixed' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="file-ctx-item"
+            onClick={() => {
+              setCtxMenu(null);
+              handleAddFolder();
+            }}
+          >
+            <span className="file-ctx-icon">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M1.5 3A1.5 1.5 0 013 1.5h3.3l1.2 1.5H13a1.5 1.5 0 011.5 1.5v8A1.5 1.5 0 0113 14H3a1.5 1.5 0 01-1.5-1.5V3zM7 7v4m-2-2h4" />
+              </svg>
+            </span>
+            New Folder
+          </button>
+        </div>
+      )}
       <div className="sidebar-header">
         <h2>Agents</h2>
         <div className="sidebar-header-actions">

@@ -372,7 +372,10 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
   ipcMain.handle(IPC_CHANNELS.DIALOG_SELECT_DIRECTORY, async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openDirectory'],
+      // `createDirectory` enables the "New Folder" button in the macOS
+      // system dialog. Windows' folder picker has it built in, so the flag
+      // is a no-op there. Linux behavior depends on the toolkit dialog.
+      properties: ['openDirectory', 'createDirectory'],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
