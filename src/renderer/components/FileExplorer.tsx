@@ -262,7 +262,11 @@ function FileTreeNode({
         onContextMenu={handleCtxMenu}
       >
         {entry.isDirectory && (
-          <span className="file-tree-arrow">{expanded ? '▾' : '▸'}</span>
+          <span className="file-tree-arrow" style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 3 11 8 6 13" />
+            </svg>
+          </span>
         )}
         <FileIcon filename={entry.name} isDirectory={entry.isDirectory} isExpanded={expanded} />
         {isRenaming ? (
