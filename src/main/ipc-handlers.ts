@@ -715,21 +715,55 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     parseNumstat(run('git diff --numstat'));          // unstaged changes
     parseNumstat(run('git diff --cached --numstat')); // staged changes
 
+    // Expand untracked directories (git status reports them as a single
+     // entry with trailing slash) into their individual files so each shows
+     // up as its own row with a real diff.
+    const walkDir = (relDir: string, out: string[]): void => {
+      const absDir = path.isAbsolute(relDir) ? relDir : path.join(cwd, relDir);
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(absDir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of entries) {
+        const childRel = path.join(relDir, e.name);
+        if (e.isDirectory()) walkDir(childRel, out);
+        else out.push(childRel);
+      }
+    };
+
     // Build result
     const result: { path: string; added: number; deleted: number; status: string; staged: boolean }[] = [];
-    for (const [path, info] of fileMap) {
-      const c = counts.get(path) || { added: 0, deleted: 0 };
-      // For untracked files, count lines in the file as "added"
+    for (const [filePath, info] of fileMap) {
+      const c = counts.get(filePath) || { added: 0, deleted: 0 };
+
+      // Untracked directory — expand into individual files
+      if (info.status === 'untracked' && filePath.endsWith('/')) {
+        const expanded: string[] = [];
+        walkDir(filePath.replace(/\/$/, ''), expanded);
+        for (const f of expanded) {
+          let added = 0;
+          try {
+            const absF = path.isAbsolute(f) ? f : path.join(cwd, f);
+            const content = fs.readFileSync(absF, 'utf-8');
+            added = content.split('\n').length;
+          } catch { /* binary */ }
+          result.push({ path: f, added, deleted: 0, status: 'untracked', staged: false });
+        }
+        continue;
+      }
+
       let added = c.added;
-      let deleted = c.deleted;
+      const deleted = c.deleted;
       if (info.status === 'untracked') {
         try {
-          const absPath = path.startsWith('/') ? path : `${cwd}/${path}`;
+          const absPath = filePath.startsWith('/') ? filePath : path.join(cwd, filePath);
           const content = fs.readFileSync(absPath, 'utf-8');
           added = content.split('\n').length;
         } catch { /* binary or unreadable */ }
       }
-      result.push({ path, added, deleted, status: info.status, staged: info.staged });
+      result.push({ path: filePath, added, deleted, status: info.status, staged: info.staged });
     }
     // Sort: staged first, then alphabetical
     result.sort((a, b) => {
@@ -750,17 +784,45 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     const escaped = filePath.replace(/"/g, '\\"');
     // Combine staged + unstaged diff; fallback to showing full content for untracked
     let diff = run(`git diff HEAD -- "${escaped}"`);
+
+    // Untracked / new file — git diff HEAD returns nothing
     if (!diff) {
-      // Untracked file — show full content as all-added
+      const absPath = filePath.startsWith('/') ? filePath : path.join(cwd, filePath);
       try {
-        const absPath = filePath.startsWith('/') ? filePath : `${cwd}/${filePath}`;
+        const stat = fs.statSync(absPath);
+        if (stat.isDirectory()) {
+          // Shouldn't happen now that GIT_CHANGED_FILES expands dirs, but
+          // handle defensively.
+          return `@@ -0,0 +1,1 @@\n+(directory — no diff to show)`;
+        }
         const content = fs.readFileSync(absPath, 'utf-8');
         const lines = content.split('\n');
-        diff = `+++ b/${filePath}\n@@ -0,0 +1,${lines.length} @@\n` + lines.map((l) => `+${l}`).join('\n');
-      } catch {
-        diff = '(binary or unreadable file)';
+        return `+++ b/${filePath}\n@@ -0,0 +1,${lines.length} @@\n` + lines.map((l) => `+${l}`).join('\n');
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return `@@ -0,0 +1,1 @@\n+(unreadable: ${msg})`;
       }
     }
+
+    // Binary diff: git outputs "Binary files a/foo and b/foo differ" with no
+    // +/- lines, which the renderer's parseDiff filters out, leaving an empty
+    // view. Surface it as a single context line so something is shown.
+    if (/^Binary files .* differ$/m.test(diff) && !/^[+-]/m.test(diff)) {
+      return `@@ -0,0 +1,1 @@\n (binary file — diff not shown)`;
+    }
+
+    // Header-only diff (mode change, rename without content change, etc.) —
+    // no @@ hunk to parse, so the renderer would show "No diff available".
+    // Surface the header lines as context.
+    if (!/\n@@ /.test(diff)) {
+      const headerLines = diff
+        .split('\n')
+        .filter((l) => l.trim() && !l.startsWith('diff --git') && !l.startsWith('index '));
+      if (headerLines.length > 0) {
+        return `@@ -0,0 +1,${headerLines.length} @@\n` + headerLines.map((l) => ` ${l}`).join('\n');
+      }
+    }
+
     return diff;
   });
 
