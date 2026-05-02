@@ -250,11 +250,14 @@ function createTerminalInstance(
   const element = document.createElement('div');
   element.className = 'terminal-instance';
   element.style.display = 'none';
-  element.style.width = '100%';
-  element.style.height = '100%';
+  // Inset 8px from each edge of the parent pane so xterm content has breathing
+  // room from the toolbar above and the resize handle below, instead of the
+  // first/last row visually touching the divider.
   element.style.position = 'absolute';
-  element.style.top = '0';
-  element.style.left = '0';
+  element.style.top = '8px';
+  element.style.left = '8px';
+  element.style.right = '8px';
+  element.style.bottom = '8px';
 
   container.appendChild(element);
   terminal.onData(onData);

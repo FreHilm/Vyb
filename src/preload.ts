@@ -34,11 +34,11 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.send(IPC_CHANNELS.TERMINAL_ACK, profileId, bytes),
 
   onStatusChange: (
-    callback: (payload: { profileId: string; status: string }) => void,
+    callback: (payload: { profileId: string; status: string; hasNewContent?: boolean }) => void,
   ): (() => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
-      payload: { profileId: string; status: string },
+      payload: { profileId: string; status: string; hasNewContent?: boolean },
     ) => callback(payload);
     ipcRenderer.on(IPC_CHANNELS.PROFILE_STATUS_CHANGE, handler);
     return () =>
@@ -83,6 +83,9 @@ contextBridge.exposeInMainWorld('api', {
 
   selectFile: (): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SELECT_FILE),
+
+  createTempDir: (): Promise<string> =>
+    ipcRenderer.invoke(IPC_CHANNELS.DIALOG_CREATE_TEMP_DIR),
 
   loadSettings: (): Promise<AppSettings> =>
     ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_LOAD),
