@@ -84,6 +84,13 @@ const config: ForgeConfig = {
           config: 'vite.preload.config.ts',
           target: 'preload',
         },
+        {
+          // Status-detection worker thread (regex/ANSI-strip work moved off the
+          // Electron main thread). Output: .vite/build/status-worker.js.
+          entry: 'src/main/status-worker.ts',
+          config: 'vite.worker.config.ts',
+          target: 'main',
+        },
       ],
       renderer: [
         {

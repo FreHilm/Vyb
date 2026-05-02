@@ -80,7 +80,7 @@ declare global {
       resizeTerminal: (profileId: string, cols: number, rows: number) => void;
       destroyTerminal: (profileId: string) => Promise<void>;
       onTerminalData: (
-        callback: (payload: { profileId: string; data: string }) => void,
+        callback: (payload: { profileId: string; data: Uint8Array }) => void,
       ) => () => void;
       onStatusChange: (
         callback: (payload: { profileId: string; status: string; hasNewContent?: boolean }) => void,

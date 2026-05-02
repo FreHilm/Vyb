@@ -32,11 +32,76 @@ const FLOW_HIGH_WATERMARK = 256 * 1024;
 const FLOW_LOW_WATERMARK = 64 * 1024;
 
 interface FlowState {
-  pending: number;
+  pending: number;  // bytes in flight (UTF-8) the renderer hasn't ACKed yet
   paused: boolean;
   buffer: string[];
 }
 const flowStates: Map<string, FlowState> = new Map();
+
+// PTY data is encoded to UTF-8 bytes once per coalesced batch before being
+// pushed across IPC. Sending Uint8Array instead of string skips the structured-
+// clone path that internally re-encodes UTF-16 strings, and lets xterm.js
+// consume bytes directly on the renderer side without re-decoding.
+const ipcEncoder = new TextEncoder();
+
+// PTY-data coalescing — chatty agents emit dozens of tiny chunks per second
+// (one per ANSI sequence, prompt redraw, spinner tick, etc.). Each chunk
+// previously triggered: stripAnsi + status-detector regex pass + IPC send +
+// renderer ack. Coalescing collects chunks within a short window or up to a
+// small byte budget before flushing as a single batch, preserving byte order.
+//
+// These thresholds match VS Code's terminal pipeline (`TerminalProcess`):
+// 5 ms / 5 KB. The smaller byte budget produces more, smaller IPC messages
+// during bulk output, which lets the xterm.js parser render incrementally
+// across more frames — long streamed responses "pour in" instead of arriving
+// in visible blocks. Below ~3 KB the IPC fixed cost would start to dominate;
+// 5 KB is the sweet spot they validated in production.
+const COALESCE_WINDOW_MS = 5;
+const COALESCE_MAX_BYTES = 5 * 1024;
+
+interface CoalesceState {
+  pending: string;
+  flushTimer: ReturnType<typeof setTimeout> | null;
+}
+const coalesceStates: Map<string, CoalesceState> = new Map();
+let processBatch: (profileId: string, data: string) => void = () => undefined;
+
+function flushCoalesced(profileId: string): void {
+  const state = coalesceStates.get(profileId);
+  if (!state) return;
+  if (state.flushTimer) {
+    clearTimeout(state.flushTimer);
+    state.flushTimer = null;
+  }
+  if (state.pending.length === 0) return;
+  const data = state.pending;
+  state.pending = '';
+  processBatch(profileId, data);
+}
+
+function queueData(profileId: string, data: string): void {
+  let state = coalesceStates.get(profileId);
+  if (!state) {
+    state = { pending: '', flushTimer: null };
+    coalesceStates.set(profileId, state);
+  }
+  state.pending += data;
+  // Flush early on size threshold to keep latency bounded for huge bursts
+  if (state.pending.length >= COALESCE_MAX_BYTES) {
+    flushCoalesced(profileId);
+    return;
+  }
+  if (!state.flushTimer) {
+    state.flushTimer = setTimeout(() => flushCoalesced(profileId), COALESCE_WINDOW_MS);
+  }
+}
+
+function clearCoalesced(profileId: string): void {
+  const state = coalesceStates.get(profileId);
+  if (!state) return;
+  if (state.flushTimer) clearTimeout(state.flushTimer);
+  coalesceStates.delete(profileId);
+}
 
 function safeSend(channel: string, payload: unknown): void {
   if (isQuitting || mainWindow.isDestroyed()) return;
@@ -147,39 +212,52 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // Process a coalesced batch of PTY output. Status detection, scrollback
+  // accumulation, and flow-controlled IPC dispatch all run once per batch
+  // instead of once per tiny chunk.
+  processBatch = (profileId, data) => {
+    // Skip status detection for shell and ordna PTYs.
+    // Parallel agents use the status detector with their `parallel:<id>`
+    // prefix so we can react to working→ready transitions for auto-push.
+    if (!profileId.startsWith('shell:') && !profileId.startsWith('ordna:')) {
+      statusDetector.feedData(profileId, data);
+    }
+    // Accumulate scrollback for shell terminals
+    if (profileId.startsWith('shell:')) {
+      let buf = scrollbackBuffers.get(profileId) || '';
+      buf += data;
+      if (buf.length > MAX_BUFFER) buf = buf.slice(-MAX_BUFFER);
+      scrollbackBuffers.set(profileId, buf);
+    }
+
+    // Flow control — buffer data if renderer is behind
+    let flow = flowStates.get(profileId);
+    if (!flow) {
+      flow = { pending: 0, paused: false, buffer: [] };
+      flowStates.set(profileId, flow);
+    }
+    if (flow.paused) {
+      flow.buffer.push(data);
+    } else {
+      const bytes = ipcEncoder.encode(data);
+      flow.pending += bytes.byteLength;
+      safeSend(IPC_CHANNELS.TERMINAL_DATA, { profileId, data: bytes });
+      if (flow.pending >= FLOW_HIGH_WATERMARK) {
+        flow.paused = true;
+      }
+    }
+  };
+
   ptyManager = new PtyManager(
     (profileId, data) => {
-      // Skip status detection for shell and ordna PTYs.
-      // Parallel agents use the status detector with their `parallel:<id>`
-      // prefix so we can react to working→ready transitions for auto-push.
-      if (!profileId.startsWith('shell:') && !profileId.startsWith('ordna:')) {
-        statusDetector.feedData(profileId, data);
-      }
-      // Accumulate scrollback for shell terminals
-      if (profileId.startsWith('shell:')) {
-        let buf = scrollbackBuffers.get(profileId) || '';
-        buf += data;
-        if (buf.length > MAX_BUFFER) buf = buf.slice(-MAX_BUFFER);
-        scrollbackBuffers.set(profileId, buf);
-      }
-
-      // Flow control — buffer data if renderer is behind
-      let flow = flowStates.get(profileId);
-      if (!flow) {
-        flow = { pending: 0, paused: false, buffer: [] };
-        flowStates.set(profileId, flow);
-      }
-      if (flow.paused) {
-        flow.buffer.push(data);
-      } else {
-        flow.pending += data.length;
-        safeSend(IPC_CHANNELS.TERMINAL_DATA, { profileId, data });
-        if (flow.pending >= FLOW_HIGH_WATERMARK) {
-          flow.paused = true;
-        }
-      }
+      queueData(profileId, data);
     },
     (profileId) => {
+      // Flush any queued PTY output before announcing exit so the renderer
+      // sees the final lines (e.g. error messages on crash) before "offline".
+      flushCoalesced(profileId);
+      clearCoalesced(profileId);
+
       if (profileId.startsWith('shell:')) {
         safeSend(IPC_CHANNELS.SHELL_TERMINAL_EXITED, { terminalId: profileId });
       } else if (profileId.startsWith('ordna:')) {
@@ -258,6 +336,8 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   );
 
   ipcMain.handle(IPC_CHANNELS.TERMINAL_DESTROY, (_, profileId: string) => {
+    flushCoalesced(profileId);
+    clearCoalesced(profileId);
     ptyManager.destroy(profileId);
     statusDetector.unregister(profileId);
     flowStates.delete(profileId);
@@ -275,8 +355,9 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       const buffered = flow.buffer.join('');
       flow.buffer = [];
       if (buffered.length > 0) {
-        flow.pending += buffered.length;
-        safeSend(IPC_CHANNELS.TERMINAL_DATA, { profileId, data: buffered });
+        const bytes = ipcEncoder.encode(buffered);
+        flow.pending += bytes.byteLength;
+        safeSend(IPC_CHANNELS.TERMINAL_DATA, { profileId, data: bytes });
         if (flow.pending >= FLOW_HIGH_WATERMARK) {
           flow.paused = true;
         }

@@ -20,11 +20,11 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_DESTROY, profileId),
 
   onTerminalData: (
-    callback: (payload: { profileId: string; data: string }) => void,
+    callback: (payload: { profileId: string; data: Uint8Array }) => void,
   ): (() => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
-      payload: { profileId: string; data: string },
+      payload: { profileId: string; data: Uint8Array },
     ) => callback(payload);
     ipcRenderer.on(IPC_CHANNELS.TERMINAL_DATA, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_DATA, handler);

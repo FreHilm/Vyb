@@ -288,18 +288,27 @@ function openTerminal(instance: TerminalInstance, gpuMode: string, profileId: st
 }
 
 function activateWebgl(instance: TerminalInstance, mode: string): void {
-  if (mode === 'off' || mode === 'canvas') return;
+  if (mode === 'off' || mode === 'canvas') {
+    // eslint-disable-next-line no-console
+    console.info(`[xterm] renderer=${mode === 'off' ? 'dom' : 'canvas'} (gpuAcceleration=${mode})`);
+    return;
+  }
   if (instance.webglAddon) return;
   try {
     const addon = new WebglAddon();
     addon.onContextLoss(() => {
+      // eslint-disable-next-line no-console
+      console.warn('[xterm] WebGL context lost — falling back to canvas');
       addon.dispose();
       instance.webglAddon = undefined;
     });
     instance.terminal.loadAddon(addon);
     instance.webglAddon = addon;
-  } catch {
-    // canvas fallback
+    // eslint-disable-next-line no-console
+    console.info('[xterm] renderer=webgl');
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[xterm] WebGL unavailable, falling back to canvas:', err);
   }
 }
 
@@ -336,8 +345,14 @@ export function TerminalPane({
     dataUnsubRef.current = window.api.onTerminalData(({ profileId, data }) => {
       const agentInst = agentTerminalsRef.current.get(profileId);
       if (agentInst) {
-        agentInst.terminal.write(data);
-        window.api.ackTerminalData(profileId, data.length);
+        // Pass an ACK callback to xterm — fires only after the parser has
+        // actually consumed the chunk, not when the IPC arrives. This makes
+        // the main-process flow-control watermark reflect real renderer load
+        // and pauses forwarding when xterm falls behind.
+        const len = data.length;
+        agentInst.terminal.write(data, () => {
+          window.api.ackTerminalData(profileId, len);
+        });
       }
       // Shell terminals are handled by ShellPane's own listener
     });
