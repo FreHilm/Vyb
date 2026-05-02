@@ -220,8 +220,10 @@ export function ShellPane({
     const unsub = window.api.onTerminalData(({ profileId: pid, data }) => {
       const entry = terminalsRef.current.get(pid);
       if (entry) {
-        entry.terminal.write(data);
-        window.api.ackTerminalData(pid, data.length);
+        const len = data.length;
+        entry.terminal.write(data, () => {
+          window.api.ackTerminalData(pid, len);
+        });
       }
     });
     return () => unsub();

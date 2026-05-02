@@ -161,8 +161,10 @@ function KanbanTui({ ptyId, settings, hidden }: { ptyId: string; settings: AppSe
 
     const unsub = window.api.onTerminalData(({ profileId, data }) => {
       if (profileId !== ptyId) return;
-      terminal.write(data);
-      window.api.ackTerminalData(ptyId, data.length);
+      const len = data.length;
+      terminal.write(data, () => {
+        window.api.ackTerminalData(ptyId, len);
+      });
     });
 
     let rafId: number | null = null;
