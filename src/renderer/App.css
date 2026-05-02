@@ -50,13 +50,15 @@
 }
 
 .sidebar-header {
-  padding: 10px 20px;
+  height: 32px;
+  padding: 0 20px;
   position: relative;
   z-index: 10;
   background: var(--c-mantle);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
 }
 
 .sidebar-header h2 {
@@ -616,9 +618,10 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding: 6px 16px;
+  height: 32px;
+  padding: 0 16px;
   background: var(--c-base);
-  min-height: 36px;
+  flex-shrink: 0;
 }
 
 .command-bar-actions {
@@ -631,8 +634,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 11px;
-  height: 28px;
+  padding: 3px 10px;
+  height: 24px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 7px;
@@ -711,8 +714,19 @@
 }
 
 .terminal-instance {
-  padding: 8px;
   background: var(--c-base);
+}
+
+/* Agent terminal: inset 8px from the left so content has breathing room from
+ * the sidebar/divider, but flush right so xterm's scrollbar sits at the
+ * panel's right edge. */
+.agent-pane .terminal-instance {
+  top: 0px !important;
+  left: 8px !important;
+  right: 0px !important;
+  bottom: 0px !important;
+  width: auto !important;
+  height: auto !important;
 }
 
 /* Pane backgrounds match each terminal's xterm theme so any unfilled row gap
@@ -801,7 +815,7 @@
 
 .command-bar-separator {
   width: 1px;
-  height: 18px;
+  height: 22px;
   background: var(--c-surface0);
   flex-shrink: 0;
 }
@@ -1450,9 +1464,8 @@
 
 .git-changes-panel {
   position: absolute;
-  /* command bar height: 28px button + 12px bar vertical padding = 40px
-   * (border-box is set globally, so button padding is inside the 28px) */
-  top: 40px;
+  /* sit just below the 32px command bar (matches sidebar header height) */
+  top: 32px;
   right: 0;
   bottom: 0;
   background: var(--c-base);
@@ -2225,6 +2238,8 @@
   min-width: 0;
   height: 100%;
   background: var(--c-crust);
+  /* 3px crust-colored bottom strip — minimal padding below terminal content. */
+  border-bottom: 3px solid var(--c-crust);
 }
 
 .shell-panel + .shell-panel {
@@ -2258,12 +2273,13 @@
 }
 
 .shell-instance {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 8px;
+  right: 0;
+  bottom: 0;
   overflow: hidden;
-  padding: 8px;
   background: var(--c-crust);
-  position: relative;
   z-index: 1;
 }
 

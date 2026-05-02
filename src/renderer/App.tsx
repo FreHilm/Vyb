@@ -83,7 +83,7 @@ declare global {
         callback: (payload: { profileId: string; data: string }) => void,
       ) => () => void;
       onStatusChange: (
-        callback: (payload: { profileId: string; status: string }) => void,
+        callback: (payload: { profileId: string; status: string; hasNewContent?: boolean }) => void,
       ) => () => void;
       openInFinder: (folderPath: string) => Promise<void>;
       openInVSCode: (folderPath: string) => Promise<void>;
@@ -96,6 +96,7 @@ declare global {
       ) => () => void;
       selectDirectory: () => Promise<string | null>;
       selectFile: () => Promise<string | null>;
+      createTempDir: () => Promise<string>;
       loadSettings: () => Promise<AppSettings>;
       saveSettings: (settings: AppSettings) => Promise<void>;
       onOpenSettings: (callback: () => void) => () => void;
@@ -252,6 +253,9 @@ export function App() {
       // and any DOM inside `.xterm` belongs to it.
       if (el.classList.contains('xterm-helper-textarea')) return false;
       if (el.closest('.xterm')) return false;
+      // Skip CodeMirror (contentEditable). CodeMirror has its own keymap that
+      // owns Cmd+C/V/X — we must NOT preventDefault on it.
+      if (el.closest('.cm-editor')) return false;
       const tag = el.tagName;
       if (tag === 'INPUT') {
         const type = (el as HTMLInputElement).type;
@@ -259,7 +263,8 @@ export function App() {
         return ['text', 'search', 'url', 'email', 'password', 'tel', 'number', ''].includes(type);
       }
       if (tag === 'TEXTAREA') return true;
-      if ((el as HTMLElement).isContentEditable) return true;
+      // Other contentEditable surfaces (rich text editors, etc.) — let the
+      // browser handle Cmd+C/V/X natively rather than reimplementing here.
       return false;
     };
 
@@ -285,34 +290,73 @@ export function App() {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod || e.altKey) return;
       const key = e.key.toLowerCase();
-      if (!['c', 'v', 'x', 'a'].includes(key)) return;
+      if (!['c', 'v', 'x', 'a', 'z'].includes(key)) return;
       const target = e.target;
       if (!isTextField(target)) return;
       const el = target as HTMLInputElement | HTMLTextAreaElement;
 
-      if (key === 'a') {
+      // Number inputs don't support selectionStart/end (the spec excludes them).
+      // Reading those throws InvalidStateError in Chromium, so we route number
+      // inputs through full-value operations.
+      const isNumber = el.tagName === 'INPUT' && (el as HTMLInputElement).type === 'number';
+
+      const setValue = (next: string): void => {
+        const setter = Object.getOwnPropertyDescriptor(
+          el.tagName === 'INPUT' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype,
+          'value',
+        )?.set;
+        if (setter) setter.call(el, next);
+        else el.value = next;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+
+      if (key === 'z') {
+        // Undo / redo. The browser maintains an input-level undo stack —
+        // execCommand still drives it on inputs/textareas in Chromium even
+        // though the API is deprecated. CodeMirror is excluded by isTextField.
         e.preventDefault();
-        if ('select' in el) el.select();
+        document.execCommand(e.shiftKey ? 'redo' : 'undo');
         return;
       }
 
-      const start = el.selectionStart ?? 0;
-      const end = el.selectionEnd ?? 0;
-      const selected = el.value.slice(start, end);
+      if (key === 'a') {
+        e.preventDefault();
+        try {
+          el.select();
+        } catch { /* number inputs throw on .select() too */ }
+        return;
+      }
+
+      // Selection range — gracefully handle number inputs (no selection API)
+      let start = 0;
+      let end = el.value.length;
+      let selected = '';
+      try {
+        const s = el.selectionStart;
+        const en = el.selectionEnd;
+        if (s !== null && en !== null && !isNumber) {
+          start = s;
+          end = en;
+        }
+      } catch { /* number inputs */ }
+      selected = el.value.slice(start, end);
 
       if (key === 'c') {
-        if (!selected) return; // nothing to copy
+        // For number inputs (or when nothing is selected), copy the whole value
+        const text = selected || (isNumber ? el.value : '');
+        if (!text) return;
         e.preventDefault();
-        navigator.clipboard.writeText(selected).catch((): void => undefined);
+        navigator.clipboard.writeText(text).catch((): void => undefined);
         return;
       }
 
       if (key === 'x') {
-        if (!selected) return;
+        const text = selected || (isNumber ? el.value : '');
+        if (!text) return;
         e.preventDefault();
-        navigator.clipboard.writeText(selected).catch((): void => undefined);
-        // Remove the selected range
-        insertAtCursor(el, '');
+        navigator.clipboard.writeText(text).catch((): void => undefined);
+        if (isNumber) setValue('');
+        else insertAtCursor(el, '');
         return;
       }
 
@@ -321,7 +365,13 @@ export function App() {
         navigator.clipboard
           .readText()
           .then((text) => {
-            if (text) insertAtCursor(el, text);
+            if (!text) return;
+            if (isNumber) {
+              // Replace the number value (no insertion-point support)
+              setValue(text);
+            } else {
+              insertAtCursor(el, text);
+            }
           })
           .catch((): void => undefined);
         return;
@@ -384,17 +434,20 @@ export function App() {
       });
     });
 
-    const unsubStatus = window.api.onStatusChange(({ profileId, status }) => {
+    const unsubStatus = window.api.onStatusChange(({ profileId, status, hasNewContent }) => {
       setStatuses((prev) => {
         const prevStatus = prev.get(profileId);
         const next = new Map(prev);
         next.set(profileId, status as AgentStatus);
 
-        // Mark non-active profiles as having updates when task completes or needs input
-        if (
-          (status === 'ready' && prevStatus === 'working') ||
-          (status === 'needs-input')
-        ) {
+        // Mark non-active profiles as having updates only when:
+        //  - the agent transitioned working→ready AND the StatusDetector
+        //    confirmed real activity (long-enough duration or new lines —
+        //    filters out resize/profile-switch flicker), or
+        //  - it needs user input.
+        const realCompletion =
+          status === 'ready' && prevStatus === 'working' && hasNewContent === true;
+        if (realCompletion || status === 'needs-input') {
           setHasUpdates((u) => {
             const updated = new Set(u);
             updated.add(profileId);

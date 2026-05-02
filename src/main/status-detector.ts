@@ -210,14 +210,42 @@ interface ProfileState {
   adapter: AgentAdapter;
   lastDataTime: number;
   createdAt: number;
+  // Used to suppress the "has updates" bell on phantom working→ready
+  // transitions (e.g. caused by terminal resize redraws or rapid profile
+  // switching). Only counts real activity that lasted long enough OR
+  // produced enough new newlines.
+  workingStartedAt: number;
+  totalNewlines: number;
+  newlinesAtWorkingStart: number;
 }
+
+// A working→ready transition only counts as "real activity" (and triggers
+// the bell indicator) if at least one of these is true:
+//   - the working state lasted MIN_WORKING_DURATION_MS or longer
+//   - at least MIN_NEWLINES_FOR_ACTIVITY new lines were committed during it
+// Resize-triggered redraws and rapid profile switches typically flicker the
+// status under both thresholds and therefore won't fire the bell.
+const MIN_WORKING_DURATION_MS = 1500;
+const MIN_NEWLINES_FOR_ACTIVITY = 4;
 
 export class StatusDetector {
   private states: Map<string, ProfileState> = new Map();
-  private onStatusChange: (profileId: string, status: AgentStatus, previousStatus: AgentStatus, output: string) => void;
+  private onStatusChange: (
+    profileId: string,
+    status: AgentStatus,
+    previousStatus: AgentStatus,
+    output: string,
+    hasNewContent: boolean,
+  ) => void;
 
   constructor(
-    onStatusChange: (profileId: string, status: AgentStatus, previousStatus: AgentStatus, output: string) => void,
+    onStatusChange: (
+      profileId: string,
+      status: AgentStatus,
+      previousStatus: AgentStatus,
+      output: string,
+      hasNewContent: boolean,
+    ) => void,
   ) {
     this.onStatusChange = onStatusChange;
   }
@@ -234,10 +262,13 @@ export class StatusDetector {
       adapter,
       lastDataTime: 0,
       createdAt: Date.now(),
+      workingStartedAt: 0,
+      totalNewlines: 0,
+      newlinesAtWorkingStart: 0,
     });
 
     // Emit initial ready status so the renderer shows green immediately
-    this.onStatusChange(profileId, 'ready', 'offline', '');
+    this.onStatusChange(profileId, 'ready', 'offline', '', false);
   }
 
   unregister(profileId: string): void {
@@ -267,6 +298,11 @@ export class StatusDetector {
     if (state.buffer.length > 2000) {
       state.buffer = state.buffer.slice(-2000);
     }
+
+    // Cumulative newline count — survives buffer rolling. Used to decide if
+    // a working→ready transition involved real new output (vs. a redraw).
+    let n = -1;
+    while ((n = stripped.indexOf('\n', n + 1)) !== -1) state.totalNewlines++;
 
     // Check for immediate detection (spinners, interrupt hints)
     const immediate = state.adapter.detectFromData(data, stripped, state.status);
@@ -329,7 +365,25 @@ export class StatusDetector {
 
     const oldStatus = state.status;
     const output = state.buffer;
+
+    // Decide whether this transition represents a real change worth notifying
+    // about (lights the renderer's bell indicator). For working→ready, gate
+    // on duration AND output volume — a redraw flicker stays under both.
+    let hasNewContent = true;
+    if (newStatus === 'working') {
+      state.workingStartedAt = Date.now();
+      state.newlinesAtWorkingStart = state.totalNewlines;
+      // 'working' itself never lights the bell — only the transition out of it.
+      hasNewContent = false;
+    } else if (oldStatus === 'working' && newStatus === 'ready') {
+      const duration = Date.now() - state.workingStartedAt;
+      const newlinesAdded = state.totalNewlines - state.newlinesAtWorkingStart;
+      hasNewContent =
+        duration >= MIN_WORKING_DURATION_MS ||
+        newlinesAdded >= MIN_NEWLINES_FOR_ACTIVITY;
+    }
+
     state.status = newStatus;
-    this.onStatusChange(profileId, newStatus, oldStatus, output);
+    this.onStatusChange(profileId, newStatus, oldStatus, output, hasNewContent);
   }
 }

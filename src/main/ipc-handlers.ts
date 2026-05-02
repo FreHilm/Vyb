@@ -54,8 +54,8 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     isQuitting = true;
   });
 
-  statusDetector = new StatusDetector((profileId, status, previousStatus, output) => {
-    safeSend(IPC_CHANNELS.PROFILE_STATUS_CHANGE, { profileId, status });
+  statusDetector = new StatusDetector((profileId, status, previousStatus, output, hasNewContent) => {
+    safeSend(IPC_CHANNELS.PROFILE_STATUS_CHANGE, { profileId, status, hasNewContent });
 
     // Parallel agent: bubble status into the agent record. Only trigger
     // finish() when the agent has actually marked the task as `status: done`
@@ -388,6 +388,13 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
+  });
+
+  // Create a fresh temporary directory for a "scratchpad" agent profile.
+  // Returns the absolute path. The OS cleans /tmp on reboot; we don't try
+  // to delete it ourselves so the user can keep the contents if they want.
+  ipcMain.handle(IPC_CHANNELS.DIALOG_CREATE_TEMP_DIR, (): string => {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'vyb-agent-'));
   });
 
   ipcMain.on(IPC_CHANNELS.PROFILE_SET_ACTIVE, (_, profileId: string | null) => {

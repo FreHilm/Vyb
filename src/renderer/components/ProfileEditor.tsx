@@ -88,6 +88,15 @@ export function ProfileEditor({
     if (dir) setWorkingDirectory(dir);
   };
 
+  const handleUseTempDir = async () => {
+    const dir = await window.api.createTempDir();
+    if (dir) {
+      setWorkingDirectory(dir);
+      // Suggest a name if the user hasn't typed one yet
+      if (!name.trim()) setName('Scratch');
+    }
+  };
+
   const handleBrowseIcon = async () => {
     const file = await window.api.selectFile();
     if (file) setIcon(file);
@@ -185,6 +194,13 @@ export function ProfileEditor({
               />
               <button className="browse-btn" onClick={handleBrowseDirectory}>
                 Browse
+              </button>
+              <button
+                className="browse-btn"
+                onClick={handleUseTempDir}
+                title="Create a fresh temporary folder for a scratchpad agent"
+              >
+                Temp
               </button>
             </div>
           </label>

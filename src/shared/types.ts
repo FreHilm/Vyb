@@ -194,6 +194,7 @@ export const IPC_CHANNELS = {
   SHELL_OPEN_URL: 'shell:openUrl',
   DIALOG_SELECT_DIRECTORY: 'dialog:selectDirectory',
   DIALOG_SELECT_FILE: 'dialog:selectFile',
+  DIALOG_CREATE_TEMP_DIR: 'dialog:createTempDir',
   SETTINGS_LOAD: 'settings:load',
   SETTINGS_SAVE: 'settings:save',
   SETTINGS_OPEN_DIALOG: 'settings:openDialog',
