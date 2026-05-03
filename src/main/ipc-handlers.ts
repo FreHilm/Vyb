@@ -758,6 +758,16 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         return '';
       }
     };
+    // Status porcelain MUST NOT be trimmed — see GIT_CHANGED_FILES for
+    // the gory detail (trim eats the leading space when X is space, i.e.
+    // unstaged-only changes, and shifts the whole line by one).
+    const runRaw = (cmd: string): string => {
+      try {
+        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8' });
+      } catch {
+        return '';
+      }
+    };
 
     // Check if git repo
     const isGit = run('git rev-parse --is-inside-work-tree') === 'true';
@@ -765,16 +775,22 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
     const branch = run('git branch --show-current') || run('git rev-parse --short HEAD');
 
-    // Porcelain status for counts + conflict detection.
-    const statusLines = run('git status --porcelain').split('\n').filter(Boolean);
+    // Porcelain status for counts + conflict detection. Use NUL-separated
+    // mode so we don't have to worry about leading-space chopping.
+    const rawStatus = runRaw('git status --porcelain -z');
+    const statusLines = rawStatus.split('\0').filter((l) => l.length > 0);
     let modified = 0;
     let staged = 0;
     let untracked = 0;
     const conflictedFiles: string[] = [];
-    for (const line of statusLines) {
+    for (let li = 0; li < statusLines.length; li++) {
+      const line = statusLines[li];
+      if (line.length < 3) continue;
       const x = line[0];
       const y = line[1];
-      const filePath = line.slice(3).replace(/^"(.*)"$/, '$1');
+      const filePath = line.slice(3);
+      // Rename's orig-path follows as its own NUL-record — skip it.
+      if (x === 'R' || y === 'R') li++;
       // Conflict states per gitstatus(7): UU, AA, DD, AU, UA, DU, UD.
       if (x === 'U' || y === 'U' || (x === 'A' && y === 'A') || (x === 'D' && y === 'D')) {
         conflictedFiles.push(filePath);
@@ -857,14 +873,28 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         return '';
       }
     };
+    // Status porcelain MUST NOT be trimmed — git's first column (X) is a
+    // single character that is space when the change isn't staged
+    // (e.g. ` M file.txt`). `.trim()` strips that leading space and
+    // shifts the whole line by one, classifying unstaged changes as
+    // staged AND chopping the first character off the filename. We use
+    // a separate non-trimming runner just for this command.
+    const runRaw = (cmd: string): string => {
+      try {
+        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 });
+      } catch {
+        return '';
+      }
+    };
 
-    // Parse status porcelain to get file states (staged vs unstaged vs untracked)
-    const statusLines = run('git status --porcelain=v1').split('\n').filter(Boolean);
+    // Parse status porcelain. We try `-z` (NUL-separated, unquoted paths,
+    // renames emitted as two records) first because it's unambiguous.
+    // If that produces nothing despite the LF-mode output having content
+    // (some weird env where `-z` falls through), we fall back to the
+    // LF-split path so we never regress to "no files shown".
     const fileMap = new Map<string, { status: string; staged: boolean }>();
-    for (const line of statusLines) {
-      const x = line[0];
-      const y = line[1];
-      const filePath = line.slice(3).replace(/^"(.*)"$/, '$1');
+    const setFromStatus = (x: string, y: string, filePath: string) => {
+      if (!filePath) return;
       if (x === '?') {
         fileMap.set(filePath, { status: 'untracked', staged: false });
       } else if (x === 'A' || y === 'A') {
@@ -875,6 +905,41 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         fileMap.set(filePath, { status: 'renamed', staged: x !== ' ' });
       } else {
         fileMap.set(filePath, { status: 'modified', staged: x !== ' ' });
+      }
+    };
+
+    const rawZ = runRaw('git status --porcelain=v1 -z');
+    const zRecords = rawZ.split('\0');
+    for (let i = 0; i < zRecords.length; i++) {
+      const rec = zRecords[i];
+      if (!rec || rec.length < 3) continue;
+      const x = rec[0];
+      const y = rec[1];
+      // Spec says exactly one space at position 2; be defensive and skip
+      // any extra whitespace before the path.
+      let pathStart = 2;
+      while (pathStart < rec.length && rec[pathStart] === ' ') pathStart++;
+      const filePath = rec.slice(pathStart);
+      // Rename's orig-path follows as its own record — consume so it
+      // doesn't get treated as a separate file row.
+      if (x === 'R' || y === 'R') i++;
+      setFromStatus(x, y, filePath);
+    }
+
+    if (fileMap.size === 0) {
+      // Fallback to LF-mode if -z gave us nothing. Same no-trim rule —
+      // we strip only the trailing newline so leading spaces in the
+      // first line survive.
+      const lfRaw = runRaw('git status --porcelain=v1').replace(/\r?\n$/, '');
+      const lfLines = lfRaw.split('\n').filter((l) => l.length > 0);
+      for (const line of lfLines) {
+        if (line.length < 3) continue;
+        const x = line[0];
+        const y = line[1];
+        let pathStart = 2;
+        while (pathStart < line.length && line[pathStart] === ' ') pathStart++;
+        const filePath = line.slice(pathStart).replace(/^"(.*)"$/, '$1');
+        setFromStatus(x, y, filePath);
       }
     }
 
@@ -975,8 +1040,26 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       diff = run(`git diff HEAD -- "${escaped}"`);
     }
 
-    // Untracked / new file — git diff HEAD returns nothing
+    // Empty diff: only fall back to a synthetic "all lines added" view if
+    // the file is genuinely untracked (not yet known to git). For tracked
+    // files an empty diff means "no changes on this side" — synthesising
+    // +lines from disk would produce a misleading view (and was the
+    // source of an earlier bug where a wrong path showed `(unreadable:
+    // ENOENT…)` instead of just an empty diff).
     if (!diff) {
+      const trackedCheck = (() => {
+        try {
+          execSync(`git ls-files --error-unmatch -- "${escaped}"`, {
+            cwd, timeout: 5000, encoding: 'utf-8',
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+      if (trackedCheck) {
+        return '';
+      }
       const absPath = filePath.startsWith('/') ? filePath : path.join(cwd, filePath);
       try {
         const stat = fs.statSync(absPath);

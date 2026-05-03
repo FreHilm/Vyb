@@ -215,6 +215,11 @@ function FileTreeNode({
   onRenameCancel,
   refreshKey,
   revealRequest,
+  dragHover,
+  onDragStartItem,
+  onDragOverItem,
+  onDropItem,
+  onDragEndItem,
 }: {
   entry: FileEntry;
   depth: number;
@@ -226,6 +231,11 @@ function FileTreeNode({
   onRenameCancel: () => void;
   refreshKey: number;
   revealRequest: { path: string; nonce: number } | null;
+  dragHover: string | null;
+  onDragStartItem: (e: React.DragEvent, entry: FileEntry) => void;
+  onDragOverItem: (e: React.DragEvent, entry: FileEntry) => void;
+  onDropItem: (e: React.DragEvent, entry: FileEntry) => void;
+  onDragEndItem: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileEntry[]>([]);
@@ -287,15 +297,22 @@ function FileTreeNode({
 
   const isSelected = entry.path === selectedPath;
   const isRenaming = entry.path === renamingPath;
+  const dropTargetDir = entry.isDirectory ? entry.path : parentDir(entry.path);
+  const isDropTarget = dragHover === dropTargetDir;
 
   return (
     <>
       <div
         ref={rowRef}
-        className={`file-tree-item ${isSelected ? 'file-tree-selected' : ''}`}
+        className={`file-tree-item${isSelected ? ' file-tree-selected' : ''}${isDropTarget ? ' file-tree-drop-target' : ''}`}
         style={{ paddingLeft: 12 + depth * 16 }}
         onClick={handleToggle}
         onContextMenu={handleCtxMenu}
+        draggable={!isRenaming}
+        onDragStart={(e) => onDragStartItem(e, entry)}
+        onDragOver={(e) => onDragOverItem(e, entry)}
+        onDrop={(e) => onDropItem(e, entry)}
+        onDragEnd={onDragEndItem}
       >
         {entry.isDirectory && (
           <span className="file-tree-arrow" style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
@@ -329,6 +346,11 @@ function FileTreeNode({
             onRenameCancel={onRenameCancel}
             refreshKey={refreshKey}
             revealRequest={revealRequest}
+            dragHover={dragHover}
+            onDragStartItem={onDragStartItem}
+            onDragOverItem={onDragOverItem}
+            onDropItem={onDropItem}
+            onDragEndItem={onDragEndItem}
           />
         ))}
     </>
@@ -369,6 +391,10 @@ export function FileExplorer({
   const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null);
   const [creating, setCreating] = useState<{ type: 'file' | 'dir'; dir: string } | null>(null);
   const [treeWidth, setTreeWidth] = useState(240);
+  // DnD: source path tracked in a ref (no re-render needed during drag);
+  // current target dir in state (drives the drop highlight).
+  const dragSourceRef = useRef<string | null>(null);
+  const [dragHover, setDragHover] = useState<string | null>(null);
 
   // Close-tab dialog
   const [closingTabPath, setClosingTabPath] = useState<string | null>(null);
@@ -383,6 +409,103 @@ export function FileExplorer({
     window.api.listDir(workingDirectory).then(setRootEntries);
     setRefreshKey((k) => k + 1);
   }, [workingDirectory]);
+
+  // ── DnD move (drag a tree item into another folder) ─────────────
+  // We use the same conventions as ReadmeViewer's tree: posix-style `/`
+  // separator, custom MIME so we don't react to OS file drops here, and
+  // a refusal to move a folder into itself or into a descendant.
+  const isValidDndMove = (src: string, targetDir: string): boolean => {
+    if (!src || !targetDir) return false;
+    if (parentDir(src) === targetDir) return false;
+    if (targetDir === src) return false;
+    if (targetDir.startsWith(src + '/')) return false;
+    return true;
+  };
+
+  const handleDragStartItem = useCallback((e: React.DragEvent, entry: FileEntry) => {
+    dragSourceRef.current = entry.path;
+    e.dataTransfer.setData('application/x-vyb-path', entry.path);
+    e.dataTransfer.effectAllowed = 'move';
+  }, []);
+
+  const handleDragOverItem = useCallback((e: React.DragEvent, entry: FileEntry) => {
+    if (!e.dataTransfer.types.includes('application/x-vyb-path')) return;
+    const src = dragSourceRef.current;
+    if (!src) return;
+    const targetDir = entry.isDirectory ? entry.path : parentDir(entry.path);
+    if (!isValidDndMove(src, targetDir)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    setDragHover(targetDir);
+  }, []);
+
+  const handleDropItem = useCallback(async (e: React.DragEvent, entry: FileEntry) => {
+    const src = e.dataTransfer.getData('application/x-vyb-path') || dragSourceRef.current;
+    dragSourceRef.current = null;
+    setDragHover(null);
+    if (!src) return;
+    const targetDir = entry.isDirectory ? entry.path : parentDir(entry.path);
+    if (!isValidDndMove(src, targetDir)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const newPath = `${targetDir.replace(/\/$/, '')}/${fileName(src)}`;
+    if (newPath === src) return;
+    const ok = await window.api.renameFile(src, newPath);
+    if (ok) {
+      // Follow the file in any open tab so the user doesn't get a
+      // mysterious "missing file" after the move.
+      setTabs((prev) => prev.map((t) => (t.path === src ? { ...t, path: newPath, name: fileName(newPath) } : t)));
+      if (activePathRef.current === src) {
+        activePathRef.current = newPath;
+        setActiveTabPath(newPath);
+      }
+      // Move per-tab caches under the new key.
+      const cached = docCacheRef.current.get(src);
+      if (cached !== undefined) { docCacheRef.current.set(newPath, cached); docCacheRef.current.delete(src); }
+      const saved = savedContentRef.current.get(src);
+      if (saved !== undefined) { savedContentRef.current.set(newPath, saved); savedContentRef.current.delete(src); }
+      if (modifiedSet.has(src)) {
+        setModifiedSet((s) => { const n = new Set(s); n.delete(src); n.add(newPath); return n; });
+      }
+      refresh();
+    }
+  }, [refresh, modifiedSet]);
+
+  const handleDragEndItem = useCallback(() => {
+    dragSourceRef.current = null;
+    setDragHover(null);
+  }, []);
+
+  // Root drop target — drag a file out of a folder back to the working dir.
+  const handleRootDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('application/x-vyb-path')) return;
+    const src = dragSourceRef.current;
+    if (!src || !isValidDndMove(src, workingDirectory)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragHover(workingDirectory);
+  }, [workingDirectory]);
+
+  const handleRootDrop = useCallback(async (e: React.DragEvent) => {
+    const src = e.dataTransfer.getData('application/x-vyb-path') || dragSourceRef.current;
+    dragSourceRef.current = null;
+    setDragHover(null);
+    if (!src || !isValidDndMove(src, workingDirectory)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const newPath = `${workingDirectory.replace(/\/$/, '')}/${fileName(src)}`;
+    if (newPath === src) return;
+    const ok = await window.api.renameFile(src, newPath);
+    if (ok) {
+      setTabs((prev) => prev.map((t) => (t.path === src ? { ...t, path: newPath, name: fileName(newPath) } : t)));
+      if (activePathRef.current === src) {
+        activePathRef.current = newPath;
+        setActiveTabPath(newPath);
+      }
+      refresh();
+    }
+  }, [workingDirectory, refresh]);
 
   // ── Handle parent close request ──────────────────────────────
   useEffect(() => {
@@ -1060,7 +1183,12 @@ export function FileExplorer({
             </button>
           </div>
         </div>
-        <div className="file-tree-list" onContextMenu={handleTreeContextMenu}>
+        <div
+          className="file-tree-list"
+          onContextMenu={handleTreeContextMenu}
+          onDragOver={handleRootDragOver}
+          onDrop={handleRootDrop}
+        >
           {creating && creating.dir === workingDirectory && (
             <div className="file-tree-item" style={{ paddingLeft: 12 }}>
               <FileIcon filename={creating.type === 'dir' ? '__dir__' : 'untitled'} isDirectory={creating.type === 'dir'} />
@@ -1084,6 +1212,11 @@ export function FileExplorer({
               onRenameCancel={() => setRenamingPath(null)}
               refreshKey={refreshKey}
               revealRequest={revealRequest}
+              dragHover={dragHover}
+              onDragStartItem={handleDragStartItem}
+              onDragOverItem={handleDragOverItem}
+              onDropItem={handleDropItem}
+              onDragEndItem={handleDragEndItem}
             />
           ))}
         </div>

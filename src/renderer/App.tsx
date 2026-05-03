@@ -312,6 +312,26 @@ export function App() {
       const key = e.key.toLowerCase();
       if (!['c', 'v', 'x', 'a', 'z'].includes(key)) return;
       const target = e.target;
+
+      // Cmd+C anywhere outside text fields, xterm and CodeMirror — copy
+      // the current window selection if any. Without this, selecting text
+      // in the rendered README (or any other read-only DOM) and pressing
+      // Cmd+C is a no-op, because there's no Edit-menu Copy role to
+      // intercept the key (we omitted it deliberately to keep terminal
+      // selection working).
+      if (key === 'c' && !isTextField(target)) {
+        if (target instanceof HTMLElement && (target.closest('.xterm') || target.closest('.cm-editor'))) {
+          return;
+        }
+        const sel = window.getSelection();
+        const selected = sel?.toString() ?? '';
+        if (selected) {
+          e.preventDefault();
+          navigator.clipboard.writeText(selected).catch((): void => undefined);
+        }
+        return;
+      }
+
       if (!isTextField(target)) return;
       const el = target as HTMLInputElement | HTMLTextAreaElement;
 

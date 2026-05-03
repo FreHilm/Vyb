@@ -140,8 +140,26 @@ function buildMenu() {
     {
       label: 'Edit',
       submenu: [
-        { label: 'Save', enabled: canSave, click: () => sendEditAction('save') },
-        { label: 'Save As…', enabled: hasFile, click: () => sendEditAction('saveAs') },
+        // Accelerators set HERE register OS-level handlers on macOS, which
+        // intercept the key BEFORE the renderer / xterm.js see it. Only add
+        // accelerators for keys we want intercepted globally:
+        //   - Cmd+S / Cmd+Shift+S: file-editor save. Save isn't a terminal
+        //     key (^S would otherwise fire XOFF / pause output, which we
+        //     don't miss). The accelerator routes to FileExplorer's
+        //     onEditMenuAction handler — a no-op when no editor is open.
+        //   - Cmd+F: editor Find / search panel. Same routing.
+        //
+        // We deliberately do NOT register Cmd+C / V / X / A / Z here:
+        //   - C/V/X/A: terminal selection + paste would break, since the
+        //     menu would steal them before xterm.js's key handler runs.
+        //   - Z: would steal undo from plain HTML inputs (the global
+        //     keydown handler in App.tsx routes Cmd+Z to execCommand
+        //     ('undo') for inputs/textareas, which is independent of
+        //     CodeMirror's own Cmd+Z keymap).
+        // The menu items still work via mouse click; the labels just
+        // don't display a keyboard shortcut.
+        { label: 'Save', accelerator: 'CmdOrCtrl+S', enabled: canSave, click: () => sendEditAction('save') },
+        { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', enabled: hasFile, click: () => sendEditAction('saveAs') },
         { type: 'separator' as const },
         { label: 'Undo', enabled: hasFile, click: () => sendEditAction('undo') },
         { label: 'Redo', enabled: hasFile, click: () => sendEditAction('redo') },
@@ -151,7 +169,7 @@ function buildMenu() {
         { label: 'Paste', enabled: hasFile, click: () => sendEditAction('paste') },
         { label: 'Select All', enabled: hasFile, click: () => sendEditAction('selectAll') },
         { type: 'separator' as const },
-        { label: 'Find / Search…', enabled: hasFile, click: () => sendEditAction('find') },
+        { label: 'Find / Search…', accelerator: 'CmdOrCtrl+F', enabled: hasFile, click: () => sendEditAction('find') },
       ],
     },
     {
