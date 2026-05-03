@@ -40,7 +40,24 @@ export function useKeyNav({
         return;
       }
 
-      if (!isModifier(e)) return;
+      // If another modifier joins (e.g. user starts Cmd+Shift+4 for a system
+      // screenshot), hide immediately — it's not a nav combo and the OS will
+      // likely swallow the eventual keyup.
+      if (
+        e.key === 'Shift' ||
+        e.key === 'Control' ||
+        (settings.navModifierKey === 'meta' && e.key === 'Alt') ||
+        (settings.navModifierKey === 'alt' && e.key === 'Meta')
+      ) {
+        setNavActive(false);
+        return;
+      }
+
+      if (!isModifier(e)) {
+        // Modifier was released without us seeing the keyup — clear overlay.
+        setNavActive(false);
+        return;
+      }
 
       // Number keys 1-9, 0 → actions 0-9
       if (e.key >= '1' && e.key <= '9') {
@@ -85,27 +102,40 @@ export function useKeyNav({
       }
     };
 
+    // Mouse events carry the live modifier state — if the user moves the
+    // mouse and the modifier is no longer held, the keyup was swallowed
+    // (e.g. by a screenshot overlay) so clear the badge.
+    const handleMouseMove = (e: MouseEvent) => {
+      const held = settings.navModifierKey === 'meta' ? e.metaKey : e.altKey;
+      if (!held) setNavActive(false);
+    };
+
     // Also deactivate on blur (modifier might be released while window is unfocused)
     const handleBlur = () => setNavActive(false);
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') setNavActive(false);
+    };
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('blur', handleBlur);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('blur', handleBlur);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [settings.navModifierKey, isModifier, commandBarActions, onProfileUp, onProfileDown, onPaneLeft, onPaneRight]);
 
-  // Safety auto-hide: if the keyup or blur events get swallowed (e.g. another
-  // window steals focus while the modifier is still held, or a system dialog
-  // intercepts the release), the overlay can stay stuck. Force it off after
-  // 15s of being active.
+  // Safety auto-hide: if every release/blur signal is swallowed (rare), force
+  // the overlay off after 3s of being active.
   useEffect(() => {
     if (!navActive) return;
-    const t = setTimeout(() => setNavActive(false), 15000);
+    const t = setTimeout(() => setNavActive(false), 3000);
     return () => clearTimeout(t);
   }, [navActive]);
 
