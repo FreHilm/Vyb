@@ -19,6 +19,11 @@ interface FileExplorerProps {
   workingDirectory: string;
   closeRequested: boolean;
   onCloseHandled: (proceed: boolean) => void;
+  /** External request to open a file in a tab — typically from a click on
+   * a file link in the agent terminal. The `nonce` discriminates re-opens
+   * of the same path so the effect re-runs. */
+  pendingOpenPath?: { path: string; nonce: number } | null;
+  onPendingOpenHandled?: () => void;
 }
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp']);
@@ -209,6 +214,7 @@ function FileTreeNode({
   onRenameSubmit,
   onRenameCancel,
   refreshKey,
+  revealRequest,
 }: {
   entry: FileEntry;
   depth: number;
@@ -219,9 +225,12 @@ function FileTreeNode({
   onRenameSubmit: (oldPath: string, newName: string) => void;
   onRenameCancel: () => void;
   refreshKey: number;
+  revealRequest: { path: string; nonce: number } | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileEntry[]>([]);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const appliedRevealRef = useRef<number>(-1);
 
   const loadChildren = useCallback(async () => {
     const entries = await window.api.listDir(entry.path);
@@ -233,6 +242,32 @@ function FileTreeNode({
       loadChildren();
     }
   }, [refreshKey, expanded, entry.isDirectory, loadChildren]);
+
+  // External reveal request — expand ancestor directories on the path to
+  // the target, and scroll the matching leaf row into view. Nonce-gated so
+  // re-clicking the same file from the terminal still triggers expansion
+  // even if the user has since collapsed the tree manually.
+  useEffect(() => {
+    if (!revealRequest) return;
+    if (appliedRevealRef.current === revealRequest.nonce) return;
+    const target = revealRequest.path;
+    const isAncestor =
+      entry.isDirectory &&
+      (target.startsWith(entry.path + '/') || target.startsWith(entry.path + '\\'));
+    if (isAncestor) {
+      appliedRevealRef.current = revealRequest.nonce;
+      if (!expanded) setExpanded(true);
+      return;
+    }
+    if (!entry.isDirectory && entry.path === target) {
+      appliedRevealRef.current = revealRequest.nonce;
+      // Wait one frame so the row's final layout (after sibling expansions)
+      // is settled before scrolling.
+      requestAnimationFrame(() => {
+        rowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    }
+  }, [revealRequest, entry.isDirectory, entry.path, expanded]);
 
   const handleToggle = async () => {
     if (entry.isDirectory) {
@@ -256,6 +291,7 @@ function FileTreeNode({
   return (
     <>
       <div
+        ref={rowRef}
         className={`file-tree-item ${isSelected ? 'file-tree-selected' : ''}`}
         style={{ paddingLeft: 12 + depth * 16 }}
         onClick={handleToggle}
@@ -292,6 +328,7 @@ function FileTreeNode({
             onRenameSubmit={onRenameSubmit}
             onRenameCancel={onRenameCancel}
             refreshKey={refreshKey}
+            revealRequest={revealRequest}
           />
         ))}
     </>
@@ -300,13 +337,22 @@ function FileTreeNode({
 
 // ── Main FileExplorer ────────────────────────────────────────────
 
-export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled }: FileExplorerProps) {
+export function FileExplorer({
+  workingDirectory,
+  closeRequested,
+  onCloseHandled,
+  pendingOpenPath,
+  onPendingOpenHandled,
+}: FileExplorerProps) {
   const [rootEntries, setRootEntries] = useState<FileEntry[]>([]);
   const [tabs, setTabs] = useState<FileTab[]>([]);
   const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
   const [modifiedSet, setModifiedSet] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Drives the tree's auto-expand + scroll-into-view when a file is opened
+  // externally (e.g. by clicking a file link in the agent terminal).
+  const [revealRequest, setRevealRequest] = useState<{ path: string; nonce: number } | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const activePathRef = useRef<string | null>(null);
@@ -603,6 +649,17 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
     saveCurrentDoc();
     mountEditor(filePath);
   }, [saveCurrentDoc, mountEditor]);
+
+  // External open-file request (e.g. file link clicked in the agent
+  // terminal). Opens in a new tab so we don't clobber unsaved work in the
+  // active tab; if the file is already open we just switch to its tab.
+  // Also drives the tree to expand the path and scroll the row into view.
+  useEffect(() => {
+    if (!pendingOpenPath) return;
+    openInTab(pendingOpenPath.path, true);
+    setRevealRequest({ path: pendingOpenPath.path, nonce: pendingOpenPath.nonce });
+    onPendingOpenHandled?.();
+  }, [pendingOpenPath, openInTab, onPendingOpenHandled]);
 
   const closeTab = useCallback((filePath: string) => {
     if (modifiedSet.has(filePath)) {
@@ -981,6 +1038,7 @@ export function FileExplorer({ workingDirectory, closeRequested, onCloseHandled 
               onRenameSubmit={handleRenameSubmit}
               onRenameCancel={() => setRenamingPath(null)}
               refreshKey={refreshKey}
+              revealRequest={revealRequest}
             />
           ))}
         </div>

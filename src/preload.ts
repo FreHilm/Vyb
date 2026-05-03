@@ -163,6 +163,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.FILE_CREATE, filePath),
   saveFileAs: (content: string, defaultPath: string): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_SAVE_AS, content, defaultPath),
+  resolveFilePath: (workingDir: string, token: string): Promise<string | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_RESOLVE_PATH, workingDir, token),
 
   exportBackup: (): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.BACKUP_EXPORT),

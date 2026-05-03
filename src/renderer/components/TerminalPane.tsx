@@ -265,7 +265,79 @@ function createTerminalInstance(
   return { terminal, fitAddon, element, opened: false, ptyCreated: false, kind, lastCols: 0, lastRows: 0 };
 }
 
-function openTerminal(instance: TerminalInstance, gpuMode: string, profileId: string): void {
+// Match file-ish tokens in a terminal line. A match must contain a file
+// extension (1-8 chars). Path prefix is optional. Optional trailing
+// :line or :line:col suffix is captured so we can strip it server-side.
+// We deliberately don't include `:` inside the path part so URLs like
+// `https://host/path` don't slip through the filename matcher.
+const FILE_TOKEN_RE = /(?:\.{0,2}\/)?(?:[A-Za-z0-9_.@-]+\/)*[A-Za-z0-9_][A-Za-z0-9_.-]*\.[A-Za-z0-9]{1,8}(?::\d+(?::\d+)?)?(?![A-Za-z0-9])/g;
+
+function getBufferLine(terminal: Terminal, bufferLineNumber: number): string {
+  // bufferLineNumber from xterm's link provider is 1-based.
+  const line = terminal.buffer.active.getLine(bufferLineNumber - 1);
+  return line ? line.translateToString(true) : '';
+}
+
+function registerFileLinkProvider(
+  terminal: Terminal,
+  workingDirectory: string,
+): void {
+  terminal.registerLinkProvider({
+    provideLinks(bufferLineNumber, callback) {
+      const lineText = getBufferLine(terminal, bufferLineNumber);
+      if (!lineText) {
+        callback(undefined);
+        return;
+      }
+
+      const links: {
+        range: { start: { x: number; y: number }; end: { x: number; y: number } };
+        text: string;
+        activate: (event: MouseEvent, text: string) => void;
+      }[] = [];
+
+      const re = new RegExp(FILE_TOKEN_RE.source, 'g');
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(lineText)) !== null) {
+        const text = m[0];
+        const start = m.index;
+
+        // Skip URLs — if "://" appears in the few chars before the match,
+        // this token is the path/host portion of a URL and WebLinksAddon
+        // already owns it.
+        const lookback = lineText.slice(Math.max(0, start - 3), start);
+        if (lookback.includes('://')) continue;
+
+        // xterm ranges are 1-based and inclusive on both ends.
+        links.push({
+          range: {
+            start: { x: start + 1, y: bufferLineNumber },
+            end: { x: start + text.length, y: bufferLineNumber },
+          },
+          text,
+          activate: (_event, linkText) => {
+            window.api.resolveFilePath(workingDirectory, linkText).then((resolved) => {
+              if (resolved) {
+                window.dispatchEvent(
+                  new CustomEvent('open-file-in-explorer', { detail: { path: resolved } }),
+                );
+              }
+            });
+          },
+        });
+      }
+
+      callback(links);
+    },
+  });
+}
+
+function openTerminal(
+  instance: TerminalInstance,
+  gpuMode: string,
+  profileId: string,
+  workingDirectory: string,
+): void {
   if (instance.opened) return;
   instance.opened = true;
   instance.element.style.display = 'block';
@@ -282,6 +354,12 @@ function openTerminal(instance: TerminalInstance, gpuMode: string, profileId: st
       window.api.openUrl(uri);
     }),
   );
+  // File-token link provider — clicking a file path in agent output
+  // resolves it (BFS in main if no path given) and opens it in the
+  // Files pane via a window-level event.
+  if (workingDirectory) {
+    registerFileLinkProvider(instance.terminal, workingDirectory);
+  }
   activateWebgl(instance, gpuMode);
   // Attach native drop handler to the xterm.js element
   setupTerminalDrop(instance.element, sendInput);
@@ -416,7 +494,13 @@ export function TerminalPane({
 
     agentTerminalsRef.current.forEach((instance, id) => {
       if (id === activeProfileId) {
-        openTerminal(instance, settings.gpuAcceleration, id);
+        const profileForOpen = profiles.find((p) => p.id === id);
+        openTerminal(
+          instance,
+          settings.gpuAcceleration,
+          id,
+          profileForOpen?.workingDirectory ?? '',
+        );
         instance.element.style.display = 'block';
         activateWebgl(instance, settings.gpuAcceleration);
 
