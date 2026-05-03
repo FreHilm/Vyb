@@ -222,6 +222,8 @@ export const IPC_CHANNELS = {
   GIT_STAGE: 'git:stage',
   GIT_UNSTAGE: 'git:unstage',
   GIT_COMMIT: 'git:commit',
+  GIT_PUSH: 'git:push',
+  GIT_PULL: 'git:pull',
   FILE_LIST_DIR: 'file:listDir',
   FILE_READ: 'file:read',
   FILE_SAVE: 'file:save',
@@ -369,6 +371,16 @@ export interface GitCommitResult {
   /** Underlying git error message when commit failed (empty subject, hook
    * rejection, no staged changes, etc.). */
   message?: string;
+}
+
+/** Generic ok/error result for push, pull, and other one-shot git
+ * operations whose only meaningful failure mode is "git said no". */
+export interface GitOpResult {
+  ok: boolean;
+  message?: string;
+  /** True when push succeeded but git had to publish the branch
+   * (i.e. the branch had no upstream and we used `-u origin <branch>`). */
+  publishedUpstream?: boolean;
 }
 
 export interface GitStatus {

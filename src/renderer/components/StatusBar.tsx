@@ -13,6 +13,8 @@ const POLL_INTERVAL = 10000; // 10 seconds
 export function StatusBar({ profile, onToggleChanges, onBranchClick }: StatusBarProps) {
   const [git, setGit] = useState<GitStatus | null>(null);
   const [fetching, setFetching] = useState(false);
+  const [syncing, setSyncing] = useState<'push' | 'pull' | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -44,6 +46,34 @@ export function StatusBar({ profile, onToggleChanges, onBranchClick }: StatusBar
       setFetching(false);
     }
   }, [profile, fetching]);
+
+  const handlePush = useCallback(async () => {
+    if (!profile || syncing) return;
+    setSyncing('push');
+    setSyncError(null);
+    try {
+      const result = await window.api.gitPush(profile.workingDirectory);
+      if (!result.ok) setSyncError(result.message ?? 'push failed');
+      const updated = await window.api.getGitStatus(profile.workingDirectory);
+      setGit(updated);
+    } finally {
+      setSyncing(null);
+    }
+  }, [profile, syncing]);
+
+  const handlePull = useCallback(async () => {
+    if (!profile || syncing) return;
+    setSyncing('pull');
+    setSyncError(null);
+    try {
+      const result = await window.api.gitPull(profile.workingDirectory);
+      if (!result.ok) setSyncError(result.message ?? 'pull failed');
+      const updated = await window.api.getGitStatus(profile.workingDirectory);
+      setGit(updated);
+    } finally {
+      setSyncing(null);
+    }
+  }, [profile, syncing]);
 
   if (!profile) return <div className="status-bar" />;
 
@@ -96,10 +126,33 @@ export function StatusBar({ profile, onToggleChanges, onBranchClick }: StatusBar
                 <span className="status-changes-count">{git.staged + git.modified + git.untracked}</span>
               </button>
             )}
-            {(git.ahead > 0 || git.behind > 0) && (
-              <span className="status-item status-sync" title={`${git.ahead} ahead, ${git.behind} behind`}>
-                {git.ahead > 0 && <span>&#x2191;{git.ahead}</span>}
-                {git.behind > 0 && <span>&#x2193;{git.behind}</span>}
+            {git.ahead > 0 && (
+              <button
+                className={`status-item status-sync-btn ${syncing === 'push' ? 'status-fetching' : ''}`}
+                onClick={handlePush}
+                disabled={syncing !== null}
+                title={`Push ${git.ahead} commit${git.ahead === 1 ? '' : 's'} to origin`}
+              >
+                &#x2191;{git.ahead}
+              </button>
+            )}
+            {git.behind > 0 && (
+              <button
+                className={`status-item status-sync-btn ${syncing === 'pull' ? 'status-fetching' : ''}`}
+                onClick={handlePull}
+                disabled={syncing !== null}
+                title={`Pull ${git.behind} commit${git.behind === 1 ? '' : 's'} from origin`}
+              >
+                &#x2193;{git.behind}
+              </button>
+            )}
+            {syncError && (
+              <span
+                className="status-item status-sync-error"
+                title={syncError}
+                onClick={() => setSyncError(null)}
+              >
+                ! sync failed
               </span>
             )}
             <button

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from './shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
@@ -148,6 +148,10 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.GIT_UNSTAGE, cwd, filePath),
   gitCommit: (cwd: string, subject: string, description: string): Promise<GitCommitResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_COMMIT, cwd, subject, description),
+  gitPush: (cwd: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_PUSH, cwd),
+  gitPull: (cwd: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_PULL, cwd),
   getGitLog: (cwd: string, limit: number): Promise<GitCommit[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_LOG, cwd, limit),
   getGitRefs: (cwd: string): Promise<GitRef[]> =>
