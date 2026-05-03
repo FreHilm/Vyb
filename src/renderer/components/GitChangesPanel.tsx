@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { FileIcon } from '../file-icons';
 import { GitTree } from './GitTree';
+import { BranchTree } from './BranchTree';
 
 interface GitChangedFile {
   path: string;
@@ -10,7 +11,7 @@ interface GitChangedFile {
   staged: boolean;
 }
 
-export type GitPanelTab = 'changes' | 'tree';
+export type GitPanelTab = 'changes' | 'tree' | 'branches';
 
 interface GitChangesPanelProps {
   workingDirectory: string;
@@ -255,6 +256,12 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
           >
             Tree
           </button>
+          <button
+            className={`git-panel-tab ${activeTab === 'branches' ? 'git-panel-tab-active' : ''}`}
+            onClick={() => onTabChange('branches')}
+          >
+            Branches
+          </button>
         </div>
         <div className="git-changes-actions">
           {activeTab === 'changes' && (
@@ -278,6 +285,10 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
       {activeTab === 'tree' ? (
         <div className="git-changes-body">
           <GitTree workingDirectory={workingDirectory} />
+        </div>
+      ) : activeTab === 'branches' ? (
+        <div className="git-changes-body">
+          <BranchTree workingDirectory={workingDirectory} />
         </div>
       ) : (
         <ChangesView

@@ -226,6 +226,15 @@ export const IPC_CHANNELS = {
   GIT_PULL: 'git:pull',
   GIT_MERGE: 'git:merge',
   GIT_MERGE_ABORT: 'git:mergeAbort',
+  GIT_LIST_STASHES: 'git:listStashes',
+  GIT_STASH_SAVE: 'git:stashSave',
+  GIT_STASH_APPLY: 'git:stashApply',
+  GIT_STASH_POP: 'git:stashPop',
+  GIT_STASH_DROP: 'git:stashDrop',
+  GIT_CREATE_BRANCH: 'git:createBranch',
+  GIT_DELETE_BRANCH: 'git:deleteBranch',
+  GIT_DELETE_REMOTE_BRANCH: 'git:deleteRemoteBranch',
+  GIT_DELETE_TAG: 'git:deleteTag',
   FILE_LIST_DIR: 'file:listDir',
   FILE_READ: 'file:read',
   FILE_SAVE: 'file:save',
@@ -383,6 +392,17 @@ export interface GitOpResult {
   /** True when push succeeded but git had to publish the branch
    * (i.e. the branch had no upstream and we used `-u origin <branch>`). */
   publishedUpstream?: boolean;
+}
+
+export interface GitStash {
+  /** Stash index (0 = newest). */
+  index: number;
+  /** Ref like `stash@{0}`. */
+  ref: string;
+  /** First-line message git stored for the stash. */
+  message: string;
+  /** Branch the stash was created on (parsed from message), if known. */
+  branch: string;
 }
 
 export interface GitMergeResult {

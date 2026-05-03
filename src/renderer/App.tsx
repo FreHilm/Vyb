@@ -13,7 +13,7 @@ import { StatusBar } from './components/StatusBar';
 import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -119,6 +119,15 @@ declare global {
       gitPull: (cwd: string) => Promise<GitOpResult>;
       gitMerge: (cwd: string, sourceRef: string) => Promise<GitMergeResult>;
       gitMergeAbort: (cwd: string) => Promise<GitOpResult>;
+      gitListStashes: (cwd: string) => Promise<GitStash[]>;
+      gitStashSave: (cwd: string, message: string) => Promise<GitOpResult>;
+      gitStashApply: (cwd: string, ref: string) => Promise<GitOpResult>;
+      gitStashPop: (cwd: string, ref: string) => Promise<GitOpResult>;
+      gitStashDrop: (cwd: string, ref: string) => Promise<GitOpResult>;
+      gitCreateBranch: (cwd: string, name: string, startPoint?: string) => Promise<GitOpResult>;
+      gitDeleteBranch: (cwd: string, name: string, force: boolean) => Promise<GitOpResult>;
+      gitDeleteRemoteBranch: (cwd: string, remote: string, branch: string) => Promise<GitOpResult>;
+      gitDeleteTag: (cwd: string, name: string) => Promise<GitOpResult>;
       listDir: (dirPath: string) => Promise<FileEntry[]>;
       readFile: (filePath: string) => Promise<string | null>;
       saveFile: (filePath: string, content: string) => Promise<boolean>;
@@ -214,7 +223,7 @@ export function App() {
   const [hasReadme, setHasReadme] = useState(false);
   const [changesVisible, setChangesVisible] = useState(false);
   const [changesWidth, setChangesWidth] = useState(50); // percent of agent pane
-  const [gitPanelTab, setGitPanelTab] = useState<'changes' | 'tree'>('changes');
+  const [gitPanelTab, setGitPanelTab] = useState<'changes' | 'tree' | 'branches'>('changes');
   const [focusedPane, setFocusedPane] = useState<{ pane: 'agent' | 'shell'; shellIndex: number }>({ pane: 'agent', shellIndex: 0 });
   const shellCountRef = useRef(1);
   const profileMemoryRef = useRef<ProfileMemoryMap>({});
