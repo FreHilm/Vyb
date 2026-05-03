@@ -2912,6 +2912,15 @@
 }
 
 /* Readme Viewer */
+/* README split layout: markdown viewer on the left, navigation tree on
+   the right. Mirrors FileExplorer's editor + tree split. */
+.readme-split {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+}
+
 .readme-viewer {
   flex: 1;
   overflow-y: auto;
@@ -2919,6 +2928,106 @@
   position: relative;
   background: var(--c-base);
   outline: none;
+  min-width: 0;
+}
+
+.readme-tree-pane {
+  /* Inherits structural styles from .file-tree-pane in App.css. The split
+     container takes care of width via inline style. */
+}
+
+.readme-tree-empty {
+  padding: 16px;
+  color: var(--c-overlay0);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* Inline rename input shown when creating a new .md file. */
+.readme-tree-input {
+  flex: 1;
+  background: var(--c-base);
+  border: 1px solid var(--c-blue);
+  border-radius: 3px;
+  color: var(--c-text);
+  font: inherit;
+  font-size: 12px;
+  padding: 1px 4px;
+  outline: none;
+  min-width: 0;
+}
+
+/* Edit-mode pane (CodeMirror host) — sits where .readme-viewer would be
+   in view mode. Header on top, editor host fills the rest. */
+.readme-edit {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--c-base);
+}
+.readme-edit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--c-mantle);
+  border-bottom: 1px solid var(--c-surface0);
+  flex-shrink: 0;
+}
+.readme-edit-path {
+  font-size: 12px;
+  color: var(--c-subtext0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.readme-edit-modified {
+  margin-left: 6px;
+  color: var(--c-yellow);
+  font-weight: 700;
+}
+.readme-edit-save {
+  background: var(--c-blue);
+  color: var(--c-base);
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.readme-edit-save:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.readme-edit-host {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+.readme-edit-host .cm-editor { height: 100%; }
+
+/* When the toggle is in edit mode, dim the icon-button background to
+   show it's the active state. */
+.file-tree-action-btn.is-active {
+  background: var(--c-surface0);
+  color: var(--c-blue);
+}
+
+/* DnD: highlight a tree row that's a valid drop target. */
+.file-tree-drop-target {
+  background: color-mix(in srgb, var(--c-blue) 22%, transparent) !important;
+  outline: 1px dashed var(--c-blue);
+  outline-offset: -1px;
+}
+
+/* Destructive context-menu item (Delete) — red text, soft red bg on hover. */
+.file-ctx-item-danger {
+  color: var(--c-red);
+}
+.file-ctx-item-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--c-red) 22%, transparent);
 }
 
 .parallel-agent-terminal {
