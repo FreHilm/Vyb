@@ -1547,6 +1547,417 @@
   font-size: 13px;
 }
 
+/* Two-section layout for the Changes tab: scrollable file list on top,
+   pinned commit area at the bottom. */
+.git-changes-split {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.git-changes-list {
+  flex: 1;
+  overflow-y: auto;
+}
+.git-changes-section + .git-changes-section {
+  border-top: 1px solid var(--c-surface0);
+}
+.git-changes-section-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--c-mantle);
+  border-bottom: 1px solid var(--c-surface0);
+}
+.git-changes-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--c-overlay0);
+}
+.git-changes-section-action {
+  background: none;
+  border: none;
+  color: var(--c-blue);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.git-changes-section-action:hover {
+  background: var(--c-surface0);
+}
+
+/* Each file row is now a flex strip so we can put the stage/unstage
+   icon button on the right. */
+.git-changes-row {
+  display: flex;
+  align-items: stretch;
+}
+.git-changes-row .git-changes-file-btn {
+  flex: 1;
+  min-width: 0;
+}
+.git-changes-stage-btn {
+  background: none;
+  border: none;
+  color: var(--c-overlay0);
+  cursor: pointer;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  border-left: 1px solid transparent;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.git-changes-stage-btn:hover {
+  color: var(--c-blue);
+  background: var(--c-surface0);
+  border-left-color: var(--c-surface1);
+}
+
+/* Commit area pinned at the bottom of the Changes tab. */
+.git-commit-area {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--c-surface0);
+  background: var(--c-mantle);
+}
+.git-commit-error {
+  background: color-mix(in srgb, var(--c-red) 22%, transparent);
+  color: var(--c-text);
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  white-space: pre-wrap;
+}
+.git-commit-error-close {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.git-commit-subject,
+.git-commit-description {
+  background: var(--c-base);
+  border: 1px solid var(--c-surface0);
+  border-radius: 4px;
+  color: var(--c-text);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 6px 8px;
+  outline: none;
+  resize: none;
+}
+.git-commit-subject:focus,
+.git-commit-description:focus {
+  border-color: var(--c-blue);
+}
+.git-commit-description {
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.git-commit-btn {
+  background: var(--c-blue);
+  color: var(--c-base);
+  border: none;
+  border-radius: 4px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  align-self: flex-end;
+}
+.git-commit-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── Git panel tabs (Changes / Tree) ─────────────────────────── */
+.git-panel-tabs {
+  padding: 0 6px 0 12px;
+}
+.git-panel-tab-row {
+  display: flex;
+  gap: 2px;
+}
+.git-panel-tab {
+  background: none;
+  border: none;
+  color: var(--c-overlay0);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.git-panel-tab:hover {
+  color: var(--c-text);
+}
+.git-panel-tab-active {
+  color: var(--c-text);
+  border-bottom-color: var(--c-blue);
+}
+
+/* ── Git Tree view ───────────────────────────────────────────── */
+.git-tree {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.git-tree-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--c-surface0);
+  flex-shrink: 0;
+}
+.git-tree-count {
+  font-size: 11px;
+  color: var(--c-overlay0);
+}
+.git-tree-error {
+  background: color-mix(in srgb, var(--c-red) 20%, transparent);
+  color: var(--c-text);
+  padding: 8px 12px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.git-tree-error-close {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 4px;
+}
+.git-tree-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+.git-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--c-surface0);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--c-text);
+  position: relative;
+  white-space: nowrap;
+}
+.git-tree-row:hover {
+  background: var(--c-surface0);
+}
+.git-tree-row-selected {
+  background: color-mix(in srgb, var(--c-blue) 18%, transparent);
+}
+.git-tree-row-head {
+  /* Inset shadow gives a flush left-edge accent without shifting the row's
+     existing 12px padding. Persists when the HEAD row is also selected. */
+  box-shadow: inset 3px 0 0 var(--c-green);
+}
+.git-tree-graph {
+  display: block;
+}
+.git-tree-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  /* Intentionally NOT overflow:hidden — that would also clip the
+     absolutely-positioned chip when it expands on hover. Overflow
+     containment is handled per-chip by `.git-tree-ref-wrap`. */
+}
+.git-tree-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.git-tree-author {
+  color: var(--c-overlay0);
+  font-size: 11px;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+.git-tree-sha {
+  color: var(--c-overlay0);
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 10.5px;
+  flex-shrink: 0;
+}
+.git-tree-date {
+  color: var(--c-overlay0);
+  font-size: 10.5px;
+  width: 60px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.git-tree-actions {
+  position: absolute;
+  right: 12px;
+  top: -2px;
+  bottom: -2px;
+  display: flex;
+  align-items: center;
+}
+.git-tree-action-btn {
+  background: var(--c-blue);
+  color: var(--c-base);
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.git-tree-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Ref pills (branch / tag / remote) ───────────────────────── */
+/* Wrapper holds the layout slot. It can shrink (so multiple chips share
+   the available width without bleeding into the author column) and clips
+   its content by default. On hover the wrapper goes overflow:visible
+   so the chip inside can escape and overlay siblings. */
+.git-tree-ref-wrap {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 160px;
+  height: 18px;
+  overflow: hidden;
+}
+.git-tree-ref-wrap:hover {
+  overflow: visible;
+  z-index: 10;
+}
+
+.git-tree-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: 10.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  /* Fill the wrapper's slot when in flow. */
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid transparent;
+  box-sizing: border-box;
+}
+/* Base chip — stays in flow, holds the row's layout slot, truncates
+   with ellipsis. No size or position change on hover, so the row never
+   reflows. */
+.git-tree-ref-base {
+  position: relative;
+  z-index: 1;
+}
+/* Overlay chip — absolutely positioned clone, hidden until the wrapper
+   is hovered, expands to show the full ref name without disturbing
+   layout. */
+.git-tree-ref-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: 480px;
+  visibility: hidden;
+  z-index: 10;
+  pointer-events: none;
+}
+.git-tree-ref-wrap:hover .git-tree-ref-overlay {
+  visibility: visible;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+/* Outlined and tag overlays need an opaque background so underlying
+   row content doesn't bleed through. HEAD overlays already have a
+   filled lane-colour background from the inline style. */
+.git-tree-ref-wrap:hover .git-tree-ref-overlay:not(.git-tree-ref-head) {
+  background: var(--c-base);
+}
+.git-tree-ref-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Allow the name to shrink below its min-content (i.e. below an
+     unbreakable token's width) so an unbroken branch name like
+     `agent/T-019-create-an-ai-skill` truncates with `…` when the chip
+     has been narrowed to fit the column. */
+  min-width: 0;
+}
+/* Per-type styling. Colours come from inline style on the element so they
+   match the commit's graph lane colour — these classes only set the
+   structural bits (border-style, font-weight, fallbacks). */
+.git-tree-ref-head {
+  font-weight: 700;
+  border-style: solid;
+}
+.git-tree-ref-local {
+  background: transparent;
+  border-style: solid;
+}
+.git-tree-ref-remote {
+  background: transparent;
+  border-style: solid;
+}
+/* Tags stay neutral — they aren't on a branch line in the graph. */
+.git-tree-ref-tag {
+  background: transparent;
+  color: var(--c-overlay1, var(--c-overlay0));
+  border: 1px dashed var(--c-overlay0);
+}
+
+/* Status-bar branch label as button */
+.status-branch-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0 4px;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+.status-branch-btn:hover {
+  background: var(--c-surface0);
+  color: var(--c-text);
+}
+
 .git-changes-item {
   border-bottom: 1px solid var(--c-surface0);
 }

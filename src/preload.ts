@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from './shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
@@ -140,8 +140,20 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.GIT_FETCH, cwd),
   getGitChangedFiles: (cwd: string): Promise<unknown> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_CHANGED_FILES, cwd),
-  getGitFileDiff: (cwd: string, filePath: string): Promise<string> =>
-    ipcRenderer.invoke(IPC_CHANNELS.GIT_FILE_DIFF, cwd, filePath),
+  getGitFileDiff: (cwd: string, filePath: string, staged?: boolean): Promise<string> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_FILE_DIFF, cwd, filePath, staged),
+  gitStage: (cwd: string, filePath: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_STAGE, cwd, filePath),
+  gitUnstage: (cwd: string, filePath: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_UNSTAGE, cwd, filePath),
+  gitCommit: (cwd: string, subject: string, description: string): Promise<GitCommitResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_COMMIT, cwd, subject, description),
+  getGitLog: (cwd: string, limit: number): Promise<GitCommit[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_LOG, cwd, limit),
+  getGitRefs: (cwd: string): Promise<GitRef[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_LIST_REFS, cwd),
+  gitCheckoutCommit: (cwd: string, sha: string): Promise<GitCheckoutResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_CHECKOUT_COMMIT, cwd, sha),
 
   listDir: (dirPath: string): Promise<FileEntry[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_DIR, dirPath),

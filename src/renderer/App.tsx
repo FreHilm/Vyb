@@ -13,7 +13,7 @@ import { StatusBar } from './components/StatusBar';
 import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -108,7 +108,13 @@ declare global {
       ackTerminalData: (profileId: string, bytes: number) => void;
       gitFetch: (cwd: string) => Promise<boolean>;
       getGitChangedFiles: (cwd: string) => Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>;
-      getGitFileDiff: (cwd: string, filePath: string) => Promise<string>;
+      getGitFileDiff: (cwd: string, filePath: string, staged?: boolean) => Promise<string>;
+      getGitLog: (cwd: string, limit: number) => Promise<GitCommit[]>;
+      getGitRefs: (cwd: string) => Promise<GitRef[]>;
+      gitCheckoutCommit: (cwd: string, sha: string) => Promise<GitCheckoutResult>;
+      gitStage: (cwd: string, filePath: string) => Promise<boolean>;
+      gitUnstage: (cwd: string, filePath: string) => Promise<boolean>;
+      gitCommit: (cwd: string, subject: string, description: string) => Promise<GitCommitResult>;
       listDir: (dirPath: string) => Promise<FileEntry[]>;
       readFile: (filePath: string) => Promise<string | null>;
       saveFile: (filePath: string, content: string) => Promise<boolean>;
@@ -204,6 +210,7 @@ export function App() {
   const [hasReadme, setHasReadme] = useState(false);
   const [changesVisible, setChangesVisible] = useState(false);
   const [changesWidth, setChangesWidth] = useState(50); // percent of agent pane
+  const [gitPanelTab, setGitPanelTab] = useState<'changes' | 'tree'>('changes');
   const [focusedPane, setFocusedPane] = useState<{ pane: 'agent' | 'shell'; shellIndex: number }>({ pane: 'agent', shellIndex: 0 });
   const shellCountRef = useRef(1);
   const profileMemoryRef = useRef<ProfileMemoryMap>({});
@@ -1455,10 +1462,22 @@ export function App() {
             widthPercent={changesWidth}
             onWidthChange={setChangesWidth}
             onClose={() => setChangesVisible(false)}
+            activeTab={gitPanelTab}
+            onTabChange={setGitPanelTab}
           />
         )}
       </div>
-      <StatusBar profile={activeProfile} onToggleChanges={() => setChangesVisible((v) => !v)} />
+      <StatusBar
+        profile={activeProfile}
+        onToggleChanges={() => {
+          setGitPanelTab('changes');
+          setChangesVisible((v) => !v);
+        }}
+        onBranchClick={() => {
+          setGitPanelTab('tree');
+          setChangesVisible(true);
+        }}
+      />
       {editorOpen && (
         <ProfileEditor
           profile={editingProfile}
