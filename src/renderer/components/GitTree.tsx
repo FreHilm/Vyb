@@ -1,6 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { GitCommit, GitRef, GitStatus } from '../../shared/types';
 import { buildGraph, GraphRow, maxLane } from '../git-graph';
+import {
+  RefMenuNode, RefContextMenu, useGitRefOps,
+} from './git-ref-ops';
 
 interface GitTreeProps {
   workingDirectory: string;
@@ -93,6 +96,9 @@ interface DisplayRef {
   hasRemote: boolean;
   isTag: boolean;
   isHead: boolean;
+  /** Original GitRef objects this display collapses (one or more). Used
+   * by the right-click menu to map back to the matching menu node type. */
+  rawRefs: GitRef[];
 }
 
 /**
@@ -141,6 +147,7 @@ function groupRefs(refs: GitRef[]): DisplayRef[] {
       hasRemote: remotes.length > 0,
       isTag: false,
       isHead: group.some((r) => r.isHead),
+      rawRefs: group,
     });
   }
 
@@ -153,6 +160,7 @@ function groupRefs(refs: GitRef[]): DisplayRef[] {
       hasRemote: false,
       isTag: true,
       isHead: false,
+      rawRefs: [t],
     });
   }
 
@@ -296,56 +304,6 @@ function RowGraph({ row, laneCount }: RowGraphProps) {
   );
 }
 
-interface RefContextMenuProps {
-  x: number;
-  y: number;
-  refData: DisplayRef;
-  currentBranch: string;
-  onClose: () => void;
-  onMerge: (sourceRef: string) => void;
-}
-
-function RefContextMenu({ x, y, refData, currentBranch, onClose, onMerge }: RefContextMenuProps) {
-  // Close on any outside click. Window-level listener — runs on
-  // capture so it fires before the click that opened a different menu.
-  useEffect(() => {
-    const handler = () => onClose();
-    window.addEventListener('click', handler);
-    window.addEventListener('contextmenu', handler);
-    return () => {
-      window.removeEventListener('click', handler);
-      window.removeEventListener('contextmenu', handler);
-    };
-  }, [onClose]);
-
-  const isCurrent = !!currentBranch && refData.name === currentBranch;
-  const detached = !currentBranch;
-  // Detached HEAD or right-clicked the current branch → can't merge.
-  const mergeDisabled = isCurrent || detached;
-  const mergeLabel = detached
-    ? `Merge "${refData.name}" — checkout a branch first`
-    : isCurrent
-      ? `"${refData.name}" is the current branch`
-      : `Merge "${refData.name}" into ${currentBranch}`;
-
-  return (
-    <div
-      className="file-context-menu"
-      style={{ left: x, top: y }}
-      onClick={(e) => e.stopPropagation()}
-      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
-    >
-      <button
-        className="file-ctx-item"
-        disabled={mergeDisabled}
-        onClick={() => onMerge(refData.name)}
-      >
-        {mergeLabel}
-      </button>
-    </div>
-  );
-}
-
 export function GitTree({ workingDirectory }: GitTreeProps) {
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [refs, setRefs] = useState<GitRef[]>([]);
@@ -357,9 +315,7 @@ export function GitTree({ workingDirectory }: GitTreeProps) {
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState<'push' | 'pull' | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [refMenu, setRefMenu] = useState<{ x: number; y: number; refData: DisplayRef } | null>(null);
-  const [merging, setMerging] = useState(false);
-  const [mergeError, setMergeError] = useState<string | null>(null);
+  const [refMenu, setRefMenu] = useState<{ x: number; y: number; node: RefMenuNode } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -403,52 +359,25 @@ export function GitTree({ workingDirectory }: GitTreeProps) {
     }
   }, [workingDirectory, syncing, load]);
 
-  const handleMerge = useCallback(async (sourceRef: string) => {
-    if (merging) return;
-    setMerging(true);
-    setMergeError(null);
-    try {
-      const result = await window.api.gitMerge(workingDirectory, sourceRef);
-      if (!result.ok) {
-        // 'conflict' isn't a hard error — the merge is in progress and the
-        // banner will show it; we just silently reload. Everything else
-        // becomes an inline message.
-        if (result.error === 'dirty') {
-          setMergeError('Working tree has uncommitted changes — commit or stash first.');
-        } else if (result.error === 'detached') {
-          setMergeError('Detached HEAD — checkout a branch first.');
-        } else if (result.error === 'self') {
-          setMergeError('Cannot merge a branch into itself.');
-        } else if (result.error === 'invalid') {
-          setMergeError('Invalid branch name.');
-        } else if (result.error === 'not-git') {
-          setMergeError('Not a git repository.');
-        } else if (result.error === 'failed') {
-          setMergeError(result.message ?? 'Merge failed.');
-        }
-      }
-      await load();
-    } finally {
-      setMerging(false);
-    }
-  }, [workingDirectory, merging, load]);
-
-  const handleAbortMerge = useCallback(async () => {
-    if (merging) return;
-    setMerging(true);
-    setMergeError(null);
-    try {
-      const result = await window.api.gitMergeAbort(workingDirectory);
-      if (!result.ok) setMergeError(result.message ?? 'merge --abort failed');
-      await load();
-    } finally {
-      setMerging(false);
-    }
-  }, [workingDirectory, merging, load]);
+  // Merge / merge-abort and the in-progress banner are handled by the
+  // shared `useGitRefOps` hook below — see its `banner` output rendered
+  // above the commit list.
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // Close the right-click menu on outside mousedown.
+  useEffect(() => {
+    if (!refMenu) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target;
+      if (target instanceof Element && target.closest('.file-context-menu')) return;
+      setRefMenu(null);
+    };
+    window.addEventListener('mousedown', handler);
+    return () => window.removeEventListener('mousedown', handler);
+  }, [refMenu]);
 
   const graph = useMemo(() => buildGraph(commits), [commits]);
   const laneCount = useMemo(() => maxLane(graph) + 1, [graph]);
@@ -477,6 +406,60 @@ export function GitTree({ workingDirectory }: GitTreeProps) {
     const head = refs.find((r) => r.isHead);
     return head?.sha ?? null;
   }, [refs]);
+
+  // Shared menu + dialogs + merge/rebase banners come from the same hook
+  // BranchTree uses, so right-click on a ref pill here gets the full
+  // operation set (checkout, merge, rebase, push/pull, new branch from,
+  // worktree, tracking, rename, copy name, delete, plus PR creation on
+  // the current branch).
+  const remoteRefs = useMemo(() => refs.filter((r) => r.type === 'remote'), [refs]);
+  const currentBranch = status?.branch ?? '';
+  const onBranch = !!currentBranch && !/^[0-9a-f]{7,}$/i.test(currentBranch);
+  const { ops, modals, banner, errorBar } = useGitRefOps({
+    workingDirectory,
+    onAfterOp: load,
+    remotes: remoteRefs,
+    status,
+    currentBranch,
+  });
+
+  // Convert a DisplayRef (which collapses local + remote-tracking pairs
+  // into one chip) to the menu's RefMenuNode shape. When both local and
+  // remote sides exist we surface the local side's ops (most common
+  // user intent); the Branches tab is the right place to act on the
+  // remote-tracking ref specifically.
+  const displayToMenuNode = (d: DisplayRef): RefMenuNode | null => {
+    if (d.isTag) {
+      const t = d.rawRefs.find((r) => r.type === 'tag');
+      if (!t) return null;
+      return { kind: 'tag', name: t.name, fullName: t.fullName, sha: t.sha };
+    }
+    if (d.hasLocal) {
+      const l = d.rawRefs.find((r) => r.type === 'local');
+      if (!l) return null;
+      return {
+        kind: 'localBranch',
+        name: l.name.split('/').pop() ?? l.name,
+        fullName: l.name,
+        sha: l.sha,
+        isHead: l.isHead,
+      };
+    }
+    if (d.hasRemote) {
+      const r = d.rawRefs.find((rr) => rr.type === 'remote');
+      if (!r || !r.remote) return null;
+      const branch = r.name.startsWith(r.remote + '/') ? r.name.slice(r.remote.length + 1) : r.name;
+      return {
+        kind: 'remoteBranch',
+        name: branch.split('/').pop() ?? branch,
+        remote: r.remote,
+        branch,
+        fullName: r.name,
+        sha: r.sha,
+      };
+    }
+    return null;
+  };
 
   const runCheckout = useCallback(async (target: string) => {
     setBusy(true);
@@ -622,64 +605,22 @@ export function GitTree({ workingDirectory }: GitTreeProps) {
         </div>
       )}
 
-      {mergeError && (
-        <div className="git-tree-error">
-          {mergeError}
-          <button
-            className="git-tree-error-close"
-            onClick={() => setMergeError(null)}
-            aria-label="Dismiss"
-          >
-            ×
-          </button>
-        </div>
-      )}
-
-      {status?.mergeInProgress && (
-        <div className="git-tree-merge-banner">
-          <div className="git-tree-merge-banner-text">
-            <strong>Merge in progress</strong>
-            {status.mergeFromBranch && (
-              <> — <code>{status.mergeFromBranch}</code> → <code>{status.branch}</code></>
-            )}
-            {status.conflictedFiles.length > 0 && (
-              <>
-                {' '}— {status.conflictedFiles.length} file{status.conflictedFiles.length === 1 ? '' : 's'} in conflict.
-                <div className="git-tree-merge-banner-files">
-                  {status.conflictedFiles.slice(0, 5).map((f) => <code key={f}>{f}</code>)}
-                  {status.conflictedFiles.length > 5 && (
-                    <span className="git-tree-merge-banner-more">+{status.conflictedFiles.length - 5} more</span>
-                  )}
-                </div>
-                <div className="git-tree-merge-banner-hint">
-                  Resolve in your shell, then <code>git commit</code>.
-                </div>
-              </>
-            )}
-            {status.conflictedFiles.length === 0 && (
-              <> — finish with <code>git commit</code> in your shell.</>
-            )}
-          </div>
-          <button
-            className="git-tree-merge-banner-abort"
-            onClick={handleAbortMerge}
-            disabled={merging}
-          >
-            {merging ? '…' : 'Abort merge'}
-          </button>
-        </div>
-      )}
+      {/* Op error + merge/rebase in-progress banners come from the shared hook. */}
+      {errorBar}
+      {banner}
 
       {refMenu && (
         <RefContextMenu
           x={refMenu.x}
           y={refMenu.y}
-          refData={refMenu.refData}
-          currentBranch={status?.branch ?? ''}
+          node={refMenu.node}
+          currentBranch={currentBranch}
+          onBranch={onBranch}
           onClose={() => setRefMenu(null)}
-          onMerge={(name) => { setRefMenu(null); handleMerge(name); }}
+          {...ops}
         />
       )}
+      {modals}
 
       <div className="git-tree-list">
         {graph.map((row, idx) => {
@@ -693,6 +634,22 @@ export function GitTree({ workingDirectory }: GitTreeProps) {
               className={`git-tree-row${isSelected ? ' git-tree-row-selected' : ''}${isHead ? ' git-tree-row-head' : ''}`}
               onClick={() => setSelectedSha((s) => (s === row.sha ? null : row.sha))}
               onDoubleClick={() => initiateCheckout(row.sha)}
+              onContextMenu={(e) => {
+                // Don't override the ref-pill's own right-click — it has
+                // already called stopPropagation. Only fires for the
+                // commit row's blank space (graph cell, subject area).
+                e.preventDefault();
+                setRefMenu({
+                  x: e.clientX,
+                  y: e.clientY,
+                  node: {
+                    kind: 'commit',
+                    sha: row.sha,
+                    shortSha: row.sha.slice(0, 8),
+                    subject: c.subject,
+                  },
+                });
+              }}
             >
               <RowGraph row={row} laneCount={laneCount} />
               <div className="git-tree-info">
@@ -701,7 +658,11 @@ export function GitTree({ workingDirectory }: GitTreeProps) {
                     key={r.key}
                     refData={r}
                     color={laneColor(row.lane)}
-                    onContextMenu={(e, d) => setRefMenu({ x: e.clientX, y: e.clientY, refData: d })}
+                    onContextMenu={(e, d) => {
+                      const node = displayToMenuNode(d);
+                      if (!node) return;
+                      setRefMenu({ x: e.clientX, y: e.clientY, node });
+                    }}
                   />
                 ))}
                 <span className="git-tree-subject" title={c.subject}>
