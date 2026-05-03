@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitStash, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, ParallelAgent, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitRebaseResult, GitCreatePrResult, GitStash, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, ParallelAgent, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
 import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout, loadProfileMemory, saveProfileMemory, loadScrollback, saveScrollback } from './config-loader';
@@ -749,7 +749,10 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     const empty: GitStatus = {
       isGit: false, branch: '', modified: 0, staged: 0, untracked: 0,
       ahead: 0, behind: 0, stashes: 0, lastCommit: '', remoteUrl: '',
-      mergeInProgress: false, mergeFromBranch: '', conflictedFiles: [],
+      mergeInProgress: false, mergeFromBranch: '',
+      rebaseInProgress: false, rebaseHeadName: '', rebaseOnto: '',
+      cherryPickInProgress: false, revertInProgress: false,
+      conflictedFiles: [],
     };
     const run = (cmd: string): string => {
       try {
@@ -830,15 +833,24 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       }
     }
 
-    // Merge in progress? .git/MERGE_HEAD exists during a stuck three-way merge.
-    // The first line of MERGE_MSG looks like `Merge branch 'feature/foo'` —
-    // best-effort grab the source name for the banner.
+    // Merge / rebase in progress?
+    //   - Merge:  .git/MERGE_HEAD
+    //   - Rebase: .git/rebase-apply/  (`git rebase` non-interactive) or
+    //             .git/rebase-merge/  (`git rebase -i`)
+    // For rebase we grab head-name (the branch being rebased) and `onto`
+    // (the SHA we're rebasing onto, then resolve to a name if possible).
     let mergeInProgress = false;
     let mergeFromBranch = '';
+    let rebaseInProgress = false;
+    let rebaseHeadName = '';
+    let rebaseOnto = '';
+    let cherryPickInProgress = false;
+    let revertInProgress = false;
     try {
       const gitDir = run('git rev-parse --git-dir');
       if (gitDir) {
         const absGitDir = path.isAbsolute(gitDir) ? gitDir : path.join(cwd, gitDir);
+
         if (fs.existsSync(path.join(absGitDir, 'MERGE_HEAD'))) {
           mergeInProgress = true;
           try {
@@ -847,12 +859,37 @@ export function setupIpcHandlers(window: BrowserWindow): void {
             if (m) mergeFromBranch = m[1];
           } catch { /* MERGE_MSG may not exist for some merge types */ }
         }
+
+        for (const dir of ['rebase-apply', 'rebase-merge']) {
+          const rebaseDir = path.join(absGitDir, dir);
+          if (fs.existsSync(rebaseDir)) {
+            rebaseInProgress = true;
+            try {
+              const headName = fs.readFileSync(path.join(rebaseDir, 'head-name'), 'utf-8').trim();
+              rebaseHeadName = headName.replace(/^refs\/heads\//, '');
+            } catch { /* missing on some rebase types */ }
+            try {
+              const ontoSha = fs.readFileSync(path.join(rebaseDir, 'onto'), 'utf-8').trim();
+              // Resolve to a friendlier name if possible (e.g. "main"),
+              // otherwise short SHA.
+              const named = run(`git name-rev --name-only --no-undefined ${ontoSha}`);
+              rebaseOnto = named || ontoSha.slice(0, 8);
+            } catch { /* leave empty */ }
+            break;
+          }
+        }
+
+        if (fs.existsSync(path.join(absGitDir, 'CHERRY_PICK_HEAD'))) cherryPickInProgress = true;
+        if (fs.existsSync(path.join(absGitDir, 'REVERT_HEAD'))) revertInProgress = true;
       }
     } catch { /* not a real concern, leave defaults */ }
 
     return {
       isGit, branch, modified, staged, untracked, ahead, behind, stashes, lastCommit, remoteUrl,
-      mergeInProgress, mergeFromBranch, conflictedFiles,
+      mergeInProgress, mergeFromBranch,
+      rebaseInProgress, rebaseHeadName, rebaseOnto,
+      cherryPickInProgress, revertInProgress,
+      conflictedFiles,
     };
   });
 
@@ -1446,6 +1483,336 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         return { ok: true };
       } catch (err) {
         return { ok: false, message: stderrMsg(err, 'delete tag failed') };
+      }
+    },
+  );
+
+  // ── Rebase ─────────────────────────────────────────────────────
+  // Mirrors GitMergeResult: clean run → ok:true; conflict → leave the
+  // rebase in-progress and return the list of conflicted files; refuse
+  // up front when the working tree is dirty or HEAD is detached.
+  const collectConflicts = (cwd: string): string[] => {
+    try {
+      const out = execFileSync('git', ['status', '--porcelain', '-z'], {
+        cwd, timeout: 5000, encoding: 'utf-8',
+      });
+      const conflicted: string[] = [];
+      for (const rec of out.split('\0')) {
+        if (!rec || rec.length < 3) continue;
+        const x = rec[0];
+        const y = rec[1];
+        if (x === 'U' || y === 'U' || (x === 'A' && y === 'A') || (x === 'D' && y === 'D')) {
+          conflicted.push(rec.slice(3));
+        }
+      }
+      return conflicted;
+    } catch {
+      return [];
+    }
+  };
+
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_REBASE,
+    (_, cwd: string, ontoRef: string): GitRebaseResult => {
+      if (!isSafeRefName(ontoRef)) return { ok: false, error: 'invalid' };
+
+      const isGit = (() => {
+        try { return execSync('git rev-parse --is-inside-work-tree', { cwd, timeout: 5000, encoding: 'utf-8' }).trim() === 'true'; }
+        catch { return false; }
+      })();
+      if (!isGit) return { ok: false, error: 'not-git' };
+
+      try {
+        const dirty = execSync('git status --porcelain', { cwd, timeout: 5000, encoding: 'utf-8' }).trim();
+        if (dirty) return { ok: false, error: 'dirty' };
+      } catch { /* fall through, git will tell us */ }
+
+      let currentBranch = '';
+      try {
+        currentBranch = execSync('git symbolic-ref --quiet --short HEAD', {
+          cwd, timeout: 5000, encoding: 'utf-8',
+        }).trim();
+      } catch { /* detached */ }
+      if (!currentBranch) return { ok: false, error: 'detached' };
+      if (ontoRef === currentBranch || ontoRef === 'HEAD') return { ok: false, error: 'self' };
+
+      try {
+        execFileSync('git', ['rebase', ontoRef], { cwd, timeout: 60000, encoding: 'utf-8' });
+        return { ok: true };
+      } catch (err) {
+        const conflictedFiles = collectConflicts(cwd);
+        if (conflictedFiles.length > 0) {
+          return { ok: false, error: 'conflict', conflictedFiles };
+        }
+        return { ok: false, error: 'failed', message: stderrMsg(err, 'rebase failed') };
+      }
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.GIT_REBASE_ABORT, (_, cwd: string): GitOpResult => {
+    try {
+      execFileSync('git', ['rebase', '--abort'], { cwd, timeout: 30000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'rebase --abort failed') };
+    }
+  });
+
+  // After the user resolves conflicts in their shell and stages the
+  // resolutions, this runs `git rebase --continue` to advance through
+  // the rebase. May produce another conflict on a subsequent commit;
+  // surface the same `conflict` shape so the banner stays.
+  ipcMain.handle(IPC_CHANNELS.GIT_REBASE_CONTINUE, (_, cwd: string): GitRebaseResult => {
+    try {
+      // GIT_EDITOR=true makes `--continue` reuse the existing commit
+      // message non-interactively (otherwise git tries to launch $EDITOR).
+      execFileSync('git', ['rebase', '--continue'], {
+        cwd, timeout: 60000, encoding: 'utf-8',
+        env: { ...process.env, GIT_EDITOR: 'true' },
+      });
+      return { ok: true };
+    } catch (err) {
+      const conflictedFiles = collectConflicts(cwd);
+      if (conflictedFiles.length > 0) {
+        return { ok: false, error: 'conflict', conflictedFiles };
+      }
+      return { ok: false, error: 'failed', message: stderrMsg(err, 'rebase --continue failed') };
+    }
+  });
+
+  // ── Tracking ──────────────────────────────────────────────────
+  // Set / unset the upstream of a local branch. `upstream` is the full
+  // remote-tracking name like "origin/main". When `branch` is empty we
+  // operate on HEAD (the user's current branch).
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_SET_UPSTREAM,
+    (_, cwd: string, branch: string, upstream: string): GitOpResult => {
+      if (branch && !isSafeRefName(branch)) return { ok: false, message: 'invalid branch' };
+      if (!isSafeRefName(upstream)) return { ok: false, message: 'invalid upstream' };
+      const args = ['branch', `--set-upstream-to=${upstream}`];
+      if (branch) args.push(branch);
+      try {
+        execFileSync('git', args, { cwd, timeout: 10000, encoding: 'utf-8' });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, message: stderrMsg(err, 'set upstream failed') };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_UNSET_UPSTREAM,
+    (_, cwd: string, branch: string): GitOpResult => {
+      if (branch && !isSafeRefName(branch)) return { ok: false, message: 'invalid branch' };
+      const args = ['branch', '--unset-upstream'];
+      if (branch) args.push(branch);
+      try {
+        execFileSync('git', args, { cwd, timeout: 10000, encoding: 'utf-8' });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, message: stderrMsg(err, 'unset upstream failed') };
+      }
+    },
+  );
+
+  // ── Rename branch ─────────────────────────────────────────────
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_RENAME_BRANCH,
+    (_, cwd: string, oldName: string, newName: string): GitOpResult => {
+      if (!isSafeRefName(oldName) || !isSafeRefName(newName)) {
+        return { ok: false, message: 'invalid branch name' };
+      }
+      try {
+        execFileSync('git', ['branch', '-m', oldName, newName], {
+          cwd, timeout: 10000, encoding: 'utf-8',
+        });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, message: stderrMsg(err, 'rename branch failed') };
+      }
+    },
+  );
+
+  // ── Worktree ──────────────────────────────────────────────────
+  // `git worktree add <path> <branch>` checks `branch` out into a fresh
+  // working tree at `path`. We don't track the worktree ourselves —
+  // the user can open it as a separate Vyb profile.
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_ADD_WORKTREE,
+    (_, cwd: string, worktreePath: string, branch: string): GitOpResult => {
+      if (!worktreePath || !isSafeRefName(branch)) {
+        return { ok: false, message: 'invalid worktree path or branch' };
+      }
+      try {
+        execFileSync('git', ['worktree', 'add', worktreePath, branch], {
+          cwd, timeout: 60000, encoding: 'utf-8',
+        });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, message: stderrMsg(err, 'worktree add failed') };
+      }
+    },
+  );
+
+  // ── Pull request via gh ───────────────────────────────────────
+  // Shells out to the GitHub CLI. `gh pr create --fill` reuses the
+  // commit message as title/body; if the user passes an explicit
+  // title/body we use those instead.
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_CREATE_PR,
+    (_, cwd: string, title: string, body: string): GitCreatePrResult => {
+      const args = ['pr', 'create'];
+      if (title && title.trim()) {
+        args.push('--title', title.trim(), '--body', body ?? '');
+      } else {
+        args.push('--fill');
+      }
+      try {
+        const out = execFileSync('gh', args, {
+          cwd, timeout: 60000, encoding: 'utf-8',
+        }).trim();
+        // gh prints the PR URL on the last line.
+        const lines = out.split('\n').filter(Boolean);
+        const url = lines.find((l) => /^https?:\/\//.test(l)) ?? lines[lines.length - 1] ?? '';
+        return { ok: true, url };
+      } catch (err) {
+        const e = err as { code?: string; message?: string; stderr?: string | Buffer };
+        if (e.code === 'ENOENT') {
+          return { ok: false, message: 'gh CLI not found. Install GitHub CLI from https://cli.github.com.' };
+        }
+        return { ok: false, message: stderrMsg(err, 'gh pr create failed') };
+      }
+    },
+  );
+
+  // ── Commit-level ops: tag, cherry-pick, revert, reset ─────────
+
+  // Create a tag at a given commit. `message` empty → lightweight tag,
+  // non-empty → annotated. Tag names must pass the same safety regex as
+  // branch refs.
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_CREATE_TAG,
+    (_, cwd: string, name: string, ref: string, message: string): GitOpResult => {
+      if (!isSafeRefName(name)) return { ok: false, message: 'invalid tag name' };
+      if (ref && !/^[0-9a-f]{4,40}$/i.test(ref) && !isSafeRefName(ref)) {
+        return { ok: false, message: 'invalid commit ref' };
+      }
+      const args = ['tag'];
+      if (message && message.trim()) args.push('-a', name, '-m', message.trim());
+      else args.push(name);
+      if (ref) args.push(ref);
+      try {
+        execFileSync('git', args, { cwd, timeout: 10000, encoding: 'utf-8' });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, message: stderrMsg(err, 'create tag failed') };
+      }
+    },
+  );
+
+  // Cherry-pick a commit onto the current branch. Like merge/rebase, on
+  // conflict we leave the cherry-pick in-progress and surface the
+  // conflicted files so the renderer can show a banner with
+  // Abort + Continue buttons.
+  const validateSha = (sha: string): boolean => /^[0-9a-f]{4,40}$/i.test(sha);
+
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_CHERRY_PICK,
+    (_, cwd: string, sha: string): GitMergeResult => {
+      if (!validateSha(sha)) return { ok: false, error: 'invalid' };
+      try {
+        execFileSync('git', ['cherry-pick', sha], { cwd, timeout: 60000, encoding: 'utf-8' });
+        return { ok: true };
+      } catch (err) {
+        const conflicted = collectConflicts(cwd);
+        if (conflicted.length > 0) return { ok: false, error: 'conflict', conflictedFiles: conflicted };
+        return { ok: false, error: 'failed', message: stderrMsg(err, 'cherry-pick failed') };
+      }
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.GIT_CHERRY_PICK_ABORT, (_, cwd: string): GitOpResult => {
+    try {
+      execFileSync('git', ['cherry-pick', '--abort'], { cwd, timeout: 30000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'cherry-pick --abort failed') };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_CHERRY_PICK_CONTINUE, (_, cwd: string): GitMergeResult => {
+    try {
+      execFileSync('git', ['cherry-pick', '--continue'], {
+        cwd, timeout: 60000, encoding: 'utf-8',
+        env: { ...process.env, GIT_EDITOR: 'true' },
+      });
+      return { ok: true };
+    } catch (err) {
+      const conflicted = collectConflicts(cwd);
+      if (conflicted.length > 0) return { ok: false, error: 'conflict', conflictedFiles: conflicted };
+      return { ok: false, error: 'failed', message: stderrMsg(err, 'cherry-pick --continue failed') };
+    }
+  });
+
+  // Revert a commit (creates a new commit that undoes the changes). On
+  // conflict, same in-progress + Abort/Continue pattern as cherry-pick.
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_REVERT,
+    (_, cwd: string, sha: string): GitMergeResult => {
+      if (!validateSha(sha)) return { ok: false, error: 'invalid' };
+      try {
+        // --no-edit: use the default revert message ("Revert <subj>") and
+        // commit immediately, no interactive editor.
+        execFileSync('git', ['revert', '--no-edit', sha], { cwd, timeout: 60000, encoding: 'utf-8' });
+        return { ok: true };
+      } catch (err) {
+        const conflicted = collectConflicts(cwd);
+        if (conflicted.length > 0) return { ok: false, error: 'conflict', conflictedFiles: conflicted };
+        return { ok: false, error: 'failed', message: stderrMsg(err, 'revert failed') };
+      }
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.GIT_REVERT_ABORT, (_, cwd: string): GitOpResult => {
+    try {
+      execFileSync('git', ['revert', '--abort'], { cwd, timeout: 30000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'revert --abort failed') };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_REVERT_CONTINUE, (_, cwd: string): GitMergeResult => {
+    try {
+      execFileSync('git', ['revert', '--continue'], {
+        cwd, timeout: 60000, encoding: 'utf-8',
+        env: { ...process.env, GIT_EDITOR: 'true' },
+      });
+      return { ok: true };
+    } catch (err) {
+      const conflicted = collectConflicts(cwd);
+      if (conflicted.length > 0) return { ok: false, error: 'conflict', conflictedFiles: conflicted };
+      return { ok: false, error: 'failed', message: stderrMsg(err, 'revert --continue failed') };
+    }
+  });
+
+  // Reset the current branch to a commit. `mode` controls what happens
+  // to the working tree + index:
+  //   - 'soft'  → keep both (changes stay staged)
+  //   - 'mixed' → keep working tree, unstage (default git behaviour)
+  //   - 'hard'  → discard everything (DESTRUCTIVE)
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_RESET,
+    (_, cwd: string, sha: string, mode: 'soft' | 'mixed' | 'hard'): GitOpResult => {
+      if (!validateSha(sha)) return { ok: false, message: 'invalid commit ref' };
+      if (mode !== 'soft' && mode !== 'mixed' && mode !== 'hard') {
+        return { ok: false, message: 'invalid reset mode' };
+      }
+      try {
+        execFileSync('git', ['reset', `--${mode}`, sha], { cwd, timeout: 30000, encoding: 'utf-8' });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, message: stderrMsg(err, 'reset failed') };
       }
     },
   );

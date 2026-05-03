@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitStash, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from './shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitRebaseResult, GitCreatePrResult, GitStash, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
@@ -174,6 +174,38 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.GIT_DELETE_REMOTE_BRANCH, cwd, remote, branch),
   gitDeleteTag: (cwd: string, name: string): Promise<GitOpResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_DELETE_TAG, cwd, name),
+  gitRebase: (cwd: string, ontoRef: string): Promise<GitRebaseResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_REBASE, cwd, ontoRef),
+  gitRebaseAbort: (cwd: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_REBASE_ABORT, cwd),
+  gitRebaseContinue: (cwd: string): Promise<GitRebaseResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_REBASE_CONTINUE, cwd),
+  gitSetUpstream: (cwd: string, branch: string, upstream: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_SET_UPSTREAM, cwd, branch, upstream),
+  gitUnsetUpstream: (cwd: string, branch: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_UNSET_UPSTREAM, cwd, branch),
+  gitRenameBranch: (cwd: string, oldName: string, newName: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_RENAME_BRANCH, cwd, oldName, newName),
+  gitAddWorktree: (cwd: string, worktreePath: string, branch: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_ADD_WORKTREE, cwd, worktreePath, branch),
+  gitCreatePr: (cwd: string, title: string, body: string): Promise<GitCreatePrResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_CREATE_PR, cwd, title, body),
+  gitCreateTag: (cwd: string, name: string, ref: string, message: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_CREATE_TAG, cwd, name, ref, message),
+  gitCherryPick: (cwd: string, sha: string): Promise<GitMergeResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_CHERRY_PICK, cwd, sha),
+  gitCherryPickAbort: (cwd: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_CHERRY_PICK_ABORT, cwd),
+  gitCherryPickContinue: (cwd: string): Promise<GitMergeResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_CHERRY_PICK_CONTINUE, cwd),
+  gitRevert: (cwd: string, sha: string): Promise<GitMergeResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_REVERT, cwd, sha),
+  gitRevertAbort: (cwd: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_REVERT_ABORT, cwd),
+  gitRevertContinue: (cwd: string): Promise<GitMergeResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_REVERT_CONTINUE, cwd),
+  gitReset: (cwd: string, sha: string, mode: 'soft' | 'mixed' | 'hard'): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_RESET, cwd, sha, mode),
   getGitLog: (cwd: string, limit: number): Promise<GitCommit[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_LOG, cwd, limit),
   getGitRefs: (cwd: string): Promise<GitRef[]> =>

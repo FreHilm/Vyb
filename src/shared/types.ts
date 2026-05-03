@@ -235,6 +235,22 @@ export const IPC_CHANNELS = {
   GIT_DELETE_BRANCH: 'git:deleteBranch',
   GIT_DELETE_REMOTE_BRANCH: 'git:deleteRemoteBranch',
   GIT_DELETE_TAG: 'git:deleteTag',
+  GIT_REBASE: 'git:rebase',
+  GIT_REBASE_ABORT: 'git:rebaseAbort',
+  GIT_REBASE_CONTINUE: 'git:rebaseContinue',
+  GIT_SET_UPSTREAM: 'git:setUpstream',
+  GIT_UNSET_UPSTREAM: 'git:unsetUpstream',
+  GIT_RENAME_BRANCH: 'git:renameBranch',
+  GIT_ADD_WORKTREE: 'git:addWorktree',
+  GIT_CREATE_PR: 'git:createPr',
+  GIT_CREATE_TAG: 'git:createTag',
+  GIT_CHERRY_PICK: 'git:cherryPick',
+  GIT_CHERRY_PICK_ABORT: 'git:cherryPickAbort',
+  GIT_CHERRY_PICK_CONTINUE: 'git:cherryPickContinue',
+  GIT_REVERT: 'git:revert',
+  GIT_REVERT_ABORT: 'git:revertAbort',
+  GIT_REVERT_CONTINUE: 'git:revertContinue',
+  GIT_RESET: 'git:reset',
   FILE_LIST_DIR: 'file:listDir',
   FILE_READ: 'file:read',
   FILE_SAVE: 'file:save',
@@ -420,6 +436,23 @@ export interface GitMergeResult {
   conflictedFiles?: string[];
 }
 
+/** Result shape for `git rebase` / `git rebase --continue`. Mirrors
+ * GitMergeResult: 'conflict' means the rebase is left in-progress so
+ * the user can resolve in their shell and click Continue. */
+export interface GitRebaseResult {
+  ok: boolean;
+  error?: 'dirty' | 'conflict' | 'self' | 'detached' | 'invalid' | 'not-git' | 'failed';
+  message?: string;
+  conflictedFiles?: string[];
+}
+
+/** PR-creation result. `url` is the URL gh prints on success. */
+export interface GitCreatePrResult {
+  ok: boolean;
+  url?: string;
+  message?: string;
+}
+
 export interface GitStatus {
   isGit: boolean;
   branch: string;
@@ -435,6 +468,16 @@ export interface GitStatus {
   mergeInProgress: boolean;
   /** Best-effort source-branch name parsed from .git/MERGE_MSG, or empty. */
   mergeFromBranch: string;
+  /** True while a rebase is in progress (.git/rebase-apply or rebase-merge exists). */
+  rebaseInProgress: boolean;
+  /** Branch being rebased (parsed from .git/rebase-{apply,merge}/head-name). */
+  rebaseHeadName: string;
+  /** Short SHA of the commit being rebased onto, or its name if resolvable. */
+  rebaseOnto: string;
+  /** True while a `git cherry-pick` is mid-conflict (.git/CHERRY_PICK_HEAD). */
+  cherryPickInProgress: boolean;
+  /** True while a `git revert` is mid-conflict (.git/REVERT_HEAD). */
+  revertInProgress: boolean;
   /** Paths git is reporting as conflicted (`UU`, `AA`, `DD`, `AU`, `UA`, etc.). */
   conflictedFiles: string[];
 }

@@ -1,5 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { GitRef, GitStash, GitStatus } from '../../shared/types';
+import {
+  LocalBranchNode, RemoteBranchNode, TagNode, StashNode, RefMenuNode,
+  RefContextMenu, useGitRefOps,
+} from './git-ref-ops';
 
 interface BranchTreeProps {
   workingDirectory: string;
@@ -11,48 +15,14 @@ interface BranchTreeProps {
 // names on `/`. Stashes are flat. Each leaf carries enough metadata for
 // the right-click menu to dispatch the correct git operation.
 
-type NodeKind =
-  | 'folder'
-  | 'localBranch'
-  | 'remoteBranch'
-  | 'tag'
-  | 'stash';
-
+// Folder is BranchTree-specific (groups branches by /-separated path).
+// The leaf node types (LocalBranchNode etc.) are shared with GitTree via
+// `git-ref-ops`.
 interface FolderNode {
   kind: 'folder';
   name: string;          // segment, e.g. "agent"
   fullPath: string;      // full prefix, e.g. "agent" or "agent/inner"
   children: TreeNode[];
-}
-interface LocalBranchNode {
-  kind: 'localBranch';
-  name: string;          // leaf segment
-  fullName: string;      // full branch name (e.g. "agent/T-005")
-  sha: string;
-  isHead: boolean;
-}
-interface RemoteBranchNode {
-  kind: 'remoteBranch';
-  name: string;          // leaf segment after the remote prefix
-  remote: string;        // remote name (e.g. "origin")
-  /** Branch name without the leading `<remote>/` — what `git push <remote> --delete <branch>` expects. */
-  branch: string;
-  /** Full ref name as git reports it (e.g. "origin/agent/T-005"). */
-  fullName: string;
-  sha: string;
-}
-interface TagNode {
-  kind: 'tag';
-  name: string;
-  fullName: string;
-  sha: string;
-}
-interface StashNode {
-  kind: 'stash';
-  index: number;
-  ref: string;
-  message: string;
-  branch: string;
 }
 type TreeNode = FolderNode | LocalBranchNode | RemoteBranchNode | TagNode | StashNode;
 
@@ -156,26 +126,6 @@ interface CtxMenuState {
   node: TreeNode;
 }
 
-interface NewBranchDialogState {
-  /** SHA / ref the branch will be created from. */
-  startPoint: string;
-  /** Default branch name suggestion. */
-  defaultName: string;
-}
-
-interface DeleteDialogState {
-  node: LocalBranchNode | RemoteBranchNode | TagNode | StashNode;
-  /** Set when local branch delete -d failed; we offer force (-D). */
-  forceFromError?: string;
-}
-
-interface MergeOpState {
-  /** Banner text shown while a merge call is in flight (UX only). */
-  busy: boolean;
-  /** Latest non-conflict merge error to surface inline. */
-  error: string | null;
-}
-
 export function BranchTree({ workingDirectory }: BranchTreeProps) {
   const [refs, setRefs] = useState<GitRef[]>([]);
   const [stashes, setStashes] = useState<GitStash[]>([]);
@@ -191,18 +141,11 @@ export function BranchTree({ workingDirectory }: BranchTreeProps) {
   // Folder open state, keyed by `${section}:${fullPath}`.
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
 
-  // Right-click menu state.
-  const [ctxMenu, setCtxMenu] = useState<CtxMenuState | null>(null);
-
-  // Dialog states.
-  const [stashSaveOpen, setStashSaveOpen] = useState(false);
-  const [stashSaveMessage, setStashSaveMessage] = useState('');
-  const [newBranchDialog, setNewBranchDialog] = useState<NewBranchDialogState | null>(null);
-  const [newBranchName, setNewBranchName] = useState('');
-  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(null);
-
-  const [mergeOp, setMergeOp] = useState<MergeOpState>({ busy: false, error: null });
-  const [opError, setOpError] = useState<string | null>(null);
+  // Right-click menu state — the menu's contents/dialogs/banners come
+  // from the shared `useGitRefOps` hook below. Folder rows (path-prefix
+  // groupings) aren't actionable, so they're filtered out before being
+  // stored here.
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; node: RefMenuNode } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -224,16 +167,17 @@ export function BranchTree({ workingDirectory }: BranchTreeProps) {
     load();
   }, [load]);
 
-  // Close the context menu on any outside click.
+  // Close the context menu on outside mousedown — see the comment in the
+  // matching effect in GitTree for why mousedown beats click/contextmenu.
   useEffect(() => {
     if (!ctxMenu) return;
-    const close = () => setCtxMenu(null);
-    window.addEventListener('click', close);
-    window.addEventListener('contextmenu', close);
-    return () => {
-      window.removeEventListener('click', close);
-      window.removeEventListener('contextmenu', close);
+    const handler = (e: MouseEvent) => {
+      const target = e.target;
+      if (target instanceof Element && target.closest('.file-context-menu')) return;
+      setCtxMenu(null);
     };
+    window.addEventListener('mousedown', handler);
+    return () => window.removeEventListener('mousedown', handler);
   }, [ctxMenu]);
 
   const localTree = useMemo(() => buildLocalTree(refs), [refs]);
@@ -242,6 +186,15 @@ export function BranchTree({ workingDirectory }: BranchTreeProps) {
 
   const currentBranch = status?.branch ?? '';
   const onBranch = !!currentBranch && !/^[0-9a-f]{7,}$/i.test(currentBranch);
+
+  const remoteRefs = useMemo(() => refs.filter((r) => r.type === 'remote'), [refs]);
+  const { ops, modals, banner, errorBar } = useGitRefOps({
+    workingDirectory,
+    onAfterOp: load,
+    remotes: remoteRefs,
+    status,
+    currentBranch,
+  });
 
   const toggleSection = (key: string) => {
     setOpenSections((prev) => {
@@ -259,97 +212,6 @@ export function BranchTree({ workingDirectory }: BranchTreeProps) {
       return next;
     });
   };
-
-  // ── Operation runners ─────────────────────────────────────
-
-  const runOp = useCallback(async (
-    op: () => Promise<{ ok: boolean; message?: string }>,
-    fallbackErr: string,
-  ) => {
-    const result = await op();
-    if (!result.ok) setOpError(result.message ?? fallbackErr);
-    await load();
-    return result;
-  }, [load]);
-
-  const handleCheckout = useCallback(async (target: string) => {
-    setOpError(null);
-    const result = await window.api.gitCheckoutCommit(workingDirectory, target);
-    if (!result.ok) {
-      setOpError(
-        result.error === 'dirty'
-          ? 'Working tree has uncommitted changes — commit or stash first.'
-          : result.error === 'failed'
-            ? `Checkout failed: ${result.message ?? 'unknown error'}`
-            : `Checkout failed (${result.error}).`,
-      );
-    }
-    await load();
-  }, [workingDirectory, load]);
-
-  const handleMergeInto = useCallback(async (sourceRef: string) => {
-    setMergeOp({ busy: true, error: null });
-    setOpError(null);
-    const result = await window.api.gitMerge(workingDirectory, sourceRef);
-    if (!result.ok) {
-      if (result.error === 'dirty') {
-        setMergeOp({ busy: false, error: 'Working tree has uncommitted changes — commit or stash first.' });
-      } else if (result.error === 'detached') {
-        setMergeOp({ busy: false, error: 'Detached HEAD — checkout a branch first.' });
-      } else if (result.error === 'self') {
-        setMergeOp({ busy: false, error: 'Cannot merge a branch into itself.' });
-      } else if (result.error === 'conflict') {
-        // The merge banner above the panel will surface this — no inline error.
-        setMergeOp({ busy: false, error: null });
-      } else {
-        setMergeOp({ busy: false, error: result.message ?? 'Merge failed.' });
-      }
-    } else {
-      setMergeOp({ busy: false, error: null });
-    }
-    await load();
-  }, [workingDirectory, load]);
-
-  const handleStashSave = useCallback(async () => {
-    setStashSaveOpen(false);
-    await runOp(() => window.api.gitStashSave(workingDirectory, stashSaveMessage), 'stash failed');
-    setStashSaveMessage('');
-  }, [workingDirectory, stashSaveMessage, runOp]);
-
-  const handleDeleteConfirm = useCallback(async (force: boolean) => {
-    if (!deleteDialog) return;
-    const node = deleteDialog.node;
-    setDeleteDialog(null);
-    let result: { ok: boolean; message?: string };
-    if (node.kind === 'localBranch') {
-      result = await window.api.gitDeleteBranch(workingDirectory, node.fullName, force);
-      if (!result.ok && /not fully merged/i.test(result.message ?? '')) {
-        // Re-prompt with force option.
-        setDeleteDialog({ node, forceFromError: result.message });
-        return;
-      }
-    } else if (node.kind === 'remoteBranch') {
-      result = await window.api.gitDeleteRemoteBranch(workingDirectory, node.remote, node.branch);
-    } else if (node.kind === 'tag') {
-      result = await window.api.gitDeleteTag(workingDirectory, node.name);
-    } else {
-      result = await window.api.gitStashDrop(workingDirectory, node.ref);
-    }
-    if (!result.ok) setOpError(result.message ?? 'delete failed');
-    await load();
-  }, [deleteDialog, workingDirectory, load]);
-
-  const handleNewBranchSubmit = useCallback(async () => {
-    if (!newBranchDialog || !newBranchName.trim()) return;
-    const name = newBranchName.trim();
-    const startPoint = newBranchDialog.startPoint;
-    setNewBranchDialog(null);
-    setNewBranchName('');
-    await runOp(
-      () => window.api.gitCreateBranch(workingDirectory, name, startPoint),
-      'create branch failed',
-    );
-  }, [newBranchDialog, newBranchName, workingDirectory, runOp]);
 
   // ── Render ────────────────────────────────────────────────
 
@@ -373,18 +235,8 @@ export function BranchTree({ workingDirectory }: BranchTreeProps) {
         </button>
       </div>
 
-      {opError && (
-        <div className="git-tree-error">
-          {opError}
-          <button className="git-tree-error-close" onClick={() => setOpError(null)} aria-label="Dismiss">×</button>
-        </div>
-      )}
-      {mergeOp.error && (
-        <div className="git-tree-error">
-          {mergeOp.error}
-          <button className="git-tree-error-close" onClick={() => setMergeOp({ ...mergeOp, error: null })} aria-label="Dismiss">×</button>
-        </div>
-      )}
+      {errorBar}
+      {banner}
 
       <div className="git-branches-list">
         <Section
@@ -404,8 +256,11 @@ export function BranchTree({ workingDirectory }: BranchTreeProps) {
               currentBranch={currentBranch}
               openFolders={openFolders}
               onToggleFolder={toggleFolder}
-              onActivate={(target) => handleCheckout(target)}
-              onContextMenu={(e, node) => setCtxMenu({ x: e.clientX, y: e.clientY, node })}
+              onActivate={(target) => ops.onCheckout(target)}
+              onContextMenu={(e, node) => {
+                if (node.kind === 'folder') return; // path-prefix folders aren't actionable
+                setCtxMenu({ x: e.clientX, y: e.clientY, node });
+              }}
             />
           ))}
         </Section>
@@ -426,8 +281,11 @@ export function BranchTree({ workingDirectory }: BranchTreeProps) {
               currentBranch={currentBranch}
               openFolders={openFolders}
               onToggleFolder={toggleFolder}
-              onActivate={(target) => handleCheckout(target)}
-              onContextMenu={(e, node) => setCtxMenu({ x: e.clientX, y: e.clientY, node })}
+              onActivate={(target) => ops.onCheckout(target)}
+              onContextMenu={(e, node) => {
+                if (node.kind === 'folder') return; // path-prefix folders aren't actionable
+                setCtxMenu({ x: e.clientX, y: e.clientY, node });
+              }}
             />
           ))}
         </Section>
@@ -448,8 +306,11 @@ export function BranchTree({ workingDirectory }: BranchTreeProps) {
               currentBranch={currentBranch}
               openFolders={openFolders}
               onToggleFolder={toggleFolder}
-              onActivate={(target) => handleCheckout(target)}
-              onContextMenu={(e, node) => setCtxMenu({ x: e.clientX, y: e.clientY, node })}
+              onActivate={(target) => ops.onCheckout(target)}
+              onContextMenu={(e, node) => {
+                if (node.kind === 'folder') return; // path-prefix folders aren't actionable
+                setCtxMenu({ x: e.clientX, y: e.clientY, node });
+              }}
             />
           ))}
         </Section>
@@ -461,7 +322,7 @@ export function BranchTree({ workingDirectory }: BranchTreeProps) {
           onToggle={toggleSection}
           onContextMenu={(e) => setCtxMenu({
             x: e.clientX, y: e.clientY,
-            node: { kind: 'folder', name: '__stashes_section__', fullPath: '', children: [] },
+            node: { kind: 'stashesSection' },
           })}
         >
           {stashes.length === 0 && <div className="git-branches-empty">No stashes</div>}
@@ -475,153 +336,32 @@ export function BranchTree({ workingDirectory }: BranchTreeProps) {
               openFolders={openFolders}
               onToggleFolder={toggleFolder}
               onActivate={() => undefined /* stashes don't checkout; menu only */}
-              onContextMenu={(e, node) => setCtxMenu({ x: e.clientX, y: e.clientY, node })}
+              onContextMenu={(e, node) => {
+                if (node.kind === 'folder') return; // path-prefix folders aren't actionable
+                setCtxMenu({ x: e.clientX, y: e.clientY, node });
+              }}
             />
           ))}
         </Section>
       </div>
 
       {ctxMenu && (
-        <ContextMenu
+        <RefContextMenu
           x={ctxMenu.x}
           y={ctxMenu.y}
           node={ctxMenu.node}
           currentBranch={currentBranch}
           onBranch={onBranch}
           onClose={() => setCtxMenu(null)}
-          onCheckout={(target) => { setCtxMenu(null); handleCheckout(target); }}
-          onMergeInto={(target) => { setCtxMenu(null); handleMergeInto(target); }}
-          onStashApply={async (ref) => {
-            setCtxMenu(null);
-            await runOp(() => window.api.gitStashApply(workingDirectory, ref), 'apply failed');
-          }}
-          onStashPop={async (ref) => {
-            setCtxMenu(null);
-            await runOp(() => window.api.gitStashPop(workingDirectory, ref), 'pop failed');
-          }}
-          onStashSave={() => { setCtxMenu(null); setStashSaveOpen(true); }}
-          onDelete={(node) => { setCtxMenu(null); setDeleteDialog({ node }); }}
-          onCopyName={(name) => { setCtxMenu(null); navigator.clipboard.writeText(name).catch((): void => undefined); }}
-          onNewBranch={(startPoint, defaultName) => {
-            setCtxMenu(null);
-            setNewBranchDialog({ startPoint, defaultName });
-            setNewBranchName(defaultName);
-          }}
-          onPushCurrent={async () => {
-            setCtxMenu(null);
-            await runOp(() => window.api.gitPush(workingDirectory), 'push failed');
-          }}
-          onPullCurrent={async () => {
-            setCtxMenu(null);
-            await runOp(() => window.api.gitPull(workingDirectory), 'pull failed');
-          }}
+          {...ops}
         />
       )}
+      {modals}
 
-      {stashSaveOpen && (
-        <div className="modal-overlay" onClick={() => setStashSaveOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header"><h3>Save Stash</h3></div>
-            <div className="modal-body">
-              <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 8 }}>
-                Stash your current working changes. Untracked files are included.
-              </p>
-              <input
-                type="text"
-                placeholder="Optional message"
-                value={stashSaveMessage}
-                onChange={(e) => setStashSaveMessage(e.target.value)}
-                autoFocus
-                style={{ width: '100%', padding: '6px 8px', borderRadius: 4, border: '1px solid var(--c-surface0)', background: 'var(--c-base)', color: 'var(--c-text)', fontSize: 12 }}
-              />
-            </div>
-            <div className="modal-footer">
-              <div className="modal-footer-right">
-                <button className="cancel-btn" onClick={() => setStashSaveOpen(false)}>Cancel</button>
-                <button className="save-btn" onClick={handleStashSave}>Save Stash</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {newBranchDialog && (
-        <div className="modal-overlay" onClick={() => setNewBranchDialog(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header"><h3>New Branch</h3></div>
-            <div className="modal-body">
-              <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 8 }}>
-                Create a branch from <code>{newBranchDialog.startPoint}</code>.
-              </p>
-              <input
-                type="text"
-                placeholder="branch-name"
-                value={newBranchName}
-                onChange={(e) => setNewBranchName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') { e.preventDefault(); handleNewBranchSubmit(); }
-                }}
-                autoFocus
-                style={{ width: '100%', padding: '6px 8px', borderRadius: 4, border: '1px solid var(--c-surface0)', background: 'var(--c-base)', color: 'var(--c-text)', fontSize: 12 }}
-              />
-            </div>
-            <div className="modal-footer">
-              <div className="modal-footer-right">
-                <button className="cancel-btn" onClick={() => setNewBranchDialog(null)}>Cancel</button>
-                <button className="save-btn" disabled={!newBranchName.trim()} onClick={handleNewBranchSubmit}>Create</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {deleteDialog && (
-        <div className="modal-overlay" onClick={() => setDeleteDialog(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Delete {labelForKind(deleteDialog.node.kind)}</h3>
-            </div>
-            <div className="modal-body">
-              <p style={{ fontSize: 13, lineHeight: 1.5 }}>
-                {deleteDialog.node.kind === 'localBranch' && (
-                  <>Delete local branch <strong>{(deleteDialog.node as LocalBranchNode).fullName}</strong>?</>
-                )}
-                {deleteDialog.node.kind === 'remoteBranch' && (
-                  <>Delete remote branch <strong>{(deleteDialog.node as RemoteBranchNode).fullName}</strong> from <strong>{(deleteDialog.node as RemoteBranchNode).remote}</strong>? This pushes the deletion to the server and can&apos;t be undone here.</>
-                )}
-                {deleteDialog.node.kind === 'tag' && (
-                  <>Delete local tag <strong>{(deleteDialog.node as TagNode).name}</strong>?</>
-                )}
-                {deleteDialog.node.kind === 'stash' && (
-                  <>Drop <strong>{(deleteDialog.node as StashNode).ref}</strong>? This is permanent.</>
-                )}
-                {deleteDialog.forceFromError && (
-                  <>
-                    <br /><br />
-                    <span style={{ color: 'var(--c-yellow)' }}>{deleteDialog.forceFromError}</span>
-                    <br />
-                    Use <strong>Force delete</strong> to discard the unmerged commits.
-                  </>
-                )}
-              </p>
-            </div>
-            <div className="modal-footer">
-              <div className="modal-footer-right">
-                <button className="cancel-btn" onClick={() => setDeleteDialog(null)}>Cancel</button>
-                <button
-                  className="delete-btn"
-                  onClick={() => handleDeleteConfirm(!!deleteDialog.forceFromError)}
-                >
-                  {deleteDialog.forceFromError ? 'Force delete' : 'Delete'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
+
 
 // ── Section header ─────────────────────────────────────────────────
 
@@ -719,7 +459,7 @@ function NodeRow({
         className={`file-tree-item ${isCurrent ? 'git-branches-current' : ''}`}
         style={{ paddingLeft: 12 + depth * 14 + 14 /* arrow gutter */ }}
         onDoubleClick={() => onActivate(node.fullName)}
-        onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node); }}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e, node); }}
         title={node.fullName}
       >
         <BranchIcon current={!!isCurrent} />
@@ -733,7 +473,7 @@ function NodeRow({
         className="file-tree-item"
         style={{ paddingLeft: 12 + depth * 14 + 14 }}
         onDoubleClick={() => onActivate(node.fullName)}
-        onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node); }}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e, node); }}
         title={node.fullName}
       >
         <BranchIcon current={false} />
@@ -747,7 +487,7 @@ function NodeRow({
         className="file-tree-item"
         style={{ paddingLeft: 12 + depth * 14 + 14 }}
         onDoubleClick={() => onActivate(node.fullName)}
-        onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node); }}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e, node); }}
         title={node.fullName}
       >
         <TagIcon />
@@ -813,128 +553,3 @@ function StashIcon() {
   );
 }
 
-// ── Context menu ───────────────────────────────────────────────────
-
-interface CtxProps {
-  x: number;
-  y: number;
-  node: TreeNode;
-  currentBranch: string;
-  onBranch: boolean;
-  onClose: () => void;
-  onCheckout: (target: string) => void;
-  onMergeInto: (target: string) => void;
-  onStashApply: (ref: string) => void;
-  onStashPop: (ref: string) => void;
-  onStashSave: () => void;
-  onDelete: (node: LocalBranchNode | RemoteBranchNode | TagNode | StashNode) => void;
-  onCopyName: (name: string) => void;
-  onNewBranch: (startPoint: string, defaultName: string) => void;
-  onPushCurrent: () => void;
-  onPullCurrent: () => void;
-}
-
-function ContextMenu(props: CtxProps) {
-  const { x, y, node, currentBranch, onBranch } = props;
-  const items = buildMenuItems(props);
-  if (items.length === 0) return null;
-  return (
-    <div
-      className="file-context-menu"
-      style={{ left: x, top: y }}
-      onClick={(e) => e.stopPropagation()}
-      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
-    >
-      {items.map((it, idx) =>
-        it.type === 'divider'
-          ? <div key={idx} className="file-ctx-divider" />
-          : (
-            <button
-              key={idx}
-              className={`file-ctx-item ${it.danger ? 'file-ctx-item-danger' : ''}`}
-              disabled={it.disabled}
-              onClick={it.onClick}
-            >
-              {it.label}
-            </button>
-          )
-      )}
-      {/* Subtle context hint at the top — current branch reference */}
-      {(node.kind === 'localBranch' || node.kind === 'remoteBranch') && onBranch && (
-        <div className="file-ctx-hint">on {currentBranch}</div>
-      )}
-    </div>
-  );
-}
-
-type MenuItem = { type: 'item'; label: string; onClick: () => void; disabled?: boolean; danger?: boolean } | { type: 'divider' };
-
-function buildMenuItems(p: CtxProps): MenuItem[] {
-  const { node, currentBranch, onBranch } = p;
-  const items: MenuItem[] = [];
-
-  // Stashes header
-  if (node.kind === 'folder' && node.name === '__stashes_section__') {
-    items.push({ type: 'item', label: 'Save Stash…', onClick: p.onStashSave });
-    return items;
-  }
-
-  if (node.kind === 'localBranch') {
-    const isCurrent = node.isHead || node.fullName === currentBranch;
-    items.push({ type: 'item', label: `Checkout '${node.fullName}'`, onClick: () => p.onCheckout(node.fullName), disabled: isCurrent });
-    items.push({ type: 'divider' });
-    if (isCurrent) {
-      items.push({ type: 'item', label: `Push '${node.fullName}' to origin`, onClick: p.onPushCurrent, disabled: !onBranch });
-      items.push({ type: 'item', label: `Pull from origin into '${node.fullName}'`, onClick: p.onPullCurrent, disabled: !onBranch });
-    } else {
-      items.push({ type: 'item', label: onBranch ? `Merge '${node.fullName}' into '${currentBranch}'` : 'Merge — checkout a branch first', onClick: () => p.onMergeInto(node.fullName), disabled: !onBranch });
-    }
-    items.push({ type: 'divider' });
-    items.push({ type: 'item', label: `New branch from '${node.fullName}'…`, onClick: () => p.onNewBranch(node.fullName, '') });
-    items.push({ type: 'item', label: 'Copy branch name', onClick: () => p.onCopyName(node.fullName) });
-    items.push({ type: 'divider' });
-    items.push({ type: 'item', label: `Delete '${node.fullName}'…`, onClick: () => p.onDelete(node), disabled: isCurrent, danger: true });
-    return items;
-  }
-
-  if (node.kind === 'remoteBranch') {
-    items.push({ type: 'item', label: `Checkout '${node.fullName}'`, onClick: () => p.onCheckout(node.fullName) });
-    items.push({ type: 'divider' });
-    items.push({ type: 'item', label: onBranch ? `Merge '${node.fullName}' into '${currentBranch}'` : 'Merge — checkout a branch first', onClick: () => p.onMergeInto(node.fullName), disabled: !onBranch });
-    items.push({ type: 'divider' });
-    items.push({ type: 'item', label: `New branch from '${node.fullName}'…`, onClick: () => p.onNewBranch(node.fullName, node.branch) });
-    items.push({ type: 'item', label: 'Copy branch name', onClick: () => p.onCopyName(node.fullName) });
-    items.push({ type: 'divider' });
-    items.push({ type: 'item', label: `Delete '${node.fullName}' on ${node.remote}…`, onClick: () => p.onDelete(node), danger: true });
-    return items;
-  }
-
-  if (node.kind === 'tag') {
-    items.push({ type: 'item', label: `Checkout '${node.name}' (detached)`, onClick: () => p.onCheckout(node.name) });
-    items.push({ type: 'item', label: 'Copy tag name', onClick: () => p.onCopyName(node.name) });
-    items.push({ type: 'divider' });
-    items.push({ type: 'item', label: `Delete tag '${node.name}'…`, onClick: () => p.onDelete(node), danger: true });
-    return items;
-  }
-
-  if (node.kind === 'stash') {
-    items.push({ type: 'item', label: `Apply ${node.ref}`, onClick: () => p.onStashApply(node.ref) });
-    items.push({ type: 'item', label: `Pop ${node.ref} (apply + drop)`, onClick: () => p.onStashPop(node.ref) });
-    items.push({ type: 'divider' });
-    items.push({ type: 'item', label: `Drop ${node.ref}…`, onClick: () => p.onDelete(node), danger: true });
-    return items;
-  }
-
-  // Plain folders (branch path prefix) — no ops in v1.
-  return items;
-}
-
-function labelForKind(kind: NodeKind): string {
-  switch (kind) {
-    case 'localBranch': return 'branch';
-    case 'remoteBranch': return 'remote branch';
-    case 'tag': return 'tag';
-    case 'stash': return 'stash';
-    default: return 'item';
-  }
-}
