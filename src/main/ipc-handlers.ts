@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, ParallelAgent, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, ParallelAgent, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
 import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout, loadProfileMemory, saveProfileMemory, loadScrollback, saveScrollback } from './config-loader';
@@ -1042,6 +1042,62 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       }
     },
   );
+
+  // Push the current branch to its upstream. If the branch has no upstream
+  // configured yet (a fresh local branch), retry with `-u origin <branch>`
+  // to publish it — same convenience git itself prints in its hint, just
+  // applied automatically.
+  ipcMain.handle(IPC_CHANNELS.GIT_PUSH, (_, cwd: string): GitOpResult => {
+    const errMsg = (err: unknown, fallback: string): string => {
+      const e = err as { message?: string; stderr?: string | Buffer; stdout?: string | Buffer };
+      const stderr = e.stderr ? e.stderr.toString().trim() : '';
+      const stdout = e.stdout ? e.stdout.toString().trim() : '';
+      return stderr || stdout || e.message || fallback;
+    };
+    try {
+      execFileSync('git', ['push'], { cwd, timeout: 60000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      const e = err as { stderr?: string | Buffer };
+      const stderr = e.stderr ? e.stderr.toString() : '';
+      // Detect "no upstream" so we can offer to publish the branch.
+      if (/has no upstream branch|no upstream configured|set-upstream/i.test(stderr)) {
+        let branch = '';
+        try {
+          branch = execSync('git symbolic-ref --short HEAD', {
+            cwd, timeout: 5000, encoding: 'utf-8',
+          }).trim();
+        } catch { /* detached HEAD or worse */ }
+        if (!branch) {
+          return { ok: false, message: 'Detached HEAD — checkout a branch before pushing.' };
+        }
+        try {
+          execFileSync('git', ['push', '-u', 'origin', branch], {
+            cwd, timeout: 60000, encoding: 'utf-8',
+          });
+          return { ok: true, publishedUpstream: true };
+        } catch (err2) {
+          return { ok: false, message: errMsg(err2, 'push failed') };
+        }
+      }
+      return { ok: false, message: errMsg(err, 'push failed') };
+    }
+  });
+
+  // Pull from upstream. Uses git's configured pull strategy
+  // (merge / rebase / ff-only) — surface git's own error message on
+  // conflict / divergence rather than guessing.
+  ipcMain.handle(IPC_CHANNELS.GIT_PULL, (_, cwd: string): GitOpResult => {
+    try {
+      execFileSync('git', ['pull'], { cwd, timeout: 60000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      const e = err as { message?: string; stderr?: string | Buffer; stdout?: string | Buffer };
+      const stderr = e.stderr ? e.stderr.toString().trim() : '';
+      const stdout = e.stdout ? e.stdout.toString().trim() : '';
+      return { ok: false, message: stderr || stdout || e.message || 'pull failed' };
+    }
+  });
 
   // Topo-ordered log of every reachable commit across all refs (capped).
   // Format uses NUL separators between fields and a record terminator so we

@@ -224,6 +224,8 @@ export const IPC_CHANNELS = {
   GIT_COMMIT: 'git:commit',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',
+  GIT_MERGE: 'git:merge',
+  GIT_MERGE_ABORT: 'git:mergeAbort',
   FILE_LIST_DIR: 'file:listDir',
   FILE_READ: 'file:read',
   FILE_SAVE: 'file:save',
@@ -383,6 +385,21 @@ export interface GitOpResult {
   publishedUpstream?: boolean;
 }
 
+export interface GitMergeResult {
+  ok: boolean;
+  /** Specific failure modes the UI surfaces differently:
+   *   - 'dirty'    : working tree has uncommitted changes — can't merge.
+   *   - 'conflict' : merge started but produced conflicts; left in-progress.
+   *   - 'self'     : tried to merge a branch into itself.
+   *   - 'detached' : current HEAD is detached, no branch to merge into.
+   *   - 'invalid'  : source ref name didn't pass our shell-safety check.
+   *   - 'failed'   : any other git error — `message` carries the stderr. */
+  error?: 'dirty' | 'conflict' | 'self' | 'detached' | 'invalid' | 'not-git' | 'failed';
+  message?: string;
+  /** Files left in conflict state when error === 'conflict'. */
+  conflictedFiles?: string[];
+}
+
 export interface GitStatus {
   isGit: boolean;
   branch: string;
@@ -394,4 +411,10 @@ export interface GitStatus {
   stashes: number;
   lastCommit: string;
   remoteUrl: string; // HTTPS URL to the repo (GitHub, GitLab, etc.)
+  /** True while a merge is in progress (i.e. .git/MERGE_HEAD exists). */
+  mergeInProgress: boolean;
+  /** Best-effort source-branch name parsed from .git/MERGE_MSG, or empty. */
+  mergeFromBranch: string;
+  /** Paths git is reporting as conflicted (`UU`, `AA`, `DD`, `AU`, `UA`, etc.). */
+  conflictedFiles: string[];
 }
