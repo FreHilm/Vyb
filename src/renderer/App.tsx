@@ -118,6 +118,7 @@ declare global {
       createDir: (dirPath: string) => Promise<boolean>;
       createFile: (filePath: string) => Promise<boolean>;
       saveFileAs: (content: string, defaultPath: string) => Promise<string | null>;
+      resolveFilePath: (workingDir: string, token: string) => Promise<string | null>;
       exportBackup: () => Promise<string | null>;
       importBackup: () => Promise<boolean>;
       transcribeAudio: (audioBase64: string, lang: string) => Promise<string>;
@@ -207,6 +208,11 @@ export function App() {
   const shellCountRef = useRef(1);
   const profileMemoryRef = useRef<ProfileMemoryMap>({});
   const [filesCloseRequested, setFilesCloseRequested] = useState(false);
+  // When a file path is clicked in the agent terminal, we ensure Files is
+  // visible and stash the resolved path here. FileExplorer reacts to changes
+  // by opening the file in a tab. Stamped with a counter so re-clicks of the
+  // same path still trigger the effect.
+  const [pendingFileOpen, setPendingFileOpen] = useState<{ path: string; nonce: number } | null>(null);
 
   // Build the view key for the currently-active profile + parallel selection.
   // Parent: just the profileId. Parallel: `${profileId}|${parallelId}`.
@@ -637,6 +643,40 @@ export function App() {
   useEffect(() => {
     activeProfileIdRef.current = activeProfileId;
   }, [activeProfileId]);
+
+  // File-token clicks from the agent terminal — open Files pane in the
+  // current view and stash the resolved path for FileExplorer to consume.
+  // Other overlays (README/Kanban) get hidden so the file is actually visible.
+  useEffect(() => {
+    const handleOpenFile = (e: Event) => {
+      const detail = (e as CustomEvent<{ path: string }>).detail;
+      if (!detail?.path) return;
+      if (activeViewKey) {
+        const key = activeViewKey;
+        setFilesViews((prev) => {
+          if (prev.has(key)) return prev;
+          const next = new Set(prev);
+          next.add(key);
+          return next;
+        });
+        setReadmeViews((prev) => {
+          if (!prev.has(key)) return prev;
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+        setKanbanViews((prev) => {
+          if (!prev.has(key)) return prev;
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+      }
+      setPendingFileOpen({ path: detail.path, nonce: Date.now() });
+    };
+    window.addEventListener('open-file-in-explorer', handleOpenFile);
+    return () => window.removeEventListener('open-file-in-explorer', handleOpenFile);
+  }, [activeViewKey]);
 
   // Mirror profiles into a ref so the once-mounted onOrdnaTask listener can
   // look up profile.parallelAgentEnabled at hook-fire time.
@@ -1331,6 +1371,8 @@ export function App() {
                 });
               }
             }}
+            pendingOpenPath={pendingFileOpen}
+            onPendingOpenHandled={() => setPendingFileOpen(null)}
           />
         )}
         {/* Mount one KanbanViewer per view in kanbanRunning. The set persists

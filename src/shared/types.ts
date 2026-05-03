@@ -225,6 +225,7 @@ export const IPC_CHANNELS = {
   FILE_CREATE_DIR: 'file:createDir',
   FILE_CREATE: 'file:create',
   FILE_SAVE_AS: 'file:saveAs',
+  FILE_RESOLVE_PATH: 'file:resolvePath',
   BACKUP_EXPORT: 'backup:export',
   BACKUP_IMPORT: 'backup:import',
   TRANSCRIBE_AUDIO: 'audio:transcribe',

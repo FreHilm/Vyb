@@ -1083,6 +1083,71 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // Resolve a file token (e.g. "src/main.ts" or just "main.ts") emitted in agent
+  // output to an absolute path. If the token already contains a separator, we
+  // resolve it directly against the working directory. If it's a bare filename,
+  // we BFS from the working directory — depth ascending, files alphabetical at
+  // each level — and return the first match. Lazy: only runs on link click.
+  ipcMain.handle(
+    IPC_CHANNELS.FILE_RESOLVE_PATH,
+    (_, workingDir: string, token: string): string | null => {
+      if (!workingDir || !token) return null;
+
+      // Strip optional :line or :line:col suffix.
+      const cleaned = token.replace(/:\d+(?::\d+)?$/, '').trim();
+      if (!cleaned) return null;
+
+      const isAbs = path.isAbsolute(cleaned);
+      const looksLikePath = isAbs || cleaned.includes('/') || cleaned.includes('\\');
+
+      const candidate = isAbs ? cleaned : path.resolve(workingDir, cleaned);
+      try {
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+          return candidate;
+        }
+      } catch {
+        // fall through to BFS
+      }
+
+      if (looksLikePath) return null;
+
+      // Bare filename — BFS from workingDir, alphabetical, skip noise dirs.
+      const SKIP_DIRS = new Set([
+        'node_modules', '.git', '.next', '.vite', '.turbo', 'dist', 'build', 'out',
+        '.cache', '.parcel-cache', 'coverage', '.nyc_output', '.idea', '.vscode',
+      ]);
+      const MAX_VISITED = 20000;
+
+      const target = cleaned;
+      const queue: string[] = [workingDir];
+      let visited = 0;
+
+      while (queue.length > 0 && visited < MAX_VISITED) {
+        const dir = queue.shift()!;
+        let entries: fs.Dirent[];
+        try {
+          entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        entries.sort((a, b) => a.name.localeCompare(b.name));
+        const subdirs: string[] = [];
+        for (const e of entries) {
+          visited++;
+          if (e.isFile() && e.name === target) {
+            return path.join(dir, e.name);
+          }
+          if (e.isDirectory() && !e.name.startsWith('.') && !SKIP_DIRS.has(e.name)) {
+            subdirs.push(path.join(dir, e.name));
+          }
+        }
+        for (const s of subdirs) queue.push(s);
+      }
+
+      return null;
+    },
+  );
+
   ipcMain.handle(IPC_CHANNELS.README_LOAD, (_, workingDirectory: string): string | null => {
     const names = ['README.md', 'readme.md', 'Readme.md', 'README.MD'];
     for (const name of names) {
