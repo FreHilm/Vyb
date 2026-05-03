@@ -4,11 +4,13 @@ import { GitStatus, Profile } from '../../shared/types';
 interface StatusBarProps {
   profile: Profile | null;
   onToggleChanges?: () => void;
+  /** Click handler for the branch label — opens the git tree view. */
+  onBranchClick?: () => void;
 }
 
 const POLL_INTERVAL = 10000; // 10 seconds
 
-export function StatusBar({ profile, onToggleChanges }: StatusBarProps) {
+export function StatusBar({ profile, onToggleChanges, onBranchClick }: StatusBarProps) {
   const [git, setGit] = useState<GitStatus | null>(null);
   const [fetching, setFetching] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -59,12 +61,25 @@ export function StatusBar({ profile, onToggleChanges }: StatusBarProps) {
       <div className="status-bar-right">
         {git?.isGit && (
           <>
-            <span className="status-item status-branch" title="Branch">
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6c0 .73-.593 1.25-1.25 1.25H8.25a.75.75 0 00-.75.75v1.378a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836l.015-.008A2.24 2.24 0 018.25 7h3c.14 0 .25-.11.25-.25v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z" />
-              </svg>
-              {git.branch}
-            </span>
+            {onBranchClick ? (
+              <button
+                className="status-item status-branch status-branch-btn"
+                title="Open git tree"
+                onClick={onBranchClick}
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6c0 .73-.593 1.25-1.25 1.25H8.25a.75.75 0 00-.75.75v1.378a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836l.015-.008A2.24 2.24 0 018.25 7h3c.14 0 .25-.11.25-.25v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z" />
+                </svg>
+                {git.branch}
+              </button>
+            ) : (
+              <span className="status-item status-branch" title="Branch">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6c0 .73-.593 1.25-1.25 1.25H8.25a.75.75 0 00-.75.75v1.378a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836l.015-.008A2.24 2.24 0 018.25 7h3c.14 0 .25-.11.25-.25v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z" />
+                </svg>
+                {git.branch}
+              </span>
+            )}
             {(git.staged > 0 || git.modified > 0 || git.untracked > 0) && onToggleChanges && (
               <button
                 className="status-item status-changes-btn"

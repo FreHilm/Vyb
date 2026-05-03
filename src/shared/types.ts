@@ -216,6 +216,12 @@ export const IPC_CHANNELS = {
   GIT_FETCH: 'git:fetch',
   GIT_CHANGED_FILES: 'git:changedFiles',
   GIT_FILE_DIFF: 'git:fileDiff',
+  GIT_LOG: 'git:log',
+  GIT_LIST_REFS: 'git:listRefs',
+  GIT_CHECKOUT_COMMIT: 'git:checkoutCommit',
+  GIT_STAGE: 'git:stage',
+  GIT_UNSTAGE: 'git:unstage',
+  GIT_COMMIT: 'git:commit',
   FILE_LIST_DIR: 'file:listDir',
   FILE_READ: 'file:read',
   FILE_SAVE: 'file:save',
@@ -330,6 +336,39 @@ export interface GitChangedFile {
   deleted: number; // lines deleted
   status: 'modified' | 'added' | 'deleted' | 'untracked' | 'renamed';
   staged: boolean;
+}
+
+export interface GitCommit {
+  sha: string;          // full 40-char SHA
+  parents: string[];    // parent SHAs
+  author: string;       // author name
+  email: string;        // author email
+  date: string;         // ISO 8601 author date
+  subject: string;      // first line of commit message
+}
+
+export interface GitRef {
+  name: string;          // short name (e.g. "main", "origin/main", "v1.0.0")
+  fullName: string;      // full ref (e.g. "refs/heads/main")
+  sha: string;           // commit SHA the ref points to
+  type: 'local' | 'remote' | 'tag';
+  remote?: string;       // for type='remote': the remote name (e.g. "origin")
+  isHead: boolean;       // is this the current HEAD?
+}
+
+export interface GitCheckoutResult {
+  ok: boolean;
+  /** When `ok` is false: 'dirty' (working tree has changes), 'failed' (git error), or 'not-git'. */
+  error?: 'dirty' | 'failed' | 'not-git';
+  /** Underlying git error message when `error: 'failed'`. */
+  message?: string;
+}
+
+export interface GitCommitResult {
+  ok: boolean;
+  /** Underlying git error message when commit failed (empty subject, hook
+   * rejection, no staged changes, etc.). */
+  message?: string;
 }
 
 export interface GitStatus {

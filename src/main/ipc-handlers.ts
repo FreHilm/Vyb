@@ -1,10 +1,10 @@
 import { app, ipcMain, shell, dialog, BrowserWindow, Notification } from 'electron';
-import { exec, execSync } from 'child_process';
+import { exec, execSync, execFileSync } from 'child_process';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, ParallelAgent, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, ParallelAgent, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
 import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout, loadProfileMemory, saveProfileMemory, loadScrollback, saveScrollback } from './config-loader';
@@ -925,7 +925,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     return result;
   });
 
-  ipcMain.handle(IPC_CHANNELS.GIT_FILE_DIFF, (_, cwd: string, filePath: string): string => {
+  ipcMain.handle(IPC_CHANNELS.GIT_FILE_DIFF, (_, cwd: string, filePath: string, staged?: boolean): string => {
     const run = (cmd: string): string => {
       try {
         return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 });
@@ -934,8 +934,16 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       }
     };
     const escaped = filePath.replace(/"/g, '\\"');
-    // Combine staged + unstaged diff; fallback to showing full content for untracked
-    let diff = run(`git diff HEAD -- "${escaped}"`);
+    // staged=true → index vs HEAD;  staged=false → working tree vs index;
+    // staged=undefined → combined (legacy callers).
+    let diff: string;
+    if (staged === true) {
+      diff = run(`git diff --cached -- "${escaped}"`);
+    } else if (staged === false) {
+      diff = run(`git diff -- "${escaped}"`);
+    } else {
+      diff = run(`git diff HEAD -- "${escaped}"`);
+    }
 
     // Untracked / new file — git diff HEAD returns nothing
     if (!diff) {
@@ -977,6 +985,243 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
     return diff;
   });
+
+  // Stage a file (working-tree → index). Works for new, modified, and
+  // deleted files. Path goes through argv so spaces/specials don't need
+  // shell quoting. The trailing `--` ensures we never confuse a path that
+  // looks like a flag with an option.
+  ipcMain.handle(IPC_CHANNELS.GIT_STAGE, (_, cwd: string, filePath: string): boolean => {
+    if (!filePath) return false;
+    try {
+      execFileSync('git', ['add', '--', filePath], { cwd, timeout: 10000, encoding: 'utf-8' });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  // Unstage a file (index → working tree, leaves the working copy
+  // untouched). Tries `git restore --staged` first (modern, ≥ 2.23) and
+  // falls back to `git reset HEAD --` for older binaries.
+  ipcMain.handle(IPC_CHANNELS.GIT_UNSTAGE, (_, cwd: string, filePath: string): boolean => {
+    if (!filePath) return false;
+    try {
+      try {
+        execFileSync('git', ['restore', '--staged', '--', filePath], { cwd, timeout: 10000, encoding: 'utf-8' });
+      } catch {
+        execFileSync('git', ['reset', 'HEAD', '--', filePath], { cwd, timeout: 10000, encoding: 'utf-8' });
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  // Commit whatever's currently staged. Subject + optional body; both
+  // travel as separate `-m` flags so git renders the body as the
+  // standard "blank line then paragraph" message.
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_COMMIT,
+    (_, cwd: string, subject: string, description: string): GitCommitResult => {
+      const subj = (subject ?? '').trim();
+      if (!subj) return { ok: false, message: 'Commit subject is required.' };
+      const body = (description ?? '').trim();
+      const args = ['commit', '-m', subj];
+      if (body) args.push('-m', body);
+      try {
+        execFileSync('git', args, { cwd, timeout: 30000, encoding: 'utf-8' });
+        return { ok: true };
+      } catch (err) {
+        // execFileSync's error carries stdout/stderr on some platforms —
+        // surface whichever we can find so the user sees the real reason
+        // (empty staging area, hook rejection, signing failure, etc.).
+        const e = err as { message?: string; stderr?: string | Buffer; stdout?: string | Buffer };
+        const stderr = e.stderr ? e.stderr.toString().trim() : '';
+        const stdout = e.stdout ? e.stdout.toString().trim() : '';
+        return { ok: false, message: stderr || stdout || e.message || 'commit failed' };
+      }
+    },
+  );
+
+  // Topo-ordered log of every reachable commit across all refs (capped).
+  // Format uses NUL separators between fields and a record terminator so we
+  // never have to worry about commit subjects containing tabs or newlines
+  // breaking the parse.
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_LOG,
+    (_, cwd: string, limit: number): GitCommit[] => {
+      const cap = Math.max(1, Math.min(10000, limit | 0 || 1000));
+      try {
+        const fmt = '%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%x1e';
+        const out = execSync(
+          `git log --all --topo-order --max-count=${cap} --pretty=format:${fmt}`,
+          { cwd, timeout: 15000, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024 },
+        );
+        const commits: GitCommit[] = [];
+        for (const record of out.split('\x1e')) {
+          const trimmed = record.replace(/^\n+/, '');
+          if (!trimmed) continue;
+          const fields = trimmed.split('\x00');
+          if (fields.length < 6) continue;
+          const [sha, parents, author, email, date, subject] = fields;
+          commits.push({
+            sha,
+            parents: parents ? parents.split(' ').filter(Boolean) : [],
+            author,
+            email,
+            date,
+            subject,
+          });
+        }
+        return commits;
+      } catch {
+        return [];
+      }
+    },
+  );
+
+  // All refs (local branches, remote-tracking branches, tags) plus a flag
+  // for the current HEAD. We also peel tags so annotated tags resolve to
+  // the underlying commit (otherwise they'd point at the tag object SHA).
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_LIST_REFS,
+    (_, cwd: string): GitRef[] => {
+      const run = (cmd: string): string => {
+        try {
+          return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8' }).trim();
+        } catch {
+          return '';
+        }
+      };
+
+      const isGit = run('git rev-parse --is-inside-work-tree') === 'true';
+      if (!isGit) return [];
+
+      const headSha = run('git rev-parse HEAD');
+      const headBranch = run('git symbolic-ref --quiet --short HEAD'); // empty when detached
+
+      // for-each-ref does NOT interpret %xx hex escapes (unlike `git log
+      // --pretty=format:`), and we can't put NUL bytes directly into argv
+      // (kernel-level NUL-terminated C strings). Use tabs instead — git's
+      // refname rules forbid control characters in branch/tag names, so a
+      // tab can never appear inside a refname.
+      let raw = '';
+      try {
+        raw = execFileSync(
+          'git',
+          [
+            'for-each-ref',
+            '--format=%(refname)\t%(objectname)\t%(*objectname)',
+            'refs/heads',
+            'refs/remotes',
+            'refs/tags',
+          ],
+          { cwd, timeout: 5000, encoding: 'utf-8' },
+        ).trim();
+      } catch {
+        raw = '';
+      }
+      if (!raw) return [];
+
+      const refs: GitRef[] = [];
+      for (const line of raw.split('\n')) {
+        if (!line) continue;
+        const [fullName, objectSha, peeledSha] = line.split('\t');
+        // Annotated tags: peeledSha is the underlying commit; for branches
+        // and lightweight tags peeledSha is empty so we use objectSha.
+        const sha = peeledSha || objectSha;
+
+        if (fullName.startsWith('refs/heads/')) {
+          const name = fullName.slice('refs/heads/'.length);
+          refs.push({
+            name,
+            fullName,
+            sha,
+            type: 'local',
+            isHead: !!headBranch && name === headBranch,
+          });
+        } else if (fullName.startsWith('refs/remotes/')) {
+          const rest = fullName.slice('refs/remotes/'.length);
+          // Skip the symbolic origin/HEAD pointer — it duplicates a real
+          // branch and adds noise to the graph labels.
+          if (rest.endsWith('/HEAD')) continue;
+          const slash = rest.indexOf('/');
+          const remote = slash === -1 ? rest : rest.slice(0, slash);
+          const name = slash === -1 ? rest : rest;
+          refs.push({
+            name,
+            fullName,
+            sha,
+            type: 'remote',
+            remote,
+            isHead: false,
+          });
+        } else if (fullName.startsWith('refs/tags/')) {
+          refs.push({
+            name: fullName.slice('refs/tags/'.length),
+            fullName,
+            sha,
+            type: 'tag',
+            isHead: false,
+          });
+        }
+      }
+
+      // Detached HEAD — synthesise a pseudo-ref so the UI can highlight
+      // wherever HEAD currently sits.
+      if (!headBranch && headSha) {
+        refs.push({
+          name: 'HEAD',
+          fullName: 'HEAD',
+          sha: headSha,
+          type: 'local',
+          isHead: true,
+        });
+      }
+
+      return refs;
+    },
+  );
+
+  // Checkout an arbitrary commit. Refuses when the working tree has changes
+  // — `git checkout <sha>` would fail anyway in most cases, but we want a
+  // clean structured error so the UI can show a helpful message.
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_CHECKOUT_COMMIT,
+    (_, cwd: string, target: string): GitCheckoutResult => {
+      // Defence in depth: SHAs and branch names only — block anything that
+      // could break out of the argv (shell metacharacters, leading dash so
+      // git won't treat it as a flag, parent-traversal `..`).
+      if (
+        !target ||
+        target.startsWith('-') ||
+        target.includes('..') ||
+        !/^[A-Za-z0-9._/+@-]+$/.test(target)
+      ) {
+        return { ok: false, error: 'failed', message: 'invalid checkout target' };
+      }
+      try {
+        const isGit = execSync('git rev-parse --is-inside-work-tree', {
+          cwd, timeout: 5000, encoding: 'utf-8',
+        }).trim() === 'true';
+        if (!isGit) return { ok: false, error: 'not-git' };
+
+        const dirty = execSync('git status --porcelain', {
+          cwd, timeout: 5000, encoding: 'utf-8',
+        }).trim();
+        if (dirty) return { ok: false, error: 'dirty' };
+
+        // Use execFileSync so the target is passed as a single argv entry
+        // (no shell parsing on top of the regex check above).
+        execFileSync('git', ['checkout', target], {
+          cwd, timeout: 15000, encoding: 'utf-8',
+        });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: 'failed', message: (err as Error).message };
+      }
+    },
+  );
 
   ipcMain.handle(IPC_CHANNELS.FILE_LIST_DIR, (_, dirPath: string): FileEntry[] => {
     try {
