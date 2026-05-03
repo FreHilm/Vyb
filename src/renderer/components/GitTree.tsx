@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { GitCommit, GitRef } from '../../shared/types';
+import { GitCommit, GitRef, GitStatus } from '../../shared/types';
 import { buildGraph, GraphRow, maxLane } from '../git-graph';
 
 interface GitTreeProps {
@@ -290,25 +290,56 @@ function RowGraph({ row, laneCount }: RowGraphProps) {
 export function GitTree({ workingDirectory }: GitTreeProps) {
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [refs, setRefs] = useState<GitRef[]>([]);
+  const [status, setStatus] = useState<GitStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
   const [confirmCheckout, setConfirmCheckout] = useState<string | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState<'push' | 'pull' | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [c, r] = await Promise.all([
+      const [c, r, s] = await Promise.all([
         window.api.getGitLog(workingDirectory, COMMIT_LIMIT),
         window.api.getGitRefs(workingDirectory),
+        window.api.getGitStatus(workingDirectory),
       ]);
       setCommits(c);
       setRefs(r);
+      setStatus(s);
     } finally {
       setLoading(false);
     }
   }, [workingDirectory]);
+
+  const handlePush = useCallback(async () => {
+    if (syncing) return;
+    setSyncing('push');
+    setSyncError(null);
+    try {
+      const result = await window.api.gitPush(workingDirectory);
+      if (!result.ok) setSyncError(result.message ?? 'push failed');
+      await load();
+    } finally {
+      setSyncing(null);
+    }
+  }, [workingDirectory, syncing, load]);
+
+  const handlePull = useCallback(async () => {
+    if (syncing) return;
+    setSyncing('pull');
+    setSyncError(null);
+    try {
+      const result = await window.api.gitPull(workingDirectory);
+      if (!result.ok) setSyncError(result.message ?? 'pull failed');
+      await load();
+    } finally {
+      setSyncing(null);
+    }
+  }, [workingDirectory, syncing, load]);
 
   useEffect(() => {
     load();
@@ -391,15 +422,87 @@ export function GitTree({ workingDirectory }: GitTreeProps) {
     <div className="git-tree">
       <div className="git-tree-toolbar">
         <span className="git-tree-count">{commits.length} commits</span>
-        <button className="git-changes-btn" onClick={load} title="Refresh">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 8a5 5 0 0 1 8.5-3.5L13 6" />
-            <polyline points="13 3 13 6 10 6" />
-            <path d="M13 8a5 5 0 0 1-8.5 3.5L3 10" />
-            <polyline points="3 13 3 10 6 10" />
-          </svg>
-        </button>
+        <div className="git-tree-toolbar-actions">
+          {(() => {
+            // Push enabled when:
+            //   - we're on a real branch (not detached), and
+            //   - we either have commits to push OR no upstream (publish flow).
+            // Pull enabled when:
+            //   - we're on a real branch, and
+            //   - upstream is ahead of us (behind > 0).
+            const onBranch = !!status?.branch && !/^[0-9a-f]{7,}$/i.test(status.branch);
+            const ahead = status?.ahead ?? 0;
+            const behind = status?.behind ?? 0;
+            const hasUpstream = ahead > 0 || behind > 0; // best-effort proxy
+            const pushEnabled = onBranch && (ahead > 0 || (!hasUpstream && !!status?.remoteUrl));
+            const pullEnabled = onBranch && behind > 0;
+            const pushTip = !onBranch
+              ? 'Detached HEAD — checkout a branch to push'
+              : ahead > 0
+                ? `Push ${ahead} commit${ahead === 1 ? '' : 's'} to origin`
+                : !hasUpstream
+                  ? `Publish branch "${status?.branch}" to origin`
+                  : 'Nothing to push';
+            const pullTip = !onBranch
+              ? 'Detached HEAD — checkout a branch to pull'
+              : behind > 0
+                ? `Pull ${behind} commit${behind === 1 ? '' : 's'} from origin`
+                : 'Up to date';
+            return (
+              <>
+                <button
+                  className={`git-tree-toolbar-btn ${syncing === 'pull' ? 'is-busy' : ''}`}
+                  onClick={handlePull}
+                  disabled={!pullEnabled || syncing !== null}
+                  title={pullTip}
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="8" y1="2" x2="8" y2="11" />
+                    <polyline points="4 7 8 11 12 7" />
+                    <line x1="3" y1="14" x2="13" y2="14" />
+                  </svg>
+                  <span>Pull</span>
+                  {behind > 0 && <span className="git-tree-toolbar-badge">{behind}</span>}
+                </button>
+                <button
+                  className={`git-tree-toolbar-btn ${syncing === 'push' ? 'is-busy' : ''}`}
+                  onClick={handlePush}
+                  disabled={!pushEnabled || syncing !== null}
+                  title={pushTip}
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="3" y1="2" x2="13" y2="2" />
+                    <line x1="8" y1="5" x2="8" y2="14" />
+                    <polyline points="4 9 8 5 12 9" />
+                  </svg>
+                  <span>Push</span>
+                  {ahead > 0 && <span className="git-tree-toolbar-badge">{ahead}</span>}
+                </button>
+              </>
+            );
+          })()}
+          <button className="git-changes-btn" onClick={load} title="Refresh">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 8a5 5 0 0 1 8.5-3.5L13 6" />
+              <polyline points="13 3 13 6 10 6" />
+              <path d="M13 8a5 5 0 0 1-8.5 3.5L3 10" />
+              <polyline points="3 13 3 10 6 10" />
+            </svg>
+          </button>
+        </div>
       </div>
+      {syncError && (
+        <div className="git-tree-error">
+          {syncError}
+          <button
+            className="git-tree-error-close"
+            onClick={() => setSyncError(null)}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {checkoutError && (
         <div className="git-tree-error">

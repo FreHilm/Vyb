@@ -13,7 +13,7 @@ import { StatusBar } from './components/StatusBar';
 import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -115,6 +115,8 @@ declare global {
       gitStage: (cwd: string, filePath: string) => Promise<boolean>;
       gitUnstage: (cwd: string, filePath: string) => Promise<boolean>;
       gitCommit: (cwd: string, subject: string, description: string) => Promise<GitCommitResult>;
+      gitPush: (cwd: string) => Promise<GitOpResult>;
+      gitPull: (cwd: string) => Promise<GitOpResult>;
       listDir: (dirPath: string) => Promise<FileEntry[]>;
       readFile: (filePath: string) => Promise<string | null>;
       saveFile: (filePath: string, content: string) => Promise<boolean>;
