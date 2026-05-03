@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, ParallelAgent, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitStash, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, ParallelAgent, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
 import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout, loadProfileMemory, saveProfileMemory, loadScrollback, saveScrollback } from './config-loader';
@@ -1293,6 +1293,162 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       return { ok: false, message: stderr || e.message || 'merge --abort failed' };
     }
   });
+
+  // ── Stashes & branch management ────────────────────────────────
+
+  // Helper: validate that a string is a safe ref / branch name. Rejects
+  // shell metacharacters, leading dashes (would parse as flag), and
+  // path-traversal `..`. Hex-only short SHAs and standard ref characters
+  // pass through. Used by every branch/tag op below.
+  const isSafeRefName = (s: string): boolean =>
+    !!s && !s.startsWith('-') && !s.includes('..') && /^[A-Za-z0-9._/+@-]+$/.test(s);
+
+  const stderrMsg = (err: unknown, fallback: string): string => {
+    const e = err as { stderr?: string | Buffer; stdout?: string | Buffer; message?: string };
+    const stderr = e.stderr ? e.stderr.toString().trim() : '';
+    const stdout = e.stdout ? e.stdout.toString().trim() : '';
+    return stderr || stdout || e.message || fallback;
+  };
+
+  // List stashes. Format `stash@{N}\tmessage` per line via -z so messages
+  // with tabs / newlines can't break the parse.
+  ipcMain.handle(IPC_CHANNELS.GIT_LIST_STASHES, (_, cwd: string): GitStash[] => {
+    try {
+      const out = execFileSync(
+        'git',
+        ['stash', 'list', '-z', '--format=%gd%x09%gs'],
+        { cwd, timeout: 5000, encoding: 'utf-8' },
+      );
+      const stashes: GitStash[] = [];
+      const records = out.split('\0');
+      for (const rec of records) {
+        if (!rec) continue;
+        const tab = rec.indexOf('\t');
+        if (tab < 0) continue;
+        const ref = rec.slice(0, tab);
+        const message = rec.slice(tab + 1);
+        // ref looks like `stash@{N}`; pull N out for an ordered index.
+        const m = ref.match(/^stash@\{(\d+)\}$/);
+        const index = m ? parseInt(m[1], 10) : -1;
+        // Stash messages typically read `WIP on <branch>: <sha> <subj>` or
+        // `On <branch>: <user message>`. Best-effort branch extraction.
+        const bm = message.match(/^(?:WIP on|On)\s+([^\s:]+):/);
+        stashes.push({ index, ref, message, branch: bm ? bm[1] : '' });
+      }
+      // Newest first (lowest index).
+      stashes.sort((a, b) => a.index - b.index);
+      return stashes;
+    } catch {
+      return [];
+    }
+  });
+
+  // Save current working changes to a new stash. `message` is optional;
+  // when empty git uses its default "WIP on <branch>" form. Includes
+  // untracked files too (Fork's default).
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_STASH_SAVE,
+    (_, cwd: string, message: string): GitOpResult => {
+      const args = ['stash', 'push', '--include-untracked'];
+      if (message && message.trim()) args.push('-m', message.trim());
+      try {
+        execFileSync('git', args, { cwd, timeout: 30000, encoding: 'utf-8' });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, message: stderrMsg(err, 'stash failed') };
+      }
+    },
+  );
+
+  // Apply / pop / drop a stash by ref (`stash@{N}`).
+  const stashOp = (
+    cwd: string, ref: string, op: 'apply' | 'pop' | 'drop',
+  ): GitOpResult => {
+    if (!/^stash@\{\d+\}$/.test(ref)) {
+      return { ok: false, message: 'invalid stash ref' };
+    }
+    try {
+      execFileSync('git', ['stash', op, ref], { cwd, timeout: 30000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, `stash ${op} failed`) };
+    }
+  };
+  ipcMain.handle(IPC_CHANNELS.GIT_STASH_APPLY, (_, cwd: string, ref: string) => stashOp(cwd, ref, 'apply'));
+  ipcMain.handle(IPC_CHANNELS.GIT_STASH_POP, (_, cwd: string, ref: string) => stashOp(cwd, ref, 'pop'));
+  ipcMain.handle(IPC_CHANNELS.GIT_STASH_DROP, (_, cwd: string, ref: string) => stashOp(cwd, ref, 'drop'));
+
+  // Create a new local branch. Optional `startPoint` (SHA / ref) — if
+  // omitted, the branch is created from the current HEAD.
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_CREATE_BRANCH,
+    (_, cwd: string, name: string, startPoint?: string): GitOpResult => {
+      if (!isSafeRefName(name)) return { ok: false, message: 'invalid branch name' };
+      if (startPoint && !isSafeRefName(startPoint)) return { ok: false, message: 'invalid start point' };
+      const args = ['branch', name];
+      if (startPoint) args.push(startPoint);
+      try {
+        execFileSync('git', args, { cwd, timeout: 10000, encoding: 'utf-8' });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, message: stderrMsg(err, 'create branch failed') };
+      }
+    },
+  );
+
+  // Delete a local branch. `force=false` uses `-d` (refuses unmerged);
+  // `force=true` uses `-D` for forced delete. We pass force through so the
+  // renderer can prompt and re-call with force=true after confirmation.
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_DELETE_BRANCH,
+    (_, cwd: string, name: string, force: boolean): GitOpResult => {
+      if (!isSafeRefName(name)) return { ok: false, message: 'invalid branch name' };
+      try {
+        execFileSync('git', ['branch', force ? '-D' : '-d', name], {
+          cwd, timeout: 10000, encoding: 'utf-8',
+        });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, message: stderrMsg(err, 'delete branch failed') };
+      }
+    },
+  );
+
+  // Delete a remote branch — `git push <remote> --delete <name>`. We expect
+  // the renderer to pass remote + the bare branch name (without the
+  // `<remote>/` prefix), so we never accidentally include the remote name
+  // in the deleted branch on the server side.
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_DELETE_REMOTE_BRANCH,
+    (_, cwd: string, remote: string, branch: string): GitOpResult => {
+      if (!isSafeRefName(remote) || !isSafeRefName(branch)) {
+        return { ok: false, message: 'invalid remote or branch' };
+      }
+      try {
+        execFileSync('git', ['push', remote, '--delete', branch], {
+          cwd, timeout: 60000, encoding: 'utf-8',
+        });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, message: stderrMsg(err, 'delete remote branch failed') };
+      }
+    },
+  );
+
+  // Delete a tag locally. (Pushing the deletion to a remote is a separate
+  // op the user can do via terminal for now.)
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_DELETE_TAG,
+    (_, cwd: string, name: string): GitOpResult => {
+      if (!isSafeRefName(name)) return { ok: false, message: 'invalid tag name' };
+      try {
+        execFileSync('git', ['tag', '-d', name], { cwd, timeout: 10000, encoding: 'utf-8' });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, message: stderrMsg(err, 'delete tag failed') };
+      }
+    },
+  );
 
   // Topo-ordered log of every reachable commit across all refs (capped).
   // Format uses NUL separators between fields and a record terminator so we

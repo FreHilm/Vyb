@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from './shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitStash, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
@@ -156,6 +156,24 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE_ABORT, cwd),
+  gitListStashes: (cwd: string): Promise<GitStash[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_LIST_STASHES, cwd),
+  gitStashSave: (cwd: string, message: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_STASH_SAVE, cwd, message),
+  gitStashApply: (cwd: string, ref: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_STASH_APPLY, cwd, ref),
+  gitStashPop: (cwd: string, ref: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_STASH_POP, cwd, ref),
+  gitStashDrop: (cwd: string, ref: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_STASH_DROP, cwd, ref),
+  gitCreateBranch: (cwd: string, name: string, startPoint?: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_CREATE_BRANCH, cwd, name, startPoint),
+  gitDeleteBranch: (cwd: string, name: string, force: boolean): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_DELETE_BRANCH, cwd, name, force),
+  gitDeleteRemoteBranch: (cwd: string, remote: string, branch: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_DELETE_REMOTE_BRANCH, cwd, remote, branch),
+  gitDeleteTag: (cwd: string, name: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_DELETE_TAG, cwd, name),
   getGitLog: (cwd: string, limit: number): Promise<GitCommit[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_LOG, cwd, limit),
   getGitRefs: (cwd: string): Promise<GitRef[]> =>

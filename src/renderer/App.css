@@ -3030,6 +3030,75 @@
   background: color-mix(in srgb, var(--c-red) 22%, transparent);
 }
 
+/* ── Branches tab ──────────────────────────────────────────── */
+.git-branches {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.git-branches-list {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+.git-branches-section + .git-branches-section {
+  margin-top: 2px;
+}
+.git-branches-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px 6px 8px;
+  background: var(--c-mantle);
+  border-bottom: 1px solid var(--c-surface0);
+  border-top: 1px solid var(--c-surface0);
+  cursor: pointer;
+  user-select: none;
+}
+.git-branches-section-header:hover {
+  background: var(--c-surface0);
+}
+.git-branches-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--c-subtext0);
+}
+.git-branches-section-body {
+  /* Tree rows take care of their own padding via inline style. */
+}
+.git-branches-empty {
+  padding: 6px 24px;
+  color: var(--c-overlay0);
+  font-size: 11.5px;
+}
+
+/* Highlight the current branch row in the local-branches section. */
+.git-branches-current {
+  font-weight: 600;
+  color: var(--c-green);
+}
+.git-branches-current .file-tree-name {
+  color: var(--c-green);
+}
+
+/* Stash row's message wraps very long stashes — clip with ellipsis. */
+.git-branches-stash-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Subtle "on <branch>" hint at the bottom of the context menu. */
+.file-ctx-hint {
+  padding: 6px 12px;
+  font-size: 10.5px;
+  color: var(--c-overlay0);
+  border-top: 1px solid var(--c-surface0);
+  font-style: italic;
+}
+
 .parallel-agent-terminal {
   flex: 1;
   display: flex;
