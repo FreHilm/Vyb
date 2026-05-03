@@ -1827,6 +1827,63 @@
   line-height: 1;
   padding: 0 4px;
 }
+
+/* Persistent banner shown while a merge is in progress (i.e. the working
+   copy has .git/MERGE_HEAD). Lists conflicted files inline so the user
+   knows what to resolve, plus an Abort button. */
+.git-tree-merge-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--c-yellow) 18%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--c-yellow) 40%, transparent);
+  color: var(--c-text);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.git-tree-merge-banner-text {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.5;
+}
+.git-tree-merge-banner-text code {
+  background: color-mix(in srgb, var(--c-base) 60%, transparent);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 11px;
+}
+.git-tree-merge-banner-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.git-tree-merge-banner-more {
+  color: var(--c-overlay0);
+  font-size: 11px;
+}
+.git-tree-merge-banner-hint {
+  color: var(--c-overlay0);
+  margin-top: 4px;
+  font-size: 11px;
+}
+.git-tree-merge-banner-abort {
+  background: var(--c-red);
+  color: var(--c-base);
+  border: none;
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.git-tree-merge-banner-abort:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .git-tree-list {
   flex: 1;
   overflow-y: auto;
