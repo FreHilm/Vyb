@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, ParallelAgent, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, ParallelAgent, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
 import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout, loadProfileMemory, saveProfileMemory, loadScrollback, saveScrollback } from './config-loader';
@@ -749,6 +749,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     const empty: GitStatus = {
       isGit: false, branch: '', modified: 0, staged: 0, untracked: 0,
       ahead: 0, behind: 0, stashes: 0, lastCommit: '', remoteUrl: '',
+      mergeInProgress: false, mergeFromBranch: '', conflictedFiles: [],
     };
     const run = (cmd: string): string => {
       try {
@@ -764,14 +765,20 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
     const branch = run('git branch --show-current') || run('git rev-parse --short HEAD');
 
-    // Porcelain status for counts
+    // Porcelain status for counts + conflict detection.
     const statusLines = run('git status --porcelain').split('\n').filter(Boolean);
     let modified = 0;
     let staged = 0;
     let untracked = 0;
+    const conflictedFiles: string[] = [];
     for (const line of statusLines) {
       const x = line[0];
       const y = line[1];
+      const filePath = line.slice(3).replace(/^"(.*)"$/, '$1');
+      // Conflict states per gitstatus(7): UU, AA, DD, AU, UA, DU, UD.
+      if (x === 'U' || y === 'U' || (x === 'A' && y === 'A') || (x === 'D' && y === 'D')) {
+        conflictedFiles.push(filePath);
+      }
       if (x === '?') { untracked++; continue; }
       if (x !== ' ' && x !== '?') staged++;
       if (y !== ' ' && y !== '?') modified++;
@@ -807,7 +814,30 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       }
     }
 
-    return { isGit, branch, modified, staged, untracked, ahead, behind, stashes, lastCommit, remoteUrl };
+    // Merge in progress? .git/MERGE_HEAD exists during a stuck three-way merge.
+    // The first line of MERGE_MSG looks like `Merge branch 'feature/foo'` —
+    // best-effort grab the source name for the banner.
+    let mergeInProgress = false;
+    let mergeFromBranch = '';
+    try {
+      const gitDir = run('git rev-parse --git-dir');
+      if (gitDir) {
+        const absGitDir = path.isAbsolute(gitDir) ? gitDir : path.join(cwd, gitDir);
+        if (fs.existsSync(path.join(absGitDir, 'MERGE_HEAD'))) {
+          mergeInProgress = true;
+          try {
+            const msg = fs.readFileSync(path.join(absGitDir, 'MERGE_MSG'), 'utf-8');
+            const m = msg.split('\n')[0]?.match(/Merge (?:branch|remote-tracking branch|commit) '([^']+)'/);
+            if (m) mergeFromBranch = m[1];
+          } catch { /* MERGE_MSG may not exist for some merge types */ }
+        }
+      }
+    } catch { /* not a real concern, leave defaults */ }
+
+    return {
+      isGit, branch, modified, staged, untracked, ahead, behind, stashes, lastCommit, remoteUrl,
+      mergeInProgress, mergeFromBranch, conflictedFiles,
+    };
   });
 
   ipcMain.handle(IPC_CHANNELS.GIT_FETCH, (_, cwd: string): boolean => {
@@ -1096,6 +1126,88 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       const stderr = e.stderr ? e.stderr.toString().trim() : '';
       const stdout = e.stdout ? e.stdout.toString().trim() : '';
       return { ok: false, message: stderr || stdout || e.message || 'pull failed' };
+    }
+  });
+
+  // Merge a source ref into the current branch.
+  //
+  // Refuses up front when:
+  //   - cwd isn't a git repo
+  //   - the working tree is dirty (we'd lose changes mid-merge)
+  //   - HEAD is detached (no branch to merge into)
+  //   - the source ref equals the current branch (self-merge)
+  //
+  // On conflict we deliberately leave the merge in-progress so the user
+  // can resolve in their shell and `git commit`. We surface the list of
+  // conflicted files so the renderer can show them.
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_MERGE,
+    (_, cwd: string, sourceRef: string): GitMergeResult => {
+      if (
+        !sourceRef ||
+        sourceRef.startsWith('-') ||
+        sourceRef.includes('..') ||
+        !/^[A-Za-z0-9._/+@-]+$/.test(sourceRef)
+      ) {
+        return { ok: false, error: 'invalid' };
+      }
+
+      const run = (cmd: string): string => {
+        try { return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8' }).trim(); }
+        catch { return ''; }
+      };
+
+      const isGit = run('git rev-parse --is-inside-work-tree') === 'true';
+      if (!isGit) return { ok: false, error: 'not-git' };
+
+      const dirty = run('git status --porcelain');
+      if (dirty) return { ok: false, error: 'dirty' };
+
+      const currentBranch = run('git symbolic-ref --quiet --short HEAD');
+      if (!currentBranch) return { ok: false, error: 'detached' };
+
+      if (sourceRef === currentBranch || sourceRef === 'HEAD') {
+        return { ok: false, error: 'self' };
+      }
+
+      try {
+        execFileSync('git', ['merge', sourceRef], {
+          cwd, timeout: 60000, encoding: 'utf-8',
+        });
+        return { ok: true };
+      } catch (err) {
+        // Detect conflicts. We deliberately do NOT abort — user resolves
+        // in the shell pane.
+        const status = run('git status --porcelain');
+        const conflictedFiles: string[] = [];
+        for (const line of status.split('\n')) {
+          if (!line) continue;
+          const x = line[0];
+          const y = line[1];
+          if (x === 'U' || y === 'U' || (x === 'A' && y === 'A') || (x === 'D' && y === 'D')) {
+            conflictedFiles.push(line.slice(3).replace(/^"(.*)"$/, '$1'));
+          }
+        }
+        if (conflictedFiles.length > 0) {
+          return { ok: false, error: 'conflict', conflictedFiles };
+        }
+        const e = err as { stderr?: string | Buffer; message?: string };
+        const stderr = e.stderr ? e.stderr.toString().trim() : '';
+        return { ok: false, error: 'failed', message: stderr || e.message || 'merge failed' };
+      }
+    },
+  );
+
+  // Abort an in-progress merge. Safe to call even if no merge is active —
+  // git will return non-zero, which we surface as `ok: false`.
+  ipcMain.handle(IPC_CHANNELS.GIT_MERGE_ABORT, (_, cwd: string): GitOpResult => {
+    try {
+      execFileSync('git', ['merge', '--abort'], { cwd, timeout: 10000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      const e = err as { stderr?: string | Buffer; message?: string };
+      const stderr = e.stderr ? e.stderr.toString().trim() : '';
+      return { ok: false, message: stderr || e.message || 'merge --abort failed' };
     }
   });
 
