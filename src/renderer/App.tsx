@@ -85,6 +85,9 @@ declare global {
       onStatusChange: (
         callback: (payload: { profileId: string; status: string; hasNewContent?: boolean }) => void,
       ) => () => void;
+      onCompletionConfirmed: (
+        callback: (payload: { profileId: string }) => void,
+      ) => () => void;
       openInFinder: (folderPath: string) => Promise<void>;
       openInVSCode: (folderPath: string) => Promise<void>;
       openInFork: (folderPath: string) => Promise<void>;
@@ -436,18 +439,15 @@ export function App() {
 
     const unsubStatus = window.api.onStatusChange(({ profileId, status, hasNewContent }) => {
       setStatuses((prev) => {
-        const prevStatus = prev.get(profileId);
         const next = new Map(prev);
         next.set(profileId, status as AgentStatus);
 
-        // Mark non-active profiles as having updates only when:
-        //  - the agent transitioned working→ready AND the StatusDetector
-        //    confirmed real activity (long-enough duration or new lines —
-        //    filters out resize/profile-switch flicker), or
-        //  - it needs user input.
-        const realCompletion =
-          status === 'ready' && prevStatus === 'working' && hasNewContent === true;
-        if (realCompletion || status === 'needs-input') {
+        // The bell for working→ready completions is now driven by the
+        // delayed PROFILE_COMPLETION_CONFIRMED channel below — main holds it
+        // for 5 s to filter out false-positive "done" transitions caused by
+        // brief idle moments between Claude turns. We still surface
+        // needs-input immediately since that's user-blocking.
+        if (status === 'needs-input') {
           setHasUpdates((u) => {
             const updated = new Set(u);
             updated.add(profileId);
@@ -456,6 +456,20 @@ export function App() {
         }
 
         return next;
+      });
+      // Reference hasNewContent so eslint doesn't flag it; it remains in the
+      // payload for forward-compat / future renderers that want to bypass
+      // the confirmation delay.
+      void hasNewContent;
+    });
+
+    const unsubCompletion = window.api.onCompletionConfirmed(({ profileId }) => {
+      // Main has confirmed the agent stayed ready for 5 s without going
+      // back to working — this is a real completion. Light up the bell.
+      setHasUpdates((u) => {
+        const updated = new Set(u);
+        updated.add(profileId);
+        return updated;
       });
     });
 
@@ -608,6 +622,7 @@ export function App() {
 
     return () => {
       unsubStatus();
+      unsubCompletion();
       unsubSettings();
       unsubActivate();
       unsubOrdnaTask();

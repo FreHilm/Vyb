@@ -5,11 +5,12 @@ import { AppSettings, ExternalApp, AgentConfig, DEFAULT_AGENTS } from '../../sha
 const BUILTIN_AGENT_IDS = new Set(DEFAULT_AGENTS.map((a) => a.id));
 
 // Agent logo icons keyed by agent ID
-const AGENT_ICONS: Record<string, { viewBox: string; paths: string[]; color: string }> = {
+const AGENT_ICONS: Record<string, { viewBox: string; paths: string[]; color: string; stroke?: boolean }> = {
   // Claude: stylized starburst/asterisk
   claude: {
     viewBox: '0 0 16 16',
     color: '#d97757',
+    stroke: true,
     paths: [
       'M8 1.5v4M8 10.5v4M1.5 8h4M10.5 8h4M3.4 3.4l2.8 2.8M9.8 9.8l2.8 2.8M12.6 3.4l-2.8 2.8M6.2 9.8l-2.8 2.8',
     ],
@@ -28,6 +29,15 @@ const AGENT_ICONS: Record<string, { viewBox: string; paths: string[]; color: str
     color: '#4285f4',
     paths: [
       'M8 0C8 4.4 4.4 8 0 8c4.4 0 8 3.6 8 8 0-4.4 3.6-8 8-8-4.4 0-8-3.6-8-8z',
+    ],
+  },
+  // OpenCode: angle-bracket "code" mark
+  opencode: {
+    viewBox: '0 0 16 16',
+    color: '#fbbf24',
+    stroke: true,
+    paths: [
+      'M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4M9.2 3 6.8 13',
     ],
   },
 };
@@ -606,10 +616,11 @@ export function SettingsDialog({
                         <div className="agent-card-icon" style={iconDef ? { color: iconDef.color } : undefined}>
                           {iconDef ? (
                             <svg width="20" height="20" viewBox={iconDef.viewBox}
-                              fill={agent.id === 'claude' ? 'none' : 'currentColor'}
-                              stroke={agent.id === 'claude' ? 'currentColor' : 'none'}
-                              strokeWidth={agent.id === 'claude' ? '1.8' : '0'}
+                              fill={iconDef.stroke ? 'none' : 'currentColor'}
+                              stroke={iconDef.stroke ? 'currentColor' : 'none'}
+                              strokeWidth={iconDef.stroke ? '1.8' : '0'}
                               strokeLinecap="round"
+                              strokeLinejoin="round"
                             >
                               {iconDef.paths.map((d, i) => <path key={i} d={d} />)}
                             </svg>

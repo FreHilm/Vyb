@@ -45,6 +45,18 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.removeListener(IPC_CHANNELS.PROFILE_STATUS_CHANGE, handler);
   },
 
+  onCompletionConfirmed: (
+    callback: (payload: { profileId: string }) => void,
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      payload: { profileId: string },
+    ) => callback(payload);
+    ipcRenderer.on(IPC_CHANNELS.PROFILE_COMPLETION_CONFIRMED, handler);
+    return () =>
+      ipcRenderer.removeListener(IPC_CHANNELS.PROFILE_COMPLETION_CONFIRMED, handler);
+  },
+
   openInFinder: (folderPath: string): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.SHELL_SHOW_IN_FOLDER, folderPath),
 
