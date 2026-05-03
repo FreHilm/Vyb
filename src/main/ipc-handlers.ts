@@ -119,13 +119,121 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     isQuitting = true;
   });
 
-  statusDetector = new StatusDetector((profileId, status, previousStatus, output, hasNewContent) => {
-    safeSend(IPC_CHANNELS.PROFILE_STATUS_CHANGE, { profileId, status, hasNewContent });
+  // Pending working→ready completion notifications. We hold these for
+  // COMPLETION_CONFIRMATION_MS before firing the bell + OS notification, so
+  // a quick working→ready→working bounce (e.g. Claude pausing between a
+  // tool result and the next reasoning step) doesn't generate a false-
+  // positive "task completed" ping. Cleared whenever the agent leaves the
+  // 'ready' state during the window.
+  const COMPLETION_CONFIRMATION_MS = 5000;
+  const pendingCompletions: Map<string, ReturnType<typeof setTimeout>> = new Map();
 
-    // Parallel agent: bubble status into the agent record. Only trigger
-    // finish() when the agent has actually marked the task as `status: done`
-    // in the task md file — otherwise working→ready just means an interim
-    // idle prompt (Claude shows it after every response).
+  const clearPendingCompletion = (profileId: string): void => {
+    const t = pendingCompletions.get(profileId);
+    if (t) {
+      clearTimeout(t);
+      pendingCompletions.delete(profileId);
+    }
+  };
+
+  // Resolve owner profile + focus state + startup-grace for a given PTY id.
+  // Used by the notification firing path (extracted so it can run both
+  // immediately for needs-input and after the confirmation delay for ready).
+  const resolveNotificationContext = (
+    profileId: string,
+  ): {
+    ownerProfile: Profile | undefined;
+    parallelAgentId: string | null;
+    titleSuffix: string;
+    isFocusedOnThis: boolean;
+    inStartupGrace: boolean;
+  } => {
+    const PARALLEL_NOTIF_GRACE_MS = 5000;
+    if (profileId.startsWith('parallel:') && parallelManager) {
+      const parallelAgentId = profileId.slice('parallel:'.length);
+      const agent = parallelManager.get(parallelAgentId);
+      if (agent) {
+        return {
+          ownerProfile: profiles.find((p) => p.id === agent.profileId),
+          parallelAgentId,
+          titleSuffix: ` · ${agent.taskId}`,
+          isFocusedOnThis:
+            mainWindow.isFocused() &&
+            activeProfileId === agent.profileId &&
+            activeParallelAgentId === parallelAgentId,
+          inStartupGrace: Date.now() - agent.createdAt < PARALLEL_NOTIF_GRACE_MS,
+        };
+      }
+      return { ownerProfile: undefined, parallelAgentId, titleSuffix: '', isFocusedOnThis: false, inStartupGrace: false };
+    }
+    return {
+      ownerProfile: profiles.find((p) => p.id === profileId),
+      parallelAgentId: null,
+      titleSuffix: '',
+      isFocusedOnThis:
+        mainWindow.isFocused() &&
+        profileId === activeProfileId &&
+        activeParallelAgentId === null,
+      inStartupGrace: false,
+    };
+  };
+
+  const fireNotification = (
+    profileId: string,
+    kind: 'ready' | 'needs-input',
+  ): void => {
+    if (isQuitting) return;
+    const ctx = resolveNotificationContext(profileId);
+    if (!ctx.ownerProfile || ctx.isFocusedOnThis || ctx.inStartupGrace) return;
+
+    const opts: Electron.NotificationConstructorOptions = {
+      title: ctx.ownerProfile.name + ctx.titleSuffix,
+      body: kind === 'ready' ? 'Task completed' : 'Needs your input',
+    };
+    if (ctx.ownerProfile.icon && fs.existsSync(ctx.ownerProfile.icon)) {
+      opts.icon = ctx.ownerProfile.icon;
+    }
+    const notification = new Notification(opts);
+    const targetProfileId = ctx.ownerProfile.id;
+    const targetParallelId = ctx.parallelAgentId;
+    notification.on('click', () => {
+      if (mainWindow.isDestroyed()) return;
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      safeSend(IPC_CHANNELS.PROFILE_ACTIVATE_REQUEST, {
+        profileId: targetProfileId,
+        parallelAgentId: targetParallelId,
+      });
+    });
+    notification.show();
+  };
+
+  statusDetector = new StatusDetector((profileId, status, previousStatus, _output, hasNewContent) => {
+    // Cancel any pending completion confirmation as soon as the agent leaves
+    // 'ready' — this is the primary defense against false-positive "done"
+    // notifications when the agent briefly idles between turns.
+    if (status !== 'ready') {
+      clearPendingCompletion(profileId);
+    }
+
+    // Working→ready with new content is a CANDIDATE for completion. Send the
+    // status update immediately (badge color stays accurate) but suppress the
+    // bell trigger (hasNewContent=false in the renderer payload). The bell
+    // fires later via PROFILE_COMPLETION_CONFIRMED if the agent stays ready
+    // for COMPLETION_CONFIRMATION_MS.
+    const isCompletionCandidate =
+      status === 'ready' && previousStatus === 'working' && hasNewContent === true;
+
+    safeSend(IPC_CHANNELS.PROFILE_STATUS_CHANGE, {
+      profileId,
+      status,
+      hasNewContent: isCompletionCandidate ? false : hasNewContent,
+    });
+
+    // Parallel agent finish() trigger stays IMMEDIATE — it only fires when
+    // the task md file says `status: done`, which the agent itself wrote.
+    // Delaying it would just delay the worktree teardown / git push.
     if (profileId.startsWith('parallel:') && parallelManager) {
       const id = profileId.slice('parallel:'.length);
       const agent = parallelManager.get(id);
@@ -142,73 +250,29 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       }
     }
 
-    // Only notify on meaningful transitions:
-    // - working → ready (task completed)
-    // - working → needs-input (permission needed)
-    // - ready → needs-input (permission needed)
-    // Skip: offline → ready (agent just loaded, not a completed task)
     if (isQuitting) return;
-    const isNotifiable =
-      (status === 'ready' && previousStatus === 'working') ||
-      (status === 'needs-input' && (previousStatus === 'working' || previousStatus === 'ready'));
-    if (!isNotifiable) return;
 
-    // Resolve which profile + optional parallel agent this status belongs to,
-    // and whether the user is currently looking at it.
-    let ownerProfile: Profile | undefined;
-    let parallelAgentId: string | null = null;
-    let titleSuffix = '';
-    let isFocusedOnThis = false;
-    // Parallel agents get a longer notification grace so the user isn't
-    // pinged about the very first permission prompt that often appears
-    // moments after auto-run submits the task. Status badges still update
-    // immediately — this only suppresses the OS-level pop.
-    let inStartupGrace = false;
-    const PARALLEL_NOTIF_GRACE_MS = 5000;
-    if (profileId.startsWith('parallel:') && parallelManager) {
-      parallelAgentId = profileId.slice('parallel:'.length);
-      const agent = parallelManager.get(parallelAgentId);
-      if (agent) {
-        ownerProfile = profiles.find((p) => p.id === agent.profileId);
-        titleSuffix = ` · ${agent.taskId}`;
-        isFocusedOnThis =
-          mainWindow.isFocused() &&
-          activeProfileId === agent.profileId &&
-          activeParallelAgentId === parallelAgentId;
-        inStartupGrace = Date.now() - agent.createdAt < PARALLEL_NOTIF_GRACE_MS;
-      }
-    } else {
-      ownerProfile = profiles.find((p) => p.id === profileId);
-      // The parent terminal is "focused" only when no parallel agent is selected
-      isFocusedOnThis =
-        mainWindow.isFocused() &&
-        profileId === activeProfileId &&
-        activeParallelAgentId === null;
+    // needs-input is urgent — fire bell + notification immediately.
+    if (
+      status === 'needs-input' &&
+      (previousStatus === 'working' || previousStatus === 'ready')
+    ) {
+      // Renderer already adds to hasUpdates on its own when status === 'needs-input'.
+      fireNotification(profileId, 'needs-input');
+      return;
     }
 
-    if (ownerProfile && !isFocusedOnThis && !inStartupGrace) {
-      const opts: Electron.NotificationConstructorOptions = {
-        title: ownerProfile.name + titleSuffix,
-        body: status === 'ready' ? 'Task completed' : 'Needs your input',
-      };
-      if (ownerProfile.icon && fs.existsSync(ownerProfile.icon)) {
-        opts.icon = ownerProfile.icon;
-      }
-      const notification = new Notification(opts);
-      const targetProfileId = ownerProfile.id;
-      const targetParallelId = parallelAgentId;
-      notification.on('click', () => {
-        if (mainWindow.isDestroyed()) return;
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
-        // Tell renderer to switch to this profile (and parallel agent if any)
-        safeSend(IPC_CHANNELS.PROFILE_ACTIVATE_REQUEST, {
-          profileId: targetProfileId,
-          parallelAgentId: targetParallelId,
-        });
-      });
-      notification.show();
+    // ready completion — schedule the delayed confirmation.
+    if (isCompletionCandidate) {
+      clearPendingCompletion(profileId);
+      const t = setTimeout(() => {
+        pendingCompletions.delete(profileId);
+        // Tell the renderer the completion is real (lights the bell).
+        safeSend(IPC_CHANNELS.PROFILE_COMPLETION_CONFIRMED, { profileId });
+        // And fire the OS notification.
+        fireNotification(profileId, 'ready');
+      }, COMPLETION_CONFIRMATION_MS);
+      pendingCompletions.set(profileId, t);
     }
   });
 

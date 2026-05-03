@@ -102,6 +102,13 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     args: ['--resume'],
     permissionModeArgs: ['--approval-mode', 'yolo'],
   },
+  {
+    id: 'opencode',
+    name: 'OpenCode',
+    command: 'opencode',
+    args: [],
+    permissionModeArgs: [],
+  },
 ];
 
 export interface ExternalApp {
@@ -186,6 +193,7 @@ export const IPC_CHANNELS = {
   PROFILES_LOAD: 'profiles:load',
   PROFILES_SAVE: 'profiles:save',
   PROFILE_STATUS_CHANGE: 'profile:status-change',
+  PROFILE_COMPLETION_CONFIRMED: 'profile:completion-confirmed',
   PROFILE_STATUS_QUERY: 'profile:status-query',
   SHELL_SHOW_IN_FOLDER: 'shell:showInFolder',
   SHELL_OPEN_VSCODE: 'shell:openVSCode',

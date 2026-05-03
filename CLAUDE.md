@@ -17,9 +17,14 @@ Requires Node 24+ LTS (use `nvm use 24`). Native module `node-pty` is rebuilt au
 
 Electron app with strict context isolation. Three process boundaries communicate via IPC:
 
-**Main process** (`src/main.ts` → `src/main/`): Owns all PTY instances, file operations, git status, icon generation, and system operations. Registers a `local-file://` custom protocol for serving local images (icons) to the renderer — strips `?query` params before resolving (used for cache busting). Runs headless xterm.js replay buffers (`TerminalBackend`) for terminal state serialization.
+**Main process** (`src/main.ts` → `src/main/`): Owns all PTY instances, file operations, git status, icon generation, and system operations. Registers a `local-file://` custom protocol for serving local images (icons) to the renderer — strips `?query` params before resolving (used for cache busting). PTY data passes through a coalesce + flow-control pipeline before being shipped to the renderer (see **PTY Output Pipeline** below). Status detection runs on a Node `worker_threads` worker (`src/main/status-worker.ts`) so its regex/ANSI work doesn't block the main event loop.
 
-**Preload** (`src/preload.ts`): Thin bridge exposing `window.api` via `contextBridge`. Uses `webUtils.getPathForFile()` for drag-and-drop file path resolution. Add new IPC methods in four places: `src/shared/types.ts` (channel constant), `src/main/ipc-handlers.ts` (handler), `src/preload.ts` (bridge), `src/renderer/App.tsx` (window.api type).
+**Preload** (`src/preload.ts`): Thin bridge exposing `window.api` via `contextBridge`. Uses `webUtils.getPathForFile()` for drag-and-drop file path resolution. Add new IPC methods in four places:
+
+1. `src/shared/types.ts` — channel constant in `IPC_CHANNELS`.
+2. `src/main/ipc-handlers.ts` — `ipcMain.handle(...)` or `safeSend(...)` site.
+3. `src/preload.ts` — `window.api` bridge function.
+4. `src/renderer/App.tsx` — `window.api` type augmentation in the global `Window` interface.
 
 **Renderer** (`src/renderer.tsx` → `src/renderer/`): React 19 app. Entry point is `index.html → src/renderer.tsx`. Vite bundles separately with `@vitejs/plugin-react`.
 
@@ -31,17 +36,52 @@ PTY creation is **lazy and order-sensitive** — the PTY must not be spawned unt
 2. `openTerminal()` — called on first show: `terminal.open(element)`, loads WebGL addon (if GPU acceleration is `auto`), attaches native drop handler
 3. `requestAnimationFrame` → `fitAddon.fit()` → `window.api.createTerminal()` → `resizeTerminal()`
 
-**WebGL lifecycle**: Only the active terminal has a WebGL context. Hidden terminals have their WebGL addon disposed to stay within the browser's ~16 context limit. GPU acceleration mode (`auto`/`canvas`/`off`) is configurable in Settings → Appearance.
+**WebGL lifecycle**: Only the active terminal has a WebGL context. Hidden terminals have their WebGL addon disposed to stay within the browser's ~16 context limit. GPU acceleration mode (`auto`/`canvas`/`off`) is configurable in Settings → Appearance. The renderer chosen at terminal-open time is logged to DevTools (`[xterm] renderer=webgl|canvas|dom`).
 
-**Terminal replay**: Headless xterm.js instances in `TerminalBackend` (main process) mirror all PTY output. When switching profiles, the renderer requests serialized state via `serializeTerminal()` and replays it — preserving scrollback, colors, and cursor position.
+**Scrollback persistence (shells)**: Shell terminals accumulate output in a per-PTY string buffer (`scrollbackBuffers`, capped at 512 KB) and the renderer can request it back to replay on the next mount. Agent terminals don't currently persist scrollback this way.
 
-**Flow control**: IPC-level back-pressure (256KB high / 64KB low watermarks) prevents renderer flooding on fast terminal output. Renderer sends `TERMINAL_ACK` after processing data.
+**Flow control**: IPC-level back-pressure (256 KB high / 64 KB low watermarks) prevents renderer flooding on fast terminal output. The renderer ACKs only after `terminal.write(data, callback)` reports the parser consumed the bytes — so `flow.pending` reflects real renderer load, not just IPC arrival. When the high watermark is hit, the main process buffers further chunks until the renderer drains below the low watermark.
 
-**`--continue` guard**: When the command is `claude` with `--continue`, the main process checks for a `.claude/` folder in the working directory. If absent, `--continue` is stripped so Claude starts fresh.
+**Agent args guards** (`src/main/agent-args-guard.ts`): resume-style flags are stripped when the corresponding state directory doesn't exist in the cwd, so the first run of a profile starts fresh instead of erroring.
+
+| Agent | Flag | Required dir |
+|---|---|---|
+| `claude` | `--continue` | `.claude/` |
+| `codex` | `resume` / `--resume` | `.codex/` |
+| `gemini` | `resume` / `--resume` | `.gemini/` |
+| `opencode` | (no resume flag in default args) | — |
 
 **Hidden state**: When the terminal pane is hidden (README/Files view active), ALL terminal elements are set to `display: none` and no `open()`/`fit()` calls are made. The `hidden` prop controls this. When unhiding, a delayed refit restores correct dimensions. ResizeObservers include a min-dimension guard (10px) to prevent zero-size fits during rapid resizing.
 
 **Drag and drop**: Native DOM `dragenter`/`dragover`/`drop` handlers are attached directly to xterm.js terminal elements via `setupTerminalDrop()`. File paths are resolved with `webUtils.getPathForFile()` and shell-escaped (`escapePathForShell()`) before being sent to the PTY. Both agent and shell terminals support file drops.
+
+### PTY Output Pipeline
+
+PTY → renderer is a multi-stage pipeline tuned to match what VS Code's `TerminalProcess` does:
+
+```
+node-pty .onData(string)
+   └─ queueData(profileId, data)
+       └─ coalesce buffer (5 ms window, 5 KB cap, whichever first)
+           └─ processBatch(profileId, data):
+               ├─ statusDetector.feedData    (postMessage to worker thread)
+               ├─ scrollbackBuffers          (shell terminals only)
+               └─ flow control:
+                   ├─ TextEncoder.encode → Uint8Array
+                   ├─ flow.pending += bytes.byteLength
+                   └─ safeSend(TERMINAL_DATA, { profileId, data: Uint8Array })
+
+renderer onTerminalData({ profileId, data: Uint8Array })
+   └─ terminal.write(data, () => ackTerminalData(ptyId, len))
+                                ↑
+                                fires only after xterm parses the chunk
+```
+
+Tuning constants (`src/main/ipc-handlers.ts`): `COALESCE_WINDOW_MS = 5`, `COALESCE_MAX_BYTES = 5 * 1024`, `FLOW_HIGH_WATERMARK = 256 * 1024`, `FLOW_LOW_WATERMARK = 64 * 1024`. The smaller byte budget produces more, smaller IPC messages so xterm renders incrementally instead of in visible blocks during heavy bursts.
+
+**Wire format is `Uint8Array`, not string.** `TextEncoder` runs once per coalesced batch in main; xterm consumes bytes natively. Skips Electron's structured-clone path's UTF-16↔UTF-8 round-trip and saves a renderer-side decode. The flow-control accounting uses `byteLength` consistently on both ends.
+
+**Coalesce flush triggers**: 5 ms inactivity timer **or** ≥5 KB accumulated (`flushCoalesced` is called from both paths and on PTY exit, before `clearCoalesced` releases the state).
 
 ### Shell Terminals (ShellPane)
 
@@ -49,12 +89,36 @@ PTY creation is **lazy and order-sensitive** — the PTY must not be spawned unt
 
 ### Status Detection
 
-`StatusDetector` in main process strips ANSI codes incrementally (each chunk before appending), keeps a 2000-char stripped buffer + 4000-char raw buffer. 800ms debounce.
+The `StatusDetector` class in `src/main/status-detector.ts` is a **thin main-thread wrapper** around a worker thread (`src/main/status-worker.ts`, bundled by `vite.worker.config.ts` to `.vite/build/status-worker.js`). All ANSI stripping, regex matching, debounce/idle timers, and per-profile state live in the worker. The wrapper just:
 
-- **Ready**: `for\s*shortcuts` (Claude Code idle hint, spaces may be stripped), `❯` prompt
-- **Working**: spinner braille chars (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) checked in raw buffer. Transitions immediately on incoming spinner data without waiting for debounce.
-- **Needs-input**: `Allow\s*once`, `Yes.*No.*Always`, etc.
-- **Notifications**: only fire on `working→ready` or `→needs-input`. `offline→ready` suppressed. Skipped when focused on active profile. Include profile icon.
+1. Forwards `register` / `unregister` / `feedData` / `setWorking` as `postMessage` to the worker.
+2. Maintains a small shadow `Map<profileId, AgentStatus>` so `getStatus` / `getAll` stay synchronous.
+3. Forwards `statusChange` messages from the worker to the `onStatusChange` callback.
+
+The worker keeps a 2000-char stripped buffer + 4000-char raw buffer per profile and selects an adapter from the profile's command. **Adapters** (one per built-in agent):
+
+- **`claudeAdapter`** (cmd `claude`): debounce 800 ms, idle 30 s. Working = braille / sparkle spinners (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✻✽✶✳✢`) in incoming data. Needs-input = `Allow\s*once`, `Yes.*No.*Always`, `Enter\s*to\s*select`, `Esc\s*to\s*cancel`, etc. Ready = `for\s*shortcuts`, `accept\s*edits`, trailing `❯`.
+- **`codexAdapter`** (cmd `codex`): debounce 500 ms, idle 3 s. Working = `esc to interrupt|Escape to cancel|Ctrl+C to stop`. No explicit needs-input pattern (idle timeout handles ready).
+- **`geminiAdapter`** (cmd `gemini`): debounce 500 ms, idle 3 s. Working = stripped chunk > 50 chars (Ink TUI streaming heuristic). Needs-input = `Approve?\s*(y/n[/always]?)`.
+- **`opencodeAdapter`** (cmd `opencode`): debounce 600 ms, idle 5 s. Working = `esc\s*(to\s*)?interrupt`. Needs-input = `enter\s*submit.*esc\s*dismiss` (multi-choice picker). Ready = `ctrl\+p\s*commands` without an `interrupt` hint.
+- **`genericAdapter`** (fallback): conservative 60 s idle, broad pattern set.
+
+**`hasNewContent` filter**: a `working → ready` transition only sets `hasNewContent: true` if the working state lasted ≥ 1500 ms **or** ≥ 4 newlines were committed. This filters resize-redraw and profile-switch flicker.
+
+**Completion confirmation delay (5 s)**: Even when `hasNewContent` is true, the main process holds the bell + OS notification for `COMPLETION_CONFIRMATION_MS = 5000`. If the agent transitions back to `working` (or any non-ready state) during that window, the pending notification is cancelled — protects against false "task completed" pings when Claude briefly idles between turns. The badge color updates immediately (visual feedback stays accurate); the bell fires later via the `PROFILE_COMPLETION_CONFIRMED` IPC channel. `needs-input` bypasses this delay entirely (urgent / user-blocking).
+
+**Notifications**: only fire after the 5 s confirmation for `working→ready`, immediately for `→needs-input`. `offline→ready` suppressed. Skipped when focused on the relevant profile. Include profile icon.
+
+### Built-in Agents
+
+`DEFAULT_AGENTS` in `src/shared/types.ts` ships four entries: **Claude**, **Codex**, **Gemini**, **OpenCode**. Each `AgentConfig` has `id`, `name`, `command`, `args`, and an optional `permissionModeArgs` injected only for parallel (Kanban-dispatched) worktree spawns. Adding a new built-in requires updating four places:
+
+1. `DEFAULT_AGENTS` in `src/shared/types.ts`.
+2. A new adapter in `src/main/status-worker.ts` (and route it in `getAdapter()`).
+3. Optionally an args guard in `src/main/agent-args-guard.ts` if the agent has resume-style flags.
+4. SVG icon entries in `src/renderer/components/{ProfileEditor,ProfileItem,SettingsDialog}.tsx` (each maintains its own `AGENT_ICONS` / `AGENT_ICON_DEFS` map; `stroke?: boolean` flag controls fill-vs-stroke rendering).
+
+`BUILTIN_AGENT_IDS` in `SettingsDialog.tsx` is derived from `DEFAULT_AGENTS`, so step 1 automatically marks the agent as built-in (uneditable command/args in Settings → Agents, but settings still saves user customizations as overrides).
 
 ### Theming
 
@@ -71,6 +135,12 @@ All in `app.getPath('userData')` (`~/Library/Application Support/Vyb/` — auto-
 
 `lastActiveProfileId` in settings restores the selected profile on app launch.
 
+### Profile Editor
+
+`src/renderer/components/ProfileEditor.tsx` — modal for create/edit/delete of agent profiles. Fields: name, working directory, agent (picker), icon (file path or AI-generated), parallel-agent toggle, parallel-agent auto-push toggle.
+
+**Temp scratchpad**: a "Temp" button next to "Browse" calls `window.api.createTempDir()` (IPC `DIALOG_CREATE_TEMP_DIR` → `fs.mkdtempSync(path.join(os.tmpdir(), 'vyb-agent-'))`) which returns a fresh, unique temp folder for short-lived scratchpad agents. Defaults the profile name to "Scratch" if empty.
+
 ### Sidebar Layout & Drag-and-Drop
 
 `SidebarLayout`: `items` array (ordered mix of profile/folder refs) + `folders` array. `buildEffectiveLayout()` ensures new profiles appear at bottom, stale refs cleaned. HTML5 DnD with `dragDataRef`. The `inFolderId` param on `handleDrop` enables reordering within folders. `handleDragLeave` checks `relatedTarget` to prevent flicker.
@@ -78,6 +148,14 @@ All in `app.getPath('userData')` (`~/Library/Application Support/Vyb/` — auto-
 ### Keyboard Navigation
 
 `useKeyNav` hook in `KeyNav.tsx` — listens for configurable modifier key (meta/alt). When held: numbered `NavBadge` components appear over command bar buttons, arrow indicators on sidebar and terminal panes. Modifier + number executes action, arrows navigate profiles/panes. `focusedPane` state tracks `{pane: 'agent'|'shell', shellIndex: number}` for cycling through all visible panes.
+
+### Cmd+C/V/X/Z in HTML inputs
+
+The Electron Edit menu in `src/main.ts` deliberately omits role-based accelerators (Copy / Paste / Cut / Undo / Select All) — on macOS, those install OS-level key handlers that intercept Cmd+C *before* the renderer or xterm.js see it, breaking terminal selection. To compensate, a global `keydown` handler in `App.tsx` reimplements Cmd+C/V/X/A/Z for plain HTML `<input>` and `<textarea>` elements:
+
+- **Skipped**: anything inside `.xterm` (xterm has its own handler) or `.cm-editor` (CodeMirror's own keymap owns these keys natively).
+- **Number inputs**: `<input type="number">` doesn't support `selectionStart`/`selectionEnd`; the handler detects this and operates on the full value (Cmd+C copies the whole number, Cmd+V replaces it).
+- **Cmd+Z / Cmd+Shift+Z**: routed through `document.execCommand('undo'|'redo')` — Chromium still drives the input element's native undo stack via this API even though execCommand is broadly deprecated.
 
 ### External Applications
 
@@ -128,22 +206,28 @@ Export: `archiver` creates ZIP of profiles.json, settings.json, layout.json, ico
 
 ## Vite Config
 
-- `vite.main.config.ts`: Externalizes `node-pty`, `archiver`, `adm-zip`, `@xterm/xterm`, `@xterm/addon-serialize`, `@frehilm/ordna-core`, `@frehilm/ordna-web`
-- `vite.renderer.config.ts`: `@vitejs/plugin-react` for JSX
+- `vite.main.config.ts`: Externalizes `node-pty`, `archiver`, `adm-zip`, `@frehilm/ordna-core`, `@frehilm/ordna-web`
 - `vite.preload.config.ts`: Default (bundles shared type imports)
+- `vite.renderer.config.ts`: `@vitejs/plugin-react` for JSX
+- `vite.worker.config.ts`: Builds the status-detection worker (`src/main/status-worker.ts` → `.vite/build/status-worker.js`) as CJS lib mode. Externalizes `worker_threads`. Loaded from main via `new Worker(path.join(__dirname, 'status-worker.js'))`.
+
+The build entries are registered in `forge.config.ts` under `VitePlugin.build[]` (one entry each for main / preload / status-worker). The renderer is registered separately under `VitePlugin.renderer[]`.
 
 ## Key Patterns
 
-- `safeSend()` guards against sending to destroyed BrowserWindow during shutdown
-- `window.api` type declaration in `src/renderer/App.tsx` as global interface augmentation
-- `initialized` Set tracks profiles with xterm.js instances; `ptyCreated` flag tracks PTY spawn
-- `hasUpdates` Set tracks profiles with unviewed status transitions — shown as colored highlight
-- Flame indicator: SVG with 13 individual spike paths, color from status, animated via CSS keyframes when working/needs-input, calm breathing when ready
-- Icon bounce animation on profile select (scale + translate + wiggle + motion blur)
-- `shellOpenedRef` tracks which profiles have had shell opened (prevents unmount/remount)
-- `shellCountRef` tracks shell terminal count for keyboard pane cycling
-- `setupTerminalDrop()` / `escapePathForShell()` — exported from TerminalPane for reuse in ShellPane
-- Global `document.addEventListener('dragover'/'drop', preventDefault)` in App.tsx prevents Electron default file-drop navigation
+- `safeSend()` guards against sending to destroyed BrowserWindow during shutdown.
+- `window.api` type declaration in `src/renderer/App.tsx` as global interface augmentation.
+- `initialized` Set tracks profiles with xterm.js instances; `ptyCreated` flag tracks PTY spawn.
+- `hasUpdates` Set tracks profiles with unviewed status transitions — driven by `PROFILE_COMPLETION_CONFIRMED` (delayed 5 s) for completions and `needs-input` immediately.
+- `pendingCompletions: Map<profileId, Timeout>` in `ipc-handlers.ts` arbitrates the 5 s confirmation window; cleared on any non-ready transition.
+- `coalesceStates: Map<profileId, { pending, flushTimer }>` in `ipc-handlers.ts` is the PTY chunk coalesce buffer.
+- `flowStates: Map<profileId, { pending, paused, buffer }>` is the renderer-load back-pressure tracker; `pending` is in UTF-8 bytes.
+- Flame indicator: SVG with 13 individual spike paths, color from status, animated via CSS keyframes when working/needs-input, calm breathing when ready.
+- Icon bounce animation on profile select (scale + translate + wiggle + motion blur).
+- `shellOpenedRef` tracks which profiles have had shell opened (prevents unmount/remount).
+- `shellCountRef` tracks shell terminal count for keyboard pane cycling.
+- `setupTerminalDrop()` / `escapePathForShell()` — exported from TerminalPane for reuse in ShellPane.
+- Global `document.addEventListener('dragover'/'drop', preventDefault)` in App.tsx prevents Electron default file-drop navigation.
 
 ## Dependencies & Licensing
 

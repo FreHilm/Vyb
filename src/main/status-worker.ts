@@ -90,42 +90,122 @@ const claudeAdapter: AgentAdapter = {
   },
 };
 
+// ── Codex adapter ───────────────────────────────────────────────
+//
+// Codex is non-interactive — it never blocks on a y/n prompt, so we
+// don't detect `needs-input`. The lifecycle we care about is:
+//
+//   1. "Working (Ns • esc to interrupt)" footer appears → working
+//   2. Footer disappears, but Codex keeps emitting trailing lines
+//      (final summary, file list, etc.) for a moment afterwards
+//   3. Output stops → ready
+//
+// We rely entirely on the idle timer to flip working→ready: each
+// chunk resets `idleTimer`, so as long as trailing lines keep
+// arriving the transition is held off. Once the PTY truly quiets
+// down for `idleTimeout` ms, ready fires. `idleTimeout` is bumped to
+// 4 s to comfortably cover Codex's trailing-output burst.
 const codexAdapter: AgentAdapter = {
   name: 'codex',
-  idleTimeout: 3000,
+  idleTimeout: 4000,
   debounceMs: 500,
 
-  detectFromData(_data, stripped, _currentStatus) {
-    if (/esc to interrupt|Escape to cancel|Ctrl\+C to stop/i.test(stripped)) {
-      return { status: 'working', immediate: true };
+  detectFromData(_data, stripped, currentStatus) {
+    if (currentStatus === 'ready' || currentStatus === 'offline') {
+      if (/esc\s*to\s*interrupt|Escape\s*to\s*cancel|Ctrl\+C\s*to\s*stop/i.test(stripped)) {
+        return { status: 'working', immediate: true };
+      }
+    }
+    return { status: null };
+  },
+
+  detectFromBuffer(_strippedBuffer, _rawBuffer, _currentStatus) {
+    return { status: null };
+  },
+};
+
+// ── Gemini adapter ──────────────────────────────────────────────
+//
+// Working footer:   "Initiating Task Execution (esc to cancel, 26s)"
+//                   — the comma + seconds counter is the dead giveaway
+// Needs-input cues:
+//   • "Apply this change?" with numbered list (Allow once / Allow for
+//     this session / Modify with external editor / No, suggest changes)
+//   • "Answer Questions" panel with footer
+//     "Enter to select · ↑/↓ to navigate · Esc to cancel"
+//   • Classic "Approve? (y/n/always)" prompt
+const geminiAdapter: AgentAdapter = {
+  name: 'gemini',
+  idleTimeout: 4000,
+  debounceMs: 500,
+
+  detectFromData(_data, stripped, currentStatus) {
+    if (currentStatus === 'ready' || currentStatus === 'offline') {
+      if (/\(esc\s*to\s*cancel,?\s*\d+\s*s\)/i.test(stripped)) {
+        return { status: 'working', immediate: true };
+      }
     }
     return { status: null };
   },
 
   detectFromBuffer(strippedBuffer, _rawBuffer, _currentStatus) {
-    const last = strippedBuffer.slice(-800);
-    if (/esc to interrupt|Escape to cancel|Ctrl\+C to stop/i.test(last)) {
-      return { status: 'working' };
+    const last = strippedBuffer.slice(-1200);
+
+    if (/Apply\s*this\s*change\?/i.test(last)) return { status: 'needs-input' };
+    if (/Answer\s*Questions/i.test(last)) return { status: 'needs-input' };
+    if (/Enter\s*to\s*select.*to\s*navigate/is.test(last)) return { status: 'needs-input' };
+    if (/Allow\s*once/i.test(last) && /Allow\s*for\s*this\s*session/i.test(last)) {
+      return { status: 'needs-input' };
     }
+    if (/Approve\?\s*\(y\/n(?:\/always)?\)/i.test(last)) return { status: 'needs-input' };
+
     return { status: null };
   },
 };
 
-const geminiAdapter: AgentAdapter = {
-  name: 'gemini',
-  idleTimeout: 3000,
-  debounceMs: 500,
+// ── OpenCode adapter ────────────────────────────────────────────
+//
+// Detection cues from observed OpenCode TUI output:
+//   working      → "esc interrupt" footer hint at bottom of screen
+//   needs-input  → multi-choice picker footer ("enter submit" + "esc dismiss")
+//                  or numbered selectable list with "↑↓ select"
+//   ready        → footer reads only "ctrl+p commands" (no esc interrupt,
+//                  no interactive picker)
+const opencodeAdapter: AgentAdapter = {
+  name: 'opencode',
+  idleTimeout: 5000,
+  debounceMs: 600,
 
-  detectFromData(_data, stripped) {
-    if (stripped.length > 50) {
-      return { status: 'working', immediate: true };
+  detectFromData(_data, stripped, currentStatus) {
+    if (currentStatus === 'ready' || currentStatus === 'offline') {
+      if (/esc\s*(to\s*)?interrupt/i.test(stripped)) {
+        return { status: 'working', immediate: true };
+      }
     }
     return { status: null };
   },
 
-  detectFromBuffer(strippedBuffer) {
+  detectFromBuffer(strippedBuffer, _rawBuffer, currentStatus) {
     const last = strippedBuffer.slice(-800);
-    if (/Approve\?\s*\(y\/n(?:\/always)?\)/i.test(last)) return { status: 'needs-input' };
+
+    // Interactive picker / multi-choice question — bottom footer
+    if (/enter\s*submit.*esc\s*dismiss/is.test(last)) return { status: 'needs-input' };
+    if (/esc\s*dismiss.*enter\s*submit/is.test(last)) return { status: 'needs-input' };
+    // Yes/No style approval prompts (defensive — opencode also uses these)
+    if (/\(y\/n\)/i.test(last)) return { status: 'needs-input' };
+
+    // Active "esc interrupt" hint reinforces working
+    if (/esc\s*(to\s*)?interrupt/i.test(last)) return { status: 'working' };
+
+    // Idle footer — "ctrl+p commands" without "esc interrupt" means done
+    if (/ctrl\+p\s*commands/i.test(last) && !/esc\s*(to\s*)?interrupt/i.test(last)) {
+      return { status: 'ready' };
+    }
+
+    // Generic finish-from-working: if the debounce fires while we were
+    // working but no further hints are present, treat as ready.
+    if (currentStatus === 'working') return { status: 'ready' };
+
     return { status: null };
   },
 };
@@ -171,6 +251,7 @@ function getAdapter(command: string): AgentAdapter {
   if (cmd === 'claude' || cmd.endsWith('/claude')) return claudeAdapter;
   if (cmd === 'codex' || cmd.endsWith('/codex')) return codexAdapter;
   if (cmd === 'gemini' || cmd.endsWith('/gemini')) return geminiAdapter;
+  if (cmd === 'opencode' || cmd.endsWith('/opencode')) return opencodeAdapter;
   return genericAdapter;
 }
 
