@@ -232,11 +232,15 @@ function createTerminalInstance(
   fontSize: number,
   theme: ReturnType<typeof getTerminalTheme>,
   kind: 'agent' | 'shell',
+  fontWeight: number,
+  fontWeightBold: number,
 ): TerminalInstance {
   const terminal = new Terminal({
     cursorBlink: true,
     fontSize,
     fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+    fontWeight: fontWeight as 'normal' | 'bold' | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900,
+    fontWeightBold: fontWeightBold as 'normal' | 'bold' | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900,
     theme,
     allowProposedApi: true,
     // macOS Option key acts as Meta — enables Option+←/→ for word navigation
@@ -447,10 +451,12 @@ export function TerminalPane({
     const theme = getTerminalTheme(settings.baseHue, settings.darkness, settings.textLightness);
     agentTerminalsRef.current.forEach((instance) => {
       instance.terminal.options.fontSize = settings.agentFontSize;
+      instance.terminal.options.fontWeight = settings.agentFontWeight as 'normal' | 'bold' | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
+      instance.terminal.options.fontWeightBold = settings.agentFontWeightBold as 'normal' | 'bold' | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
       instance.terminal.options.theme = theme;
       if (instance.opened) instance.fitAddon.fit();
     });
-  }, [settings.baseHue, settings.darkness, settings.agentFontSize]);
+  }, [settings.baseHue, settings.darkness, settings.agentFontSize, settings.agentFontWeight, settings.agentFontWeightBold]);
 
   // Create xterm.js instances for initialized profiles, dispose removed ones
   useEffect(() => {
@@ -477,6 +483,8 @@ export function TerminalPane({
         settings.agentFontSize,
         theme,
         'agent',
+        settings.agentFontWeight,
+        settings.agentFontWeightBold,
       );
       agentTerminalsRef.current.set(profileId, instance);
     }

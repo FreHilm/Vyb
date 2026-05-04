@@ -124,6 +124,7 @@ export function applyTheme(
   textLightness: number,
   profileFontSize: number,
   flame?: FlameSettings,
+  profileFontWeight?: number,
 ): void {
   const root = document.documentElement;
 
@@ -154,6 +155,9 @@ export function applyTheme(
     '--profile-font-size-small',
     `${Math.round(profileFontSize * 0.846)}px`,
   );
+  if (typeof profileFontWeight === 'number') {
+    root.style.setProperty('--profile-font-weight', `${profileFontWeight}`);
+  }
 
   // Flame settings — map 0-100 sliders to CSS variable ranges
   if (flame) {
