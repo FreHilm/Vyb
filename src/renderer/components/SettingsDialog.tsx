@@ -145,7 +145,7 @@ export function SettingsDialog({
   onBatchGenerate,
   profilesWithoutIcons,
 }: SettingsDialogProps) {
-  const [tab, setTab] = useState<SettingsTab>('appearance');
+  const [tab, setTab] = useState<SettingsTab>('agents');
   const [baseHue, setBaseHue] = useState(settings.baseHue);
   const [darkness, setDarkness] = useState(settings.darkness);
   const [textLightness, setTextLightness] = useState(settings.textLightness);
@@ -255,26 +255,13 @@ export function SettingsDialog({
         </div>
 
         <div className="settings-tabs">
-          <button
-            className={`settings-tab ${tab === 'appearance' ? 'settings-tab-active' : ''}`}
-            onClick={() => setTab('appearance')}
-          >
-            Appearance
-          </button>
-          {/* Flames tab hidden — settings still load/save normally; the
-              defaults in DEFAULT_SETTINGS match the values we want, and
-              users who want to tweak can edit settings.json directly. */}
+          {/* Order: Agents → Apps → Kanban → Integrations → Icons →
+              Appearance. (Flames tab still hidden — see DEFAULT_SETTINGS.) */}
           <button
             className={`settings-tab ${tab === 'agents' ? 'settings-tab-active' : ''}`}
             onClick={() => setTab('agents')}
           >
             Agents
-          </button>
-          <button
-            className={`settings-tab ${tab === 'icons' ? 'settings-tab-active' : ''}`}
-            onClick={() => setTab('icons')}
-          >
-            Icons
           </button>
           <button
             className={`settings-tab ${tab === 'apps' ? 'settings-tab-active' : ''}`}
@@ -283,16 +270,28 @@ export function SettingsDialog({
             Apps
           </button>
           <button
+            className={`settings-tab ${tab === 'ordna' ? 'settings-tab-active' : ''}`}
+            onClick={() => setTab('ordna')}
+          >
+            Kanban
+          </button>
+          <button
             className={`settings-tab ${tab === 'integrations' ? 'settings-tab-active' : ''}`}
             onClick={() => setTab('integrations')}
           >
             Integrations
           </button>
           <button
-            className={`settings-tab ${tab === 'ordna' ? 'settings-tab-active' : ''}`}
-            onClick={() => setTab('ordna')}
+            className={`settings-tab ${tab === 'icons' ? 'settings-tab-active' : ''}`}
+            onClick={() => setTab('icons')}
           >
-            Ordna
+            Icons
+          </button>
+          <button
+            className={`settings-tab ${tab === 'appearance' ? 'settings-tab-active' : ''}`}
+            onClick={() => setTab('appearance')}
+          >
+            Appearance
           </button>
           {BACKUP_TAB_ENABLED && (
             <button
