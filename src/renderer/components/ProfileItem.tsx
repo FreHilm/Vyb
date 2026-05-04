@@ -14,13 +14,13 @@ function SmallAgentIcon({ agentId }: { agentId?: string }) {
   const icon = AGENT_ICON_DEFS[agentId];
   if (!icon) {
     return (
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="var(--c-overlay0)">
+      <svg width="9" height="9" viewBox="0 0 16 16" fill="var(--c-overlay0)">
         <circle cx="8" cy="8" r="5" />
       </svg>
     );
   }
   return (
-    <svg width="14" height="14" viewBox={icon.viewBox}
+    <svg width="9" height="9" viewBox={icon.viewBox}
       fill={icon.stroke ? 'none' : icon.color}
       stroke={icon.stroke ? icon.color : 'none'}
       strokeWidth={icon.stroke ? '2' : '0'}

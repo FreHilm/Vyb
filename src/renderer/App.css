@@ -547,15 +547,15 @@
   position: absolute;
   top: -2px;
   left: -2px;
-  width: 18px;
-  height: 18px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: var(--c-mantle);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 3;
-  border: 1.5px solid var(--c-mantle);
+  border: 1px solid var(--c-mantle);
 }
 
 .profile-controls {
