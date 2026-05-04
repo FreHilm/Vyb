@@ -131,6 +131,8 @@ export function ShellPane({
         cursorBlink: true,
         fontSize: settings.shellFontSize,
         fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+        fontWeight: settings.shellFontWeight as 'normal' | 'bold' | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900,
+        fontWeightBold: settings.shellFontWeightBold as 'normal' | 'bold' | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900,
         theme,
         allowProposedApi: true,
         macOptionIsMeta: false,
@@ -330,10 +332,12 @@ export function ShellPane({
     const theme = getShellTerminalTheme(settings.baseHue, settings.darkness, settings.textLightness);
     terminalsRef.current.forEach((entry) => {
       entry.terminal.options.fontSize = settings.shellFontSize;
+      entry.terminal.options.fontWeight = settings.shellFontWeight as 'normal' | 'bold' | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
+      entry.terminal.options.fontWeightBold = settings.shellFontWeightBold as 'normal' | 'bold' | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
       entry.terminal.options.theme = theme;
       if (!hidden) entry.fitAddon.fit();
     });
-  }, [settings.baseHue, settings.darkness, settings.shellFontSize, hidden]);
+  }, [settings.baseHue, settings.darkness, settings.shellFontSize, settings.shellFontWeight, settings.shellFontWeightBold, hidden]);
 
   const handleResize = useCallback((index: number, delta: number) => {
     const container = document.querySelector(`[data-shell-profile="${profileId}"]`);

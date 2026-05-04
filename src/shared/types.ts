@@ -39,6 +39,16 @@ export interface AppSettings {
   profileFontSize: number; // 10-20, default 14
   agentFontSize: number; // 10-24, default 12
   shellFontSize: number; // 10-24, default 10
+  // Font weights — 100..900. Defaults match CSS `normal` / `bold`.
+  // The non-bold weight applies to ordinary text; the *Bold variant
+  // applies whenever the renderer is asked to draw bold (xterm only —
+  // the profile sidebar treats both numbers as "weight" and ignores Bold).
+  profileFontWeight: number;     // sidebar profile rows (default 400)
+  profileFontWeightBold: number; // unused for sidebar but kept for symmetry
+  agentFontWeight: number;       // xterm agent terminal (default 400)
+  agentFontWeightBold: number;   // xterm agent bold (default 700)
+  shellFontWeight: number;       // xterm shell terminal (default 400)
+  shellFontWeightBold: number;   // xterm shell bold (default 700)
   iconProvider: 'gemini' | 'openai'; // Which AI to use for icon generation
   geminiModel: string; // Gemini model for image generation
   geminiApiKey: string; // Google Gemini API key
@@ -55,10 +65,10 @@ export interface AppSettings {
   dictationLang: string; // BCP 47 language code e.g. 'en-US'
   lastActiveProfileId: string; // Restored on app launch
   gpuAcceleration: 'auto' | 'canvas' | 'off'; // Terminal rendering: auto tries WebGL, canvas skips WebGL, off disables GPU
-  flameIntensity: number; // 0-100, default 50. Controls flame brightness/opacity.
-  flameSpread: number; // 0-100, default 50. Controls horizontal spread of flame spikes.
-  flameLength: number; // 0-100, default 50. Controls how far flames extend from edge.
-  flameSpeed: number; // 0-100, default 50. Controls animation speed.
+  flameIntensity: number; // 0-100, default 9. Controls flame brightness/opacity.
+  flameSpread: number; // 0-100, default 26. Controls horizontal spread of flame spikes.
+  flameLength: number; // 0-100, default 64. Controls how far flames extend from edge.
+  flameSpeed: number; // 0-100, default 23. Controls animation speed.
   showAgentBadge: boolean; // Show agent logo badge on profile items
   ordnaMode: 'web' | 'tui'; // Kanban mode for Ordna integration
   ordnaHookPort: number; // Local HTTP port for receiving Ordna agent hooks
@@ -123,8 +133,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   darkness: 0,
   textLightness: 12,
   profileFontSize: 14,
-  agentFontSize: 12,
+  agentFontSize: 11,
   shellFontSize: 10,
+  profileFontWeight: 300,
+  profileFontWeightBold: 500,
+  agentFontWeight: 100,
+  agentFontWeightBold: 300,
+  shellFontWeight: 100,
+  shellFontWeightBold: 300,
   iconProvider: 'gemini',
   geminiModel: 'gemini-3.1-flash-image-preview',
   geminiApiKey: '',
@@ -144,10 +160,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dictationLang: 'en-US',
   lastActiveProfileId: '',
   gpuAcceleration: 'auto',
-  flameIntensity: 50,
-  flameSpread: 50,
-  flameLength: 50,
-  flameSpeed: 50,
+  flameIntensity: 9,
+  flameSpread: 26,
+  flameLength: 64,
+  flameSpeed: 23,
   showAgentBadge: true,
   ordnaMode: 'web',
   ordnaHookPort: 9876,

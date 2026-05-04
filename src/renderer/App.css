@@ -597,7 +597,7 @@
 
 .profile-name {
   font-size: var(--profile-font-size);
-  font-weight: 400;
+  font-weight: var(--profile-font-weight, 400);
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.3;
@@ -926,6 +926,50 @@
 
 .field input::placeholder {
   color: var(--c-overlay0);
+}
+
+/* Compact font settings table — three rows of size/weight inputs
+   without the per-field padding the regular `.field` block adds. */
+.font-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.font-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--c-subtext0);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 8px 4px 0;
+}
+.font-table th:first-child {
+  width: 32%;
+}
+.font-table td {
+  padding: 3px 8px 3px 0;
+  color: var(--c-text);
+  vertical-align: middle;
+}
+.font-table td:first-child {
+  font-size: 12px;
+  color: var(--c-subtext1, var(--c-text));
+}
+.font-table input[type="number"] {
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: var(--c-text);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.font-table input[type="number"]:focus {
+  border-color: var(--c-blue);
 }
 
 .field-with-btn {

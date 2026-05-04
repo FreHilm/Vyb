@@ -56,6 +56,11 @@ interface SettingsDialogProps {
 
 type SettingsTab = 'appearance' | 'flames' | 'agents' | 'icons' | 'apps' | 'integrations' | 'ordna' | 'backup';
 
+// Flip this to `true` to bring the Backup tab back. The BackupTab
+// component + its IPC bindings + Export/Import buttons are all still in
+// place — only the tab button and the panel render are gated.
+const BACKUP_TAB_ENABLED = false;
+
 function BackupTab() {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -144,11 +149,15 @@ export function SettingsDialog({
   const [baseHue, setBaseHue] = useState(settings.baseHue);
   const [darkness, setDarkness] = useState(settings.darkness);
   const [textLightness, setTextLightness] = useState(settings.textLightness);
-  const [profileFontSize, setProfileFontSize] = useState(
-    settings.profileFontSize,
-  );
+  const [profileFontSize, setProfileFontSize] = useState(settings.profileFontSize);
   const [agentFontSize, setAgentFontSize] = useState(settings.agentFontSize);
   const [shellFontSize, setShellFontSize] = useState(settings.shellFontSize);
+  const [profileFontWeight, setProfileFontWeight] = useState(settings.profileFontWeight);
+  const [profileFontWeightBold, setProfileFontWeightBold] = useState(settings.profileFontWeightBold);
+  const [agentFontWeight, setAgentFontWeight] = useState(settings.agentFontWeight);
+  const [agentFontWeightBold, setAgentFontWeightBold] = useState(settings.agentFontWeightBold);
+  const [shellFontWeight, setShellFontWeight] = useState(settings.shellFontWeight);
+  const [shellFontWeightBold, setShellFontWeightBold] = useState(settings.shellFontWeightBold);
   const [iconProvider, setIconProvider] = useState(settings.iconProvider);
   const [geminiModel, setGeminiModel] = useState(settings.geminiModel);
   const [geminiApiKey, setGeminiApiKey] = useState(settings.geminiApiKey);
@@ -169,7 +178,8 @@ export function SettingsDialog({
   const [navModifierKey, setNavModifierKey] = useState(settings.navModifierKey);
   const [dictationMode, setDictationMode] = useState(settings.dictationMode);
   const [dictationLang, setDictationLang] = useState(settings.dictationLang);
-  const [gpuAcceleration, setGpuAcceleration] = useState(settings.gpuAcceleration);
+  // gpuAcceleration is forced to 'auto' on save — see save handler. No
+  // local state needed since the picker UI was removed.
   const [flameIntensity, setFlameIntensity] = useState(settings.flameIntensity);
   const [flameSpread, setFlameSpread] = useState(settings.flameSpread);
   const [flameLength, setFlameLength] = useState(settings.flameLength);
@@ -195,6 +205,12 @@ export function SettingsDialog({
       profileFontSize,
       agentFontSize,
       shellFontSize,
+      profileFontWeight,
+      profileFontWeightBold,
+      agentFontWeight,
+      agentFontWeightBold,
+      shellFontWeight,
+      shellFontWeightBold,
       iconProvider,
       geminiModel,
       geminiApiKey,
@@ -207,7 +223,8 @@ export function SettingsDialog({
       navModifierKey,
       dictationMode,
       dictationLang,
-      gpuAcceleration,
+      // Terminal rendering is locked to 'auto' — picker is hidden.
+      gpuAcceleration: 'auto',
       flameIntensity,
       flameSpread,
       flameLength,
@@ -244,12 +261,9 @@ export function SettingsDialog({
           >
             Appearance
           </button>
-          <button
-            className={`settings-tab ${tab === 'flames' ? 'settings-tab-active' : ''}`}
-            onClick={() => setTab('flames')}
-          >
-            Flames
-          </button>
+          {/* Flames tab hidden — settings still load/save normally; the
+              defaults in DEFAULT_SETTINGS match the values we want, and
+              users who want to tweak can edit settings.json directly. */}
           <button
             className={`settings-tab ${tab === 'agents' ? 'settings-tab-active' : ''}`}
             onClick={() => setTab('agents')}
@@ -280,12 +294,14 @@ export function SettingsDialog({
           >
             Ordna
           </button>
-          <button
-            className={`settings-tab ${tab === 'backup' ? 'settings-tab-active' : ''}`}
-            onClick={() => setTab('backup')}
-          >
-            Backup
-          </button>
+          {BACKUP_TAB_ENABLED && (
+            <button
+              className={`settings-tab ${tab === 'backup' ? 'settings-tab-active' : ''}`}
+              onClick={() => setTab('backup')}
+            >
+              Backup
+            </button>
+          )}
         </div>
 
         <div className="modal-body">
@@ -339,49 +355,47 @@ export function SettingsDialog({
                 />
               </label>
 
-              <label className="field">
-                <span className="field-label">Profile Panel Font Size</span>
-                <div className="field-row">
-                  <input
-                    type="number"
-                    min="10"
-                    max="20"
-                    value={profileFontSize}
-                    onChange={(e) => setProfileFontSize(Number(e.target.value))}
-                  />
-                  <span className="field-hint">
-                    Scales sidebar text proportionally (default: 13)
-                  </span>
-                </div>
-              </label>
-
-              <label className="field">
-                <span className="field-label">Agent Terminal Font Size</span>
-                <div className="field-row">
-                  <input
-                    type="number"
-                    min="10"
-                    max="24"
-                    value={agentFontSize}
-                    onChange={(e) => setAgentFontSize(Number(e.target.value))}
-                  />
-                  <span className="field-hint">Default: 14</span>
-                </div>
-              </label>
-
-              <label className="field">
-                <span className="field-label">Shell Terminal Font Size</span>
-                <div className="field-row">
-                  <input
-                    type="number"
-                    min="10"
-                    max="24"
-                    value={shellFontSize}
-                    onChange={(e) => setShellFontSize(Number(e.target.value))}
-                  />
-                  <span className="field-hint">Default: 14</span>
-                </div>
-              </label>
+              {/* Compact font table — three rows × three editable
+                  columns. Size in px, Weight applies to ordinary text,
+                  Bold applies when xterm draws bold. The sidebar row
+                  ignores the Bold value (no bold text there) but it's
+                  exposed for symmetry. */}
+              <div className="field">
+                <span className="field-label">Fonts</span>
+                <table className="font-table">
+                  <thead>
+                    <tr>
+                      <th />
+                      <th>Size (px)</th>
+                      <th>Weight</th>
+                      <th>Bold</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>Profile sidebar</td>
+                      <td><input type="number" min={10} max={20} value={profileFontSize} onChange={(e) => setProfileFontSize(Number(e.target.value))} /></td>
+                      <td><input type="number" min={100} max={900} step={100} value={profileFontWeight} onChange={(e) => setProfileFontWeight(Number(e.target.value))} /></td>
+                      <td><input type="number" min={100} max={900} step={100} value={profileFontWeightBold} onChange={(e) => setProfileFontWeightBold(Number(e.target.value))} /></td>
+                    </tr>
+                    <tr>
+                      <td>Agent terminal</td>
+                      <td><input type="number" min={10} max={24} value={agentFontSize} onChange={(e) => setAgentFontSize(Number(e.target.value))} /></td>
+                      <td><input type="number" min={100} max={900} step={100} value={agentFontWeight} onChange={(e) => setAgentFontWeight(Number(e.target.value))} /></td>
+                      <td><input type="number" min={100} max={900} step={100} value={agentFontWeightBold} onChange={(e) => setAgentFontWeightBold(Number(e.target.value))} /></td>
+                    </tr>
+                    <tr>
+                      <td>Shell terminal</td>
+                      <td><input type="number" min={10} max={24} value={shellFontSize} onChange={(e) => setShellFontSize(Number(e.target.value))} /></td>
+                      <td><input type="number" min={100} max={900} step={100} value={shellFontWeight} onChange={(e) => setShellFontWeight(Number(e.target.value))} /></td>
+                      <td><input type="number" min={100} max={900} step={100} value={shellFontWeightBold} onChange={(e) => setShellFontWeightBold(Number(e.target.value))} /></td>
+                    </tr>
+                  </tbody>
+                </table>
+                <span className="field-hint">
+                  Weights are 100 (thin) → 900 (black) in 100-step increments — 400 = normal, 700 = bold.
+                </span>
+              </div>
 
               <div className="field">
                 <span className="field-label">Quick Navigation Key</span>
@@ -446,32 +460,11 @@ export function SettingsDialog({
                 </select>
               </label>
 
-              <div className="field">
-                <span className="field-label">Terminal Rendering</span>
-                <div className="field-row">
-                  <button
-                    className={`provider-btn ${gpuAcceleration === 'auto' ? 'provider-btn-active' : ''}`}
-                    onClick={() => setGpuAcceleration('auto')}
-                  >
-                    Auto (WebGL)
-                  </button>
-                  <button
-                    className={`provider-btn ${gpuAcceleration === 'canvas' ? 'provider-btn-active' : ''}`}
-                    onClick={() => setGpuAcceleration('canvas')}
-                  >
-                    Canvas
-                  </button>
-                  <button
-                    className={`provider-btn ${gpuAcceleration === 'off' ? 'provider-btn-active' : ''}`}
-                    onClick={() => setGpuAcceleration('off')}
-                  >
-                    Off
-                  </button>
-                </div>
-                <span className="field-hint">
-                  Auto tries WebGL first, falls back to canvas. Use Canvas if you see rendering glitches.
-                </span>
-              </div>
+              {/* Terminal Rendering picker hidden — `auto` is always
+                  forced (see `gpuAcceleration` initialisation below).
+                  We still keep the underlying setting + render-pipeline
+                  code so power users can override via settings.json if
+                  they hit a WebGL bug. */}
 
               <label className="field field-row-toggle">
                 <span className="field-label">Show agent logo on profiles</span>
@@ -1130,7 +1123,7 @@ export function SettingsDialog({
             </>
           )}
 
-          {tab === 'backup' && (
+          {BACKUP_TAB_ENABLED && tab === 'backup' && (
             <BackupTab />
           )}
         </div>

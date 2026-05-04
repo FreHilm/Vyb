@@ -457,7 +457,7 @@ export function App() {
         spread: loaded.flameSpread,
         length: loaded.flameLength,
         speed: loaded.flameSpeed,
-      });
+      }, loaded.profileFontWeight);
     });
 
     window.api.loadLayout().then(setLayout);
@@ -824,7 +824,7 @@ export function App() {
       spread: settings.flameSpread,
       length: settings.flameLength,
       speed: settings.flameSpeed,
-    });
+    }, settings.profileFontWeight);
   }, [settings]);
 
   // Sync active profile to main process for notification suppression + persist
