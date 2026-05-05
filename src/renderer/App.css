@@ -638,17 +638,60 @@
 /* Command Bar */
 .command-bar {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
+  align-items: stretch;
+  justify-content: space-between;
   height: 32px;
-  padding: 0 16px;
+  padding: 0 16px 0 0;
   background: var(--c-base);
   flex-shrink: 0;
 }
 
+/* Main-view tab strip — pinned to the left of the command bar. The
+   tabs share the bar's full height so the active tab can grow a
+   bottom-border without affecting layout. */
+.command-bar-tabs {
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+
+.command-bar-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--c-overlay0);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+.command-bar-tab svg {
+  color: currentColor;
+  opacity: 0.9;
+}
+.command-bar-tab:hover {
+  color: var(--c-text);
+  background: var(--c-surface0);
+}
+.command-bar-tab-active {
+  color: var(--c-text);
+  border-bottom-color: var(--c-blue);
+}
+.command-bar-tab-active svg {
+  color: var(--c-blue);
+  opacity: 1;
+}
+
 .command-bar-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
+  padding-left: 16px;
   -webkit-app-region: no-drag;
 }
 
