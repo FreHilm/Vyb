@@ -1,4 +1,7 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { EditorView, keymap } from '@codemirror/view';
 import { EditorState, EditorSelection, type Extension } from '@codemirror/state';
 import { undo, redo } from '@codemirror/commands';
@@ -14,6 +17,7 @@ import { basicSetup } from 'codemirror';
 import { EditMenuAction, FileEntry } from '../../shared/types';
 import { FileIcon } from '../file-icons';
 import { ResizeHandle } from './ResizeHandle';
+import { MermaidBlock } from './MermaidBlock';
 
 interface FileExplorerProps {
   workingDirectory: string;
@@ -27,10 +31,15 @@ interface FileExplorerProps {
 }
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp']);
+const MD_EXT = /\.mdx?$/i;
 
 function isImageFile(filename: string): boolean {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
   return IMAGE_EXTENSIONS.has(ext);
+}
+
+function isMdFile(filename: string): boolean {
+  return MD_EXT.test(filename);
 }
 
 function getLanguageExtension(filename: string): Extension {
@@ -372,6 +381,16 @@ export function FileExplorer({
   const [modifiedSet, setModifiedSet] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Per-tab view/edit mode for .md files. Default is 'view' on first open
+  // — Fork-style. Tabs of non-md files just don't appear here. We mirror
+  // the state into a ref so `mountEditor` and other useCallback closures
+  // can read the current value without forming a stale-state bug.
+  const [mdViewMode, setMdViewMode] = useState<Map<string, 'view' | 'edit'>>(new Map());
+  const mdViewModeRef = useRef<Map<string, 'view' | 'edit'>>(new Map());
+  // Snapshot of the rendered-markdown content per md tab. Updated on
+  // (re)mount + on save so the view-mode preview stays fresh without
+  // re-reading from disk on every render.
+  const [mdContent, setMdContent] = useState<Map<string, string>>(new Map());
   // Drives the tree's auto-expand + scroll-into-view when a file is opened
   // externally (e.g. by clicking a file link in the agent terminal).
   const [revealRequest, setRevealRequest] = useState<{ path: string; nonce: number } | null>(null);
@@ -545,10 +564,16 @@ export function FileExplorer({
     if (!activePathRef.current || !viewRef.current) return;
     setSaving(true);
     const content = viewRef.current.state.doc.toString();
-    await window.api.saveFile(activePathRef.current, content);
-    docCacheRef.current.set(activePathRef.current, content);
-    savedContentRef.current.set(activePathRef.current, content);
-    setModifiedSet((s) => { const n = new Set(s); n.delete(activePathRef.current!); return n; });
+    const path = activePathRef.current;
+    await window.api.saveFile(path, content);
+    docCacheRef.current.set(path, content);
+    savedContentRef.current.set(path, content);
+    setModifiedSet((s) => { const n = new Set(s); n.delete(path); return n; });
+    // Keep the markdown preview in sync so switching to view mode after a
+    // save shows the just-saved content.
+    if (isMdFile(fileName(path))) {
+      setMdContent((m) => { const n = new Map(m); n.set(path, content); return n; });
+    }
     setSaving(false);
   }, []);
 
@@ -581,9 +606,10 @@ export function FileExplorer({
     setActiveTabPath(filePath);
 
     if (isImageFile(fileName(filePath))) return;
-    if (!editorRef.current) return;
 
-    // Use cached content or load from disk
+    // Use cached content or load from disk. Always populate the cache so
+    // both the editor and the markdown-view path read from the same
+    // source.
     let content = docCacheRef.current.get(filePath);
     if (content === undefined) {
       content = await window.api.readFile(filePath) || '';
@@ -593,6 +619,26 @@ export function FileExplorer({
     if (!savedContentRef.current.has(filePath)) {
       savedContentRef.current.set(filePath, content);
     }
+
+    // Markdown files default to view mode and skip the CodeMirror mount.
+    // We still preload the content so the rendered preview is instant.
+    // Read from the ref (not state) so a freshly-toggled mode is seen
+    // even when this callback was captured under the previous render.
+    if (isMdFile(fileName(filePath))) {
+      let mode = mdViewModeRef.current.get(filePath);
+      if (mode === undefined) {
+        mode = 'view';
+        const next = new Map(mdViewModeRef.current);
+        next.set(filePath, mode);
+        mdViewModeRef.current = next;
+        setMdViewMode(next);
+      }
+      setMdContent((m) => { const n = new Map(m); n.set(filePath, content!); return n; });
+      if (mode === 'view') return;
+      // Otherwise fall through to mount the editor.
+    }
+
+    if (!editorRef.current) return;
 
     const lang = getLanguageExtension(fileName(filePath));
     const thisPath = filePath;
@@ -1024,7 +1070,64 @@ export function FileExplorer({
   }, [creating, refresh]);
 
   const activeIsImage = activeTabPath ? isImageFile(fileName(activeTabPath)) : false;
+  const activeIsMd = activeTabPath ? isMdFile(fileName(activeTabPath)) : false;
   const activeIsModified = activeTabPath ? modifiedSet.has(activeTabPath) : false;
+  // For markdown tabs: 'view' (default) renders the rendered markdown,
+  // 'edit' mounts CodeMirror.
+  const activeMdMode: 'view' | 'edit' = activeTabPath
+    ? (mdViewMode.get(activeTabPath) ?? 'view')
+    : 'view';
+  const activeMdShowing = activeIsMd && activeMdMode === 'view';
+
+  // Toggle a markdown tab between view and edit. edit→view auto-saves
+  // dirty content first; view→edit mounts CodeMirror with the latest
+  // disk content. We update both the ref AND state so the next render
+  // shows the new mode and any callback that reads `mdViewModeRef.current`
+  // (notably `mountEditor`) sees it synchronously.
+  const toggleMdMode = useCallback(async () => {
+    if (!activeTabPath || !activeIsMd) return;
+    const path = activeTabPath;
+    const current = mdViewModeRef.current.get(path) ?? 'view';
+    const next = current === 'view' ? 'edit' : 'view';
+    if (next === 'view' && viewRef.current && modifiedSet.has(path)) {
+      // Auto-save before flipping to view so the rendered preview is
+      // up-to-date.
+      await handleSave();
+    }
+    const updated = new Map(mdViewModeRef.current);
+    updated.set(path, next);
+    mdViewModeRef.current = updated;
+    setMdViewMode(updated);
+    if (next === 'edit') {
+      // Mount the editor — needs a frame so the host div has flipped
+      // back to display:block before we attach CodeMirror.
+      requestAnimationFrame(() => { mountEditor(path); });
+    } else if (viewRef.current) {
+      // Tear down the editor when leaving edit mode.
+      viewRef.current.destroy();
+      viewRef.current = null;
+      // Refresh the rendered content from the in-memory cache.
+      const cached = docCacheRef.current.get(path);
+      if (cached !== undefined) {
+        setMdContent((m) => { const n = new Map(m); n.set(path, cached); return n; });
+      }
+    }
+  }, [activeTabPath, activeIsMd, modifiedSet, handleSave, mountEditor]);
+
+  // Memoise the markdown components prop — same trick as ReadmeViewer.
+  // Inline components on every render would cause react-markdown to
+  // remount custom blocks (notably MermaidBlock) and re-render their
+  // SVGs from scratch each time the parent updates.
+  const markdownComponents = useMemo(() => ({
+    code(props: { className?: string; children?: React.ReactNode; inline?: boolean }) {
+      const { className, children, ...rest } = props;
+      const lang = /language-(\w+)/.exec(className ?? '')?.[1];
+      if (lang === 'mermaid') {
+        return <MermaidBlock code={String(children ?? '').trim()} />;
+      }
+      return <code className={className} {...rest}>{children}</code>;
+    },
+  }), []);
 
   // Keep the application Edit menu (main process) in sync with what's actually
   // editable here: text-file open ⇒ items enabled; modified ⇒ Save enabled too.
@@ -1136,6 +1239,26 @@ export function FileExplorer({
               >
                 Save As
               </button>
+              {activeIsMd && (
+                <button
+                  className={`file-tab-action-btn ${activeMdMode === 'edit' ? 'is-active' : ''}`}
+                  onClick={toggleMdMode}
+                  title={activeMdMode === 'view' ? 'Edit markdown source' : 'View rendered markdown'}
+                >
+                  {activeMdMode === 'view' ? (
+                    /* Pencil icon = edit (the action when clicked). */
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11 1.5l3.5 3.5L5 14.5H1.5V11L11 1.5z" />
+                    </svg>
+                  ) : (
+                    /* Eye icon = view. */
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M1.5 8s2-5 6.5-5 6.5 5 6.5 5-2 5-6.5 5S1.5 8 1.5 8z" />
+                      <circle cx="8" cy="8" r="2" />
+                    </svg>
+                  )}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1146,10 +1269,26 @@ export function FileExplorer({
             <img src={`local-file://${activeTabPath}`} alt={fileName(activeTabPath)} />
           </div>
         )}
+        {/* Markdown view mode — replaces the editor with rendered markdown.
+            Editor host stays in the DOM (just hidden) so toggling back to
+            edit can re-mount it without React tearing down the parent. */}
+        {activeMdShowing && activeTabPath && (
+          <div className="file-md-content readme-content">
+            <Markdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeRaw]}
+              components={markdownComponents}
+            >
+              {mdContent.get(activeTabPath) ?? ''}
+            </Markdown>
+          </div>
+        )}
         <div
           className="file-editor-content"
           ref={editorRef}
-          style={{ display: activeTabPath && !activeIsImage ? 'block' : 'none' }}
+          style={{
+            display: activeTabPath && !activeIsImage && !activeMdShowing ? 'block' : 'none',
+          }}
         />
         {!activeTabPath && (
           <div className="file-editor-empty">Select a file to view</div>
