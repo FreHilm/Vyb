@@ -1,28 +1,22 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 // ClipboardAddon removed — it intercepts Escape key, breaking vi/vim
 import '@xterm/xterm/css/xterm.css';
-import { Profile, AppSettings, ProfileMemoryMap } from '../../shared/types';
+import { Profile, AppSettings } from '../../shared/types';
 import { getTerminalTheme } from '../theme';
-import { ResizeHandle } from './ResizeHandle';
-import { ShellPane } from './ShellPane';
 
 interface TerminalPaneProps {
   profiles: Profile[];
   activeProfileId: string | null;
   initialized: Set<string>;
-  shellOpen: boolean;
   hidden: boolean;
-  onShellExited: () => void;
   settings: AppSettings;
-  onSplitChange: (percent: number) => void;
   focusedPane: { pane: 'agent' | 'shell'; shellIndex: number };
   navActive: boolean;
-  onShellCountChange?: (profileId: string, count: number) => void;
-  profileMemory: ProfileMemoryMap;
+  shellOpen: boolean;
 }
 
 interface TerminalInstance {
@@ -35,10 +29,6 @@ interface TerminalInstance {
   webglAddon?: WebglAddon;
   lastCols: number;
   lastRows: number;
-}
-
-function shellId(profileId: string): string {
-  return `shell:${profileId}`;
 }
 
 // Shell-escape a file path (like VS Code does)
@@ -405,21 +395,14 @@ export function TerminalPane({
   profiles,
   activeProfileId,
   initialized,
-  shellOpen,
   hidden,
-  onShellExited,
   settings,
-  onSplitChange,
   focusedPane,
   navActive,
-  onShellCountChange,
-  profileMemory,
+  shellOpen,
 }: TerminalPaneProps) {
-  const splitRef = useRef<HTMLDivElement>(null);
   const agentContainerRef = useRef<HTMLDivElement>(null);
-  const [agentPercent, setAgentPercent] = useState(settings.terminalSplitPercent);
   const agentTerminalsRef = useRef<Map<string, TerminalInstance>>(new Map());
-  const shellOpenedRef = useRef<Set<string>>(new Set());
   const dataUnsubRef = useRef<(() => void) | null>(null);
 
   // Route incoming data to agent terminals
@@ -577,19 +560,6 @@ export function TerminalPane({
     };
   }, [hidden, activeProfileId, shellOpen]);
 
-  const handleTerminalSplitResize = useCallback((delta: number) => {
-    const container = splitRef.current;
-    if (!container) return;
-    const totalHeight = container.clientHeight;
-    if (totalHeight === 0) return;
-    const deltaPercent = (delta / totalHeight) * 100;
-    setAgentPercent((p) => {
-      const next = Math.max(20, Math.min(80, p + deltaPercent));
-      onSplitChange(next);
-      return next;
-    });
-  }, [onSplitChange]);
-
   // Refit agent terminals on container resize — only fires on ACTUAL size changes,
   // not on profile switch. ResizeObserver fires once on initial .observe() — skip that.
   useEffect(() => {
@@ -623,68 +593,20 @@ export function TerminalPane({
     };
   }, [activeProfileId, shellOpen]);
 
-  const activeProfile = profiles.find((p) => p.id === activeProfileId);
-
-  // Track which profiles have had shell opened
-  useEffect(() => {
-    if (shellOpen && activeProfileId) {
-      shellOpenedRef.current.add(activeProfileId);
-    }
-  }, [shellOpen, activeProfileId]);
-
-  const agentStyle = shellOpen
-    ? { height: `${agentPercent}%` }
-    : { flex: 1 };
-  const shellStyle = shellOpen
-    ? { height: `${100 - agentPercent}%`, display: 'block' as const }
-    : { display: 'none' as const };
-
   return (
-    <div className="terminal-split" ref={splitRef}>
-      <div
-        className="terminal-pane agent-pane"
-        style={agentStyle}
-        ref={agentContainerRef}
-      >
-        {!activeProfileId && (
-          <div className="terminal-placeholder">Select a profile to start</div>
-        )}
-        {navActive && shellOpen && focusedPane.pane === 'agent' && (
-          <div className="nav-pane-hint right">
-            <span className="nav-arrow">&#x2192;</span>
-          </div>
-        )}
-      </div>
-      {shellOpen && (
-        <ResizeHandle direction="vertical" onResize={handleTerminalSplitResize} />
+    <div
+      className="terminal-pane agent-pane"
+      ref={agentContainerRef}
+      style={hidden ? { display: 'none' } : { flex: 1, minHeight: 0 }}
+    >
+      {!activeProfileId && (
+        <div className="terminal-placeholder">Select a profile to start</div>
       )}
-      <div className="terminal-pane shell-pane" style={shellStyle}>
-        {profiles.map((p) => {
-          const isVisible = shellOpen && p.id === activeProfileId && !hidden;
-          const wasOpened = shellOpenedRef.current.has(p.id);
-          if (!wasOpened && !isVisible) return null;
-          return (
-            <div
-              key={p.id}
-              style={{ display: isVisible ? 'block' : 'none', width: '100%', height: '100%' }}
-            >
-              <ShellPane
-                profileId={p.id}
-                workingDirectory={p.workingDirectory}
-                hidden={!isVisible}
-                settings={settings}
-                onAllClosed={onShellExited}
-                focused={isVisible && focusedPane.pane === 'shell'}
-                focusedIndex={focusedPane.shellIndex}
-                navActive={navActive && isVisible}
-                navFocusedPane={focusedPane}
-                onShellCountChange={(count) => onShellCountChange?.(p.id, count)}
-                initialShellCount={profileMemory[p.id]?.shellCount || 1}
-              />
-            </div>
-          );
-        })}
-      </div>
+      {navActive && shellOpen && focusedPane.pane === 'agent' && (
+        <div className="nav-pane-hint right">
+          <span className="nav-arrow">&#x2192;</span>
+        </div>
+      )}
     </div>
   );
 }

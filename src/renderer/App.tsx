@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { CommandBar } from './components/CommandBar';
 import { TerminalPane } from './components/TerminalPane';
+import { ShellPane } from './components/ShellPane';
 import { ProfileEditor } from './components/ProfileEditor';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ResizeHandle } from './components/ResizeHandle';
@@ -1072,12 +1073,35 @@ export function App() {
     [savePaneSizes],
   );
 
-  const handleTerminalSplitChange = useCallback(
-    (percent: number) => {
-      savePaneSizes({ terminalSplitPercent: percent });
+  const [agentPercent, setAgentPercent] = useState(DEFAULT_SETTINGS.terminalSplitPercent);
+  // Sync local split state from saved settings (initial load + external changes)
+  useEffect(() => {
+    setAgentPercent(settings.terminalSplitPercent);
+  }, [settings.terminalSplitPercent]);
+  const splitRef = useRef<HTMLDivElement>(null);
+  const handleTerminalSplitResize = useCallback(
+    (delta: number) => {
+      const container = splitRef.current;
+      if (!container) return;
+      const totalHeight = container.clientHeight;
+      if (totalHeight === 0) return;
+      const deltaPercent = (delta / totalHeight) * 100;
+      setAgentPercent((p) => {
+        const next = Math.max(20, Math.min(80, p + deltaPercent));
+        savePaneSizes({ terminalSplitPercent: next });
+        return next;
+      });
     },
     [savePaneSizes],
   );
+  // Track which profiles have ever had shell opened (so previously-opened
+  // shells stay mounted across switches)
+  const shellOpenedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (activeProfileId && shellOpenSet.has(activeProfileId)) {
+      shellOpenedRef.current.add(activeProfileId);
+    }
+  }, [activeProfileId, shellOpenSet]);
 
   // Build ordered list of profile IDs for keyboard navigation
   const effectiveLayout = useMemo(() => {
@@ -1125,33 +1149,44 @@ export function App() {
 
   // Command bar action builders — keyed by activeViewKey so parallel agents
   // and their parent profile each have independent overlay state.
-  const toggleFiles = useCallback(() => {
+
+  // Single source of truth for which main-view tab the user is on.
+  // 'agent'  → no overlay, terminal is in front.
+  // 'files'  → FileExplorer overlay.
+  // 'kanban' → KanbanViewer overlay (its KanbanRunning entry stays put
+  //   when the user moves to a different tab, so Ordna keeps running
+  //   in the background).
+  const selectTab = useCallback((tab: 'agent' | 'files' | 'kanban') => {
     const key = activeViewKey;
     if (!key) return;
-    if (filesViews.has(key)) {
-      setFilesCloseRequested(true);
-    } else {
+    if (tab === 'agent') {
+      if (filesViews.has(key)) setFilesCloseRequested(true);
+      setKanbanViews((prev) => removeFromSet(prev, key));
+      return;
+    }
+    if (tab === 'files') {
       setFilesViews((prev) => ensureInSet(prev, key));
       setKanbanViews((prev) => removeFromSet(prev, key));
+      return;
     }
+    // tab === 'kanban'
+    setKanbanViews((prev) => ensureInSet(prev, key));
+    setKanbanRunning((prev) => ensureInSet(prev, key));
+    if (filesViews.has(key)) setFilesCloseRequested(true);
   }, [activeViewKey, filesViews]);
 
-  const toggleKanban = useCallback(() => {
-    const key = activeViewKey;
-    if (!key) return;
-    const opening = !kanbanViews.has(key);
-    if (opening) {
-      // Show the Kanban tab and ensure its viewer is mounted (idempotent —
-      // existing Ordna instance is reused if already running).
-      setKanbanViews((prev) => ensureInSet(prev, key));
-      setKanbanRunning((prev) => ensureInSet(prev, key));
-      if (filesViews.has(key)) setFilesCloseRequested(true);
-    } else {
-      // Hide-only: remove from the visible set but keep the viewer mounted in
-      // the background so Ordna keeps running and re-opening is instant.
-      setKanbanViews((prev) => removeFromSet(prev, key));
-    }
-  }, [activeViewKey, filesViews, kanbanViews]);
+  // Keyboard-nav targets — same-tab presses are no-ops, so ⌘1 from
+  // Files goes to Agent and from Agent stays on Agent.
+  const goAgent = useCallback(() => selectTab('agent'), [selectTab]);
+  const goFiles = useCallback(() => selectTab('files'), [selectTab]);
+  const goKanban = useCallback(() => selectTab('kanban'), [selectTab]);
+
+  // Derived current tab — the Agent tab is the default whenever no
+  // overlay is active.
+  const activeTab: 'agent' | 'files' | 'kanban' = filesVisible ? 'files'
+    : kanbanVisible ? 'kanban'
+    : 'agent';
+  const shellOpen = activeProfileId ? shellOpenSet.has(activeProfileId) : false;
 
   const toggleShell = useCallback(() => {
     if (!activeProfileId) return;
@@ -1187,9 +1222,9 @@ export function App() {
 
   const navActions = useMemo(() => {
     // Keep this in sync with CommandBar.tsx button order:
-    // Files(0) Kanban(1) Terminal(2) | Mic | Folder(3) | external(4+)
-    const actions = [toggleFiles, toggleKanban, toggleShell, openFolder];
-    const labels = ['Files', 'Kanban', 'Terminal', 'Folder'];
+    // Tabs: Agent(0) Files(1) Kanban(2) | Terminal(3) | Mic | Folder(4) | external(5+)
+    const actions = [goAgent, goFiles, goKanban, toggleShell, openFolder];
+    const labels = ['Agent', 'Files', 'Kanban', 'Terminal', 'Folder'];
     for (const app of settings.externalApps || []) {
       const cmd = app.command;
       const wd = activeProfile?.workingDirectory || '';
@@ -1197,7 +1232,7 @@ export function App() {
       labels.push(app.name);
     }
     return { actions, labels };
-  }, [toggleFiles, toggleShell, openFolder, toggleKanban, settings.externalApps, activeProfile]);
+  }, [goAgent, goFiles, goKanban, toggleShell, openFolder, settings.externalApps, activeProfile]);
 
   // Keyboard profile navigation — only updates visual selection.
   // The auto-init effect (2s debounce) handles terminal initialization.
@@ -1355,12 +1390,10 @@ export function App() {
       <div className="main-area">
         <CommandBar
           profile={activeProfile}
-          shellOpen={activeProfileId ? shellOpenSet.has(activeProfileId) : false}
+          shellOpen={shellOpen}
+          activeTab={activeTab}
+          onSelectTab={selectTab}
           onToggleShell={toggleShell}
-          filesVisible={filesVisible}
-          onToggleFiles={toggleFiles}
-          kanbanVisible={kanbanVisible}
-          onToggleKanban={toggleKanban}
           externalApps={settings.externalApps || []}
           navActive={navActive}
           dictationListening={dictation.listening}
@@ -1371,98 +1404,143 @@ export function App() {
           onDictationStart={dictation.startListening}
           onDictationStop={dictation.stopListening}
         />
-        {filesVisible && activeProfile && (
-          <FileExplorer
-            workingDirectory={activeViewCwd || activeProfile.workingDirectory}
-            closeRequested={filesCloseRequested}
-            onCloseHandled={(proceed) => {
-              setFilesCloseRequested(false);
-              if (proceed && activeViewKey) {
-                setFilesViews((prev) => {
-                  if (!prev.has(activeViewKey)) return prev;
-                  const next = new Set(prev);
-                  next.delete(activeViewKey);
-                  return next;
-                });
+        {/* Vertical split: top half hosts whichever main view is active
+            (Agent terminal / Files / Kanban / parallel-agent terminal); the
+            bottom half is the per-profile shell terminal split, which is
+            shared across all tabs and toggled via the Terminal button. */}
+        <div className="terminal-split" ref={splitRef}>
+          <div
+            className="main-content-top"
+            style={
+              shellOpen
+                ? { height: `${agentPercent}%`, display: 'flex', flexDirection: 'column', position: 'relative', minHeight: 0, overflow: 'hidden' }
+                : { flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', minHeight: 0, overflow: 'hidden' }
+            }
+          >
+            {filesVisible && activeProfile && (
+              <FileExplorer
+                workingDirectory={activeViewCwd || activeProfile.workingDirectory}
+                closeRequested={filesCloseRequested}
+                onCloseHandled={(proceed) => {
+                  setFilesCloseRequested(false);
+                  if (proceed && activeViewKey) {
+                    setFilesViews((prev) => {
+                      if (!prev.has(activeViewKey)) return prev;
+                      const next = new Set(prev);
+                      next.delete(activeViewKey);
+                      return next;
+                    });
+                  }
+                }}
+                pendingOpenPath={pendingFileOpen}
+                onPendingOpenHandled={() => setPendingFileOpen(null)}
+              />
+            )}
+            {/* Mount one KanbanViewer per view in kanbanRunning. The set persists
+                across tab close — clicking the Kanban button to hide just removes
+                the view from kanbanViews, leaving the viewer mounted and Ordna
+                alive in the background. The viewer is shown only when its view
+                matches the active view AND the Kanban tab is the active overlay.
+                View key format: parent = `${profileId}`, parallel = `${profileId}|${parallelId}`. */}
+            {[...kanbanRunning].map((key) => {
+              const sepIdx = key.indexOf('|');
+              const profileId = sepIdx === -1 ? key : key.slice(0, sepIdx);
+              const parallelId = sepIdx === -1 ? null : key.slice(sepIdx + 1);
+              const p = profiles.find((pp) => pp.id === profileId);
+              if (!p) return null;
+              let cwd = p.workingDirectory;
+              if (parallelId) {
+                const pa = parallelAgents.get(parallelId);
+                if (!pa) return null; // parallel gone — viewer will be unmounted next render
+                cwd = pa.worktreePath;
               }
-            }}
-            pendingOpenPath={pendingFileOpen}
-            onPendingOpenHandled={() => setPendingFileOpen(null)}
-          />
-        )}
-        {/* Mount one KanbanViewer per view in kanbanRunning. The set persists
-            across tab close — clicking the Kanban button to hide just removes
-            the view from kanbanViews, leaving the viewer mounted and Ordna
-            alive in the background. The viewer is shown only when its view
-            matches the active view AND the Kanban tab is the active overlay.
-            View key format: parent = `${profileId}`, parallel = `${profileId}|${parallelId}`. */}
-        {[...kanbanRunning].map((key) => {
-          const sepIdx = key.indexOf('|');
-          const profileId = sepIdx === -1 ? key : key.slice(0, sepIdx);
-          const parallelId = sepIdx === -1 ? null : key.slice(sepIdx + 1);
-          const p = profiles.find((pp) => pp.id === profileId);
-          if (!p) return null;
-          let cwd = p.workingDirectory;
-          if (parallelId) {
-            const pa = parallelAgents.get(parallelId);
-            if (!pa) return null; // parallel gone — viewer will be unmounted next render
-            cwd = pa.worktreePath;
-          }
-          const visible = key === activeViewKey && kanbanViews.has(key);
-          return (
-            <KanbanViewer
-              key={key}
-              instanceKey={key}
-              profileId={p.id}
-              cwd={cwd}
+              const visible = key === activeViewKey && kanbanViews.has(key);
+              return (
+                <KanbanViewer
+                  key={key}
+                  instanceKey={key}
+                  profileId={p.id}
+                  cwd={cwd}
+                  settings={settings}
+                  hidden={!visible}
+                />
+              );
+            })}
+            {/* Mount one ParallelAgentTerminal per parallel agent so each PTY's
+                xterm.js stays alive and switching between them is just CSS. */}
+            {[...parallelAgents.values()].map((sa) => (
+              <ParallelAgentTerminal
+                key={sa.id}
+                agent={sa}
+                settings={settings}
+                hidden={!(selectedParallelId === sa.id && activeProfileId === sa.profileId && !filesVisible && !kanbanVisible)}
+              />
+            ))}
+            <TerminalPane
+              profiles={profiles}
+              activeProfileId={activeProfileId}
+              initialized={initialized}
+              shellOpen={shellOpen}
+              hidden={filesVisible || kanbanVisible || selectedParallelId !== null}
               settings={settings}
-              hidden={!visible}
+              focusedPane={focusedPane}
+              navActive={navActive}
             />
-          );
-        })}
-        {/* Mount one ParallelAgentTerminal per parallel agent so each PTY's
-            xterm.js stays alive and switching between them is just CSS. */}
-        {[...parallelAgents.values()].map((sa) => (
-          <ParallelAgentTerminal
-            key={sa.id}
-            agent={sa}
-            settings={settings}
-            hidden={!(selectedParallelId === sa.id && activeProfileId === sa.profileId && !filesVisible && !kanbanVisible)}
-          />
-        ))}
-        <div style={{ display: filesVisible || kanbanVisible || selectedParallelId !== null ? 'none' : 'contents' }}>
-          <TerminalPane
-            profiles={profiles}
-            activeProfileId={activeProfileId}
-            initialized={initialized}
-            shellOpen={activeProfileId ? shellOpenSet.has(activeProfileId) : false}
-            hidden={filesVisible || kanbanVisible}
-            onShellExited={() => {
-              if (!activeProfileId) return;
-              setShellOpenSet((prev) => {
-                const next = new Set(prev);
-                next.delete(activeProfileId);
-                return next;
-              });
-              setFocusedPane({ pane: 'agent', shellIndex: 0 });
-            }}
-            settings={settings}
-            onSplitChange={handleTerminalSplitChange}
-            focusedPane={focusedPane}
-            navActive={navActive}
-            onShellCountChange={(pid, count) => {
-              if (pid === activeProfileId) shellCountRef.current = count;
-              // Save shell count to memory — but only if > 0 (0 means shells are being destroyed)
-              if (count > 0) {
-                const memory = { ...profileMemoryRef.current };
-                if (!memory[pid]) memory[pid] = { shellOpen: true, shellCount: 1 };
-                memory[pid].shellCount = count;
-                profileMemoryRef.current = memory;
-                window.api.saveProfileMemory(memory);
-              }
-            }}
-            profileMemory={profileMemoryRef.current}
-          />
+          </div>
+          {shellOpen && (
+            <ResizeHandle direction="vertical" onResize={handleTerminalSplitResize} />
+          )}
+          <div
+            className="terminal-pane shell-pane"
+            style={
+              shellOpen
+                ? { height: `${100 - agentPercent}%`, display: 'block' }
+                : { display: 'none' }
+            }
+          >
+            {profiles.map((p) => {
+              const isVisible = shellOpen && p.id === activeProfileId;
+              const wasOpened = shellOpenedRef.current.has(p.id);
+              if (!wasOpened && !isVisible) return null;
+              return (
+                <div
+                  key={p.id}
+                  style={{ display: isVisible ? 'block' : 'none', width: '100%', height: '100%' }}
+                >
+                  <ShellPane
+                    profileId={p.id}
+                    workingDirectory={p.workingDirectory}
+                    hidden={!isVisible}
+                    settings={settings}
+                    onAllClosed={() => {
+                      if (!activeProfileId) return;
+                      setShellOpenSet((prev) => {
+                        const next = new Set(prev);
+                        next.delete(activeProfileId);
+                        return next;
+                      });
+                      setFocusedPane({ pane: 'agent', shellIndex: 0 });
+                    }}
+                    focused={isVisible && focusedPane.pane === 'shell'}
+                    focusedIndex={focusedPane.shellIndex}
+                    navActive={navActive && isVisible}
+                    navFocusedPane={focusedPane}
+                    onShellCountChange={(count) => {
+                      if (p.id === activeProfileId) shellCountRef.current = count;
+                      if (count > 0) {
+                        const memory = { ...profileMemoryRef.current };
+                        if (!memory[p.id]) memory[p.id] = { shellOpen: true, shellCount: 1 };
+                        memory[p.id].shellCount = count;
+                        profileMemoryRef.current = memory;
+                        window.api.saveProfileMemory(memory);
+                      }
+                    }}
+                    initialShellCount={profileMemoryRef.current[p.id]?.shellCount || 1}
+                  />
+                </div>
+              );
+            })}
+          </div>
         </div>
         {changesVisible && activeProfile && (
           <GitChangesPanel

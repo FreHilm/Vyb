@@ -2,14 +2,16 @@ import { Profile, ExternalApp } from '../../shared/types';
 import { APP_ICONS } from '../icons';
 import { NavBadge } from './KeyNav';
 
+export type CommandBarTab = 'agent' | 'files' | 'kanban';
+
 interface CommandBarProps {
   profile: Profile | null;
   shellOpen: boolean;
-  filesVisible: boolean;
-  kanbanVisible: boolean;
+  /** Currently active main-view tab. Files/Kanban replace the agent
+   * terminal in the same panel; Agent shows the terminal. */
+  activeTab: CommandBarTab;
+  onSelectTab: (tab: CommandBarTab) => void;
   onToggleShell: () => void;
-  onToggleFiles: () => void;
-  onToggleKanban: () => void;
   externalApps: ExternalApp[];
   navActive: boolean;
   dictationListening: boolean;
@@ -40,11 +42,9 @@ const ICON_PROPS = {
 export function CommandBar({
   profile,
   shellOpen,
-  filesVisible,
-  kanbanVisible,
+  activeTab,
+  onSelectTab,
   onToggleShell,
-  onToggleFiles,
-  onToggleKanban,
   externalApps,
   navActive,
   dictationListening,
@@ -66,19 +66,32 @@ export function CommandBar({
   };
 
   // Order on the bar:
-  //   Files(0) Kanban(1) Terminal(2) | Mic Folder(3) | external apps(4+)
+  //   Tabs: Agent(0) Files(1) Kanban(2) | Terminal(3) | Mic Folder(4) | external apps(5+)
   // Nav indices skip the dictation button (it has its own Ctrl+Shift+D shortcut).
-  const extStart = 4;
+  const extStart = 5;
 
   return (
     <div className="command-bar">
-      <div className="command-bar-actions">
+      <div className="command-bar-tabs">
         <button
-          className={`action-btn ${filesVisible ? 'action-btn-active' : ''}`}
-          onClick={onToggleFiles}
-          title="Toggle file explorer"
+          className={`command-bar-tab ${activeTab === 'agent' ? 'command-bar-tab-active' : ''}`}
+          onClick={() => onSelectTab('agent')}
+          title="Show the agent terminal"
         >
           <NavNum active={navActive} idx={0} />
+          <svg {...ICON_PROPS}>
+            <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
+            <polyline points="4.5 7 6.5 9 4.5 11" />
+            <line x1="8" y1="11" x2="11" y2="11" />
+          </svg>
+          <span>Agent</span>
+        </button>
+        <button
+          className={`command-bar-tab ${activeTab === 'files' ? 'command-bar-tab-active' : ''}`}
+          onClick={() => onSelectTab('files')}
+          title="File explorer"
+        >
+          <NavNum active={navActive} idx={1} />
           <svg {...ICON_PROPS}>
             <path d="M9 2H5A1.5 1.5 0 0 0 3.5 3.5v9A1.5 1.5 0 0 0 5 14h6a1.5 1.5 0 0 0 1.5-1.5V5.5L9 2Z" />
             <path d="M9 2v3.5h3.5" />
@@ -86,11 +99,11 @@ export function CommandBar({
           <span>Files</span>
         </button>
         <button
-          className={`action-btn ${kanbanVisible ? 'action-btn-active' : ''}`}
-          onClick={onToggleKanban}
-          title="Toggle Kanban (Ordna)"
+          className={`command-bar-tab ${activeTab === 'kanban' ? 'command-bar-tab-active' : ''}`}
+          onClick={() => onSelectTab('kanban')}
+          title="Kanban (Ordna)"
         >
-          <NavNum active={navActive} idx={1} />
+          <NavNum active={navActive} idx={2} />
           <svg {...ICON_PROPS}>
             <rect x="2" y="3" width="3.2" height="10" rx="0.5" />
             <rect x="6.4" y="3" width="3.2" height="7" rx="0.5" />
@@ -98,12 +111,14 @@ export function CommandBar({
           </svg>
           <span>Kanban</span>
         </button>
+      </div>
+      <div className="command-bar-actions">
         <button
           className={`action-btn ${shellOpen ? 'action-btn-active' : ''}`}
           onClick={onToggleShell}
           title="Toggle terminal"
         >
-          <NavNum active={navActive} idx={2} />
+          <NavNum active={navActive} idx={3} />
           <svg {...ICON_PROPS}>
             <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
             <polyline points="4.5 7 6.5 9 4.5 11" />
@@ -137,7 +152,7 @@ export function CommandBar({
           </button>
         )}
         <button className="action-btn" onClick={handleOpenFolder} title="Open in Finder">
-          <NavNum active={navActive} idx={3} />
+          <NavNum active={navActive} idx={4} />
           <svg {...ICON_PROPS}>
             <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.5h5A1.5 1.5 0 0 1 14 6v6a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12V4.5Z" />
           </svg>
