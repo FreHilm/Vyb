@@ -19,6 +19,7 @@ import { FileIcon } from '../file-icons';
 import { ResizeHandle } from './ResizeHandle';
 import { MermaidBlock } from './MermaidBlock';
 import { ExcalidrawEditor, type ExcalidrawEditorHandle } from './ExcalidrawEditor';
+import { SWORD_SHAPE } from '../file-icons';
 
 interface FileExplorerProps {
   workingDirectory: string;
@@ -1362,6 +1363,7 @@ export function FileExplorer({
             key={activeTabPath}
             filePath={activeTabPath}
             initialContent={excalidrawContent.get(activeTabPath) ?? ''}
+            savedBaseline={savedContentRef.current.get(activeTabPath) ?? ''}
             theme="dark"
             onModifiedChange={(modified) => {
               setModifiedSet((s) => {
@@ -1418,8 +1420,10 @@ export function FileExplorer({
               title="New Excalidraw drawing"
             >
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M11 1.5l3.5 3.5L5 14.5H1.5V11L11 1.5z" />
-                <path d="M9.5 3l3.5 3.5" />
+                {SWORD_SHAPE}
+                {/* "New" plus badge in the top-right — same convention as
+                    the New File button's plus inside the page outline. */}
+                <path d="M13 1.5v3M11.5 3h3" strokeWidth="1.5" />
               </svg>
             </button>
           </div>

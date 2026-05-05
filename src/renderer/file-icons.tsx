@@ -3,6 +3,7 @@
  * by file type). Folders use a gray folder outline. Inspired by VS Code's
  * "modern outline" look — lighter and less busy than the filled Seti style.
  */
+import type React from 'react';
 
 interface ColorDef {
   color: string;
@@ -36,6 +37,28 @@ const FOLDER_OPEN_OUTLINE = (
     <path d="M2 7h12l-1.5 5.5a1.5 1.5 0 0 1-1.5 1H3.5A1.5 1.5 0 0 1 2 12V7Z" />
   </>
 );
+
+// Sword silhouette — Excalidraw's name plays on "Excalibur", so
+// `.excalidraw` files get a sword instead of the generic page outline.
+// Drawn as a tip-up sword: triangular blade, cross-guard, grip, pommel.
+export const SWORD_SHAPE = (
+  <>
+    {/* Blade */}
+    <path d="M8 1.5 L6.6 4 L6.6 10 L9.4 10 L9.4 4 Z" />
+    {/* Cross-guard */}
+    <path d="M4.5 10 L11.5 10" />
+    {/* Grip */}
+    <path d="M8 10 L8 13" />
+    {/* Pommel */}
+    <circle cx="8" cy="13.6" r="1" />
+  </>
+);
+
+// Per-extension shape overrides — used when the page-outline default
+// doesn't fit (e.g. signature file types with strong brand identity).
+const SHAPE_OVERRIDES: Record<string, React.ReactElement> = {
+  excalidraw: SWORD_SHAPE,
+};
 
 // Color per file type. Picked to roughly match the VS Code "modern" palette:
 // red for markup, blue for TS/JS, yellow for JSON/YAML, green for shell/license,
@@ -146,9 +169,11 @@ export function FileIcon({ filename, isDirectory, isExpanded }: {
   isExpanded?: boolean;
 }) {
   const color = isDirectory ? FOLDER_COLOR : getColorForFile(filename).color;
+  const ext = filename.toLowerCase().split('.').pop() || '';
+  const fileShape = SHAPE_OVERRIDES[ext] ?? PAGE_OUTLINE;
   const shape = isDirectory
     ? (isExpanded ? FOLDER_OPEN_OUTLINE : FOLDER_OUTLINE)
-    : PAGE_OUTLINE;
+    : fileShape;
 
   return (
     <svg
