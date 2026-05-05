@@ -5,7 +5,6 @@ import { TerminalPane } from './components/TerminalPane';
 import { ProfileEditor } from './components/ProfileEditor';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ResizeHandle } from './components/ResizeHandle';
-import { ReadmeViewer } from './components/ReadmeViewer';
 import { FileExplorer } from './components/FileExplorer';
 import { KanbanViewer } from './components/KanbanViewer';
 import { ParallelAgentTerminal } from './components/ParallelAgentTerminal';
@@ -221,7 +220,6 @@ export function App() {
   // parallel agent's view. The parent view's key is just `${profileId}` so
   // existing behavior (open Files on profile A, switch to B, switch back —
   // Files reappears) is preserved.
-  const [readmeViews, setReadmeViews] = useState<Set<string>>(new Set());
   const [filesViews, setFilesViews] = useState<Set<string>>(new Set());
   // kanbanViews = views whose Kanban tab is currently SHOWN (overlay active).
   // kanbanRunning = views whose KanbanViewer is mounted and whose Ordna
@@ -236,7 +234,6 @@ export function App() {
   const [selectedParallelId, setSelectedParallelId] = useState<string | null>(null);
   // Track parallel agents whose `completed` state has been seen by the user (for soft-delete)
   const inspectedParallelRef = useRef<Set<string>>(new Set());
-  const [hasReadme, setHasReadme] = useState(false);
   const [changesVisible, setChangesVisible] = useState(false);
   const [changesWidth, setChangesWidth] = useState(50); // percent of agent pane
   const [gitPanelTab, setGitPanelTab] = useState<'changes' | 'tree' | 'branches'>('changes');
@@ -267,7 +264,6 @@ export function App() {
     : profiles.find((p) => p.id === activeProfileId)?.workingDirectory || '';
 
   // Derived: visible state for the currently-active view
-  const readmeVisible = activeViewKey ? readmeViews.has(activeViewKey) : false;
   const filesVisible = activeViewKey ? filesViews.has(activeViewKey) : false;
   const kanbanVisible = activeViewKey ? kanbanViews.has(activeViewKey) : false;
   const [hasUpdates, setHasUpdates] = useState<Set<string>>(new Set());
@@ -613,7 +609,6 @@ export function App() {
         next.delete(target);
         return next;
       };
-      setReadmeViews(dropParent);
       setKanbanViews(dropParent);
       setFilesCloseRequested(true);
       // Drop back to the parent view so the user immediately sees the agent
@@ -654,7 +649,6 @@ export function App() {
         next.delete(viewKey);
         return next;
       };
-      setReadmeViews(dropOne);
       setFilesViews(dropOne);
       setKanbanViews(dropOne);
       setKanbanRunning((prev) => {
@@ -713,12 +707,6 @@ export function App() {
           if (prev.has(key)) return prev;
           const next = new Set(prev);
           next.add(key);
-          return next;
-        });
-        setReadmeViews((prev) => {
-          if (!prev.has(key)) return prev;
-          const next = new Set(prev);
-          next.delete(key);
           return next;
         });
         setKanbanViews((prev) => {
@@ -834,18 +822,6 @@ export function App() {
       window.api.saveSettings({ ...settings, lastActiveProfileId: activeProfileId });
     }
   }, [activeProfileId]);
-
-  // Check if active profile has a README
-  useEffect(() => {
-    const profile = profiles.find((p) => p.id === activeProfileId);
-    if (!profile) {
-      setHasReadme(false);
-      return;
-    }
-    window.api.loadReadme(profile.workingDirectory).then((md) => {
-      setHasReadme(md !== null);
-    });
-  }, [activeProfileId, profiles]);
 
   const handleSaveSettings = async (newSettings: AppSettings) => {
     await window.api.saveSettings(newSettings);
@@ -1045,7 +1021,6 @@ export function App() {
       }
       return changed ? next : prev;
     };
-    setReadmeViews(dropForProfile);
     setFilesViews(dropForProfile);
     setKanbanViews(dropForProfile);
     setKanbanRunning((prev) => {
@@ -1150,14 +1125,6 @@ export function App() {
 
   // Command bar action builders — keyed by activeViewKey so parallel agents
   // and their parent profile each have independent overlay state.
-  const toggleReadme = useCallback(() => {
-    const key = activeViewKey;
-    if (!key) return;
-    if (filesViews.has(key)) setFilesCloseRequested(true);
-    setKanbanViews((prev) => removeFromSet(prev, key));
-    setReadmeViews((prev) => toggleInSet(prev, key));
-  }, [activeViewKey, filesViews]);
-
   const toggleFiles = useCallback(() => {
     const key = activeViewKey;
     if (!key) return;
@@ -1165,7 +1132,6 @@ export function App() {
       setFilesCloseRequested(true);
     } else {
       setFilesViews((prev) => ensureInSet(prev, key));
-      setReadmeViews((prev) => removeFromSet(prev, key));
       setKanbanViews((prev) => removeFromSet(prev, key));
     }
   }, [activeViewKey, filesViews]);
@@ -1180,7 +1146,6 @@ export function App() {
       setKanbanViews((prev) => ensureInSet(prev, key));
       setKanbanRunning((prev) => ensureInSet(prev, key));
       if (filesViews.has(key)) setFilesCloseRequested(true);
-      setReadmeViews((prev) => removeFromSet(prev, key));
     } else {
       // Hide-only: remove from the visible set but keep the viewer mounted in
       // the background so Ordna keeps running and re-opening is instant.
@@ -1222,9 +1187,9 @@ export function App() {
 
   const navActions = useMemo(() => {
     // Keep this in sync with CommandBar.tsx button order:
-    // README(0) Files(1) Kanban(2) Terminal(3) | Mic | Folder(4) | external(5+)
-    const actions = [toggleReadme, toggleFiles, toggleKanban, toggleShell, openFolder];
-    const labels = ['README', 'Files', 'Kanban', 'Terminal', 'Folder'];
+    // Files(0) Kanban(1) Terminal(2) | Mic | Folder(3) | external(4+)
+    const actions = [toggleFiles, toggleKanban, toggleShell, openFolder];
+    const labels = ['Files', 'Kanban', 'Terminal', 'Folder'];
     for (const app of settings.externalApps || []) {
       const cmd = app.command;
       const wd = activeProfile?.workingDirectory || '';
@@ -1232,7 +1197,7 @@ export function App() {
       labels.push(app.name);
     }
     return { actions, labels };
-  }, [toggleReadme, toggleFiles, toggleShell, openFolder, toggleKanban, settings.externalApps, activeProfile]);
+  }, [toggleFiles, toggleShell, openFolder, toggleKanban, settings.externalApps, activeProfile]);
 
   // Keyboard profile navigation — only updates visual selection.
   // The auto-init effect (2s debounce) handles terminal initialization.
@@ -1391,10 +1356,7 @@ export function App() {
         <CommandBar
           profile={activeProfile}
           shellOpen={activeProfileId ? shellOpenSet.has(activeProfileId) : false}
-          readmeVisible={readmeVisible}
-          hasReadme={hasReadme}
           onToggleShell={toggleShell}
-          onToggleReadme={toggleReadme}
           filesVisible={filesVisible}
           onToggleFiles={toggleFiles}
           kanbanVisible={kanbanVisible}
@@ -1409,9 +1371,6 @@ export function App() {
           onDictationStart={dictation.startListening}
           onDictationStop={dictation.stopListening}
         />
-        {readmeVisible && activeProfile && (
-          <ReadmeViewer workingDirectory={activeViewCwd || activeProfile.workingDirectory} />
-        )}
         {filesVisible && activeProfile && (
           <FileExplorer
             workingDirectory={activeViewCwd || activeProfile.workingDirectory}
@@ -1468,16 +1427,16 @@ export function App() {
             key={sa.id}
             agent={sa}
             settings={settings}
-            hidden={!(selectedParallelId === sa.id && activeProfileId === sa.profileId && !readmeVisible && !filesVisible && !kanbanVisible)}
+            hidden={!(selectedParallelId === sa.id && activeProfileId === sa.profileId && !filesVisible && !kanbanVisible)}
           />
         ))}
-        <div style={{ display: readmeVisible || filesVisible || kanbanVisible || selectedParallelId !== null ? 'none' : 'contents' }}>
+        <div style={{ display: filesVisible || kanbanVisible || selectedParallelId !== null ? 'none' : 'contents' }}>
           <TerminalPane
             profiles={profiles}
             activeProfileId={activeProfileId}
             initialized={initialized}
             shellOpen={activeProfileId ? shellOpenSet.has(activeProfileId) : false}
-            hidden={readmeVisible || filesVisible || kanbanVisible}
+            hidden={filesVisible || kanbanVisible}
             onShellExited={() => {
               if (!activeProfileId) return;
               setShellOpenSet((prev) => {

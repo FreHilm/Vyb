@@ -5,12 +5,9 @@ import { NavBadge } from './KeyNav';
 interface CommandBarProps {
   profile: Profile | null;
   shellOpen: boolean;
-  readmeVisible: boolean;
-  hasReadme: boolean;
   filesVisible: boolean;
   kanbanVisible: boolean;
   onToggleShell: () => void;
-  onToggleReadme: () => void;
   onToggleFiles: () => void;
   onToggleKanban: () => void;
   externalApps: ExternalApp[];
@@ -43,12 +40,9 @@ const ICON_PROPS = {
 export function CommandBar({
   profile,
   shellOpen,
-  readmeVisible,
-  hasReadme,
   filesVisible,
   kanbanVisible,
   onToggleShell,
-  onToggleReadme,
   onToggleFiles,
   onToggleKanban,
   externalApps,
@@ -72,34 +66,19 @@ export function CommandBar({
   };
 
   // Order on the bar:
-  //   README(0) Files(1) Kanban(2) Terminal(3) | Mic Folder(4) | external apps(5+)
+  //   Files(0) Kanban(1) Terminal(2) | Mic Folder(3) | external apps(4+)
   // Nav indices skip the dictation button (it has its own Ctrl+Shift+D shortcut).
-  const extStart = 5;
+  const extStart = 4;
 
   return (
     <div className="command-bar">
       <div className="command-bar-actions">
         <button
-          className={`action-btn ${readmeVisible ? 'action-btn-active' : ''}`}
-          onClick={onToggleReadme}
-          disabled={!hasReadme}
-          title={hasReadme ? 'Toggle README' : 'No README.md found'}
-        >
-          <NavNum active={navActive} idx={0} />
-          <svg {...ICON_PROPS}>
-            <path d="M9 2H5A1.5 1.5 0 0 0 3.5 3.5v9A1.5 1.5 0 0 0 5 14h6a1.5 1.5 0 0 0 1.5-1.5V5.5L9 2Z" />
-            <path d="M9 2v3.5h3.5" />
-            <line x1="6" y1="9" x2="10" y2="9" />
-            <line x1="6" y1="11" x2="10" y2="11" />
-          </svg>
-          <span>README</span>
-        </button>
-        <button
           className={`action-btn ${filesVisible ? 'action-btn-active' : ''}`}
           onClick={onToggleFiles}
           title="Toggle file explorer"
         >
-          <NavNum active={navActive} idx={1} />
+          <NavNum active={navActive} idx={0} />
           <svg {...ICON_PROPS}>
             <path d="M9 2H5A1.5 1.5 0 0 0 3.5 3.5v9A1.5 1.5 0 0 0 5 14h6a1.5 1.5 0 0 0 1.5-1.5V5.5L9 2Z" />
             <path d="M9 2v3.5h3.5" />
@@ -111,7 +90,7 @@ export function CommandBar({
           onClick={onToggleKanban}
           title="Toggle Kanban (Ordna)"
         >
-          <NavNum active={navActive} idx={2} />
+          <NavNum active={navActive} idx={1} />
           <svg {...ICON_PROPS}>
             <rect x="2" y="3" width="3.2" height="10" rx="0.5" />
             <rect x="6.4" y="3" width="3.2" height="7" rx="0.5" />
@@ -124,7 +103,7 @@ export function CommandBar({
           onClick={onToggleShell}
           title="Toggle terminal"
         >
-          <NavNum active={navActive} idx={3} />
+          <NavNum active={navActive} idx={2} />
           <svg {...ICON_PROPS}>
             <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
             <polyline points="4.5 7 6.5 9 4.5 11" />
@@ -158,7 +137,7 @@ export function CommandBar({
           </button>
         )}
         <button className="action-btn" onClick={handleOpenFolder} title="Open in Finder">
-          <NavNum active={navActive} idx={4} />
+          <NavNum active={navActive} idx={3} />
           <svg {...ICON_PROPS}>
             <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.5h5A1.5 1.5 0 0 1 14 6v6a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12V4.5Z" />
           </svg>

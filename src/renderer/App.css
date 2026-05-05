@@ -2587,6 +2587,24 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
+/* Markdown view mode inside the file editor — pulls the same readability
+   styling as the standalone README pane via the `readme-content` class. */
+.file-md-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 48px;
+  background: var(--c-base);
+  outline: none;
+  min-width: 0;
+}
+
+/* Tab action button "active" styling — used by the markdown view/edit
+   toggle. Mirrors the file-tree-action-btn.is-active treatment. */
+.file-tab-action-btn.is-active {
+  background: var(--c-surface0);
+  color: var(--c-blue);
+}
+
 .file-editor-empty {
   flex: 1;
   display: flex;
