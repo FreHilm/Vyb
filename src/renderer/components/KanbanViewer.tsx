@@ -189,19 +189,34 @@ function KanbanTui({ ptyId, settings, hidden }: { ptyId: string; settings: AppSe
     };
   }, [ptyId, settings.baseHue, settings.darkness, settings.shellFontSize, settings.gpuAcceleration]);
 
-  // When the pane comes back into view, refit so xterm matches the new container size
+  // When the pane comes back into view, refit so xterm matches the new
+  // container size AND force the PTY to redraw. We bypass
+  // `debouncedPtyResize`'s dedup here on purpose: after a hide/show with no
+  // window resize, the cols/rows match the last-sent value, so the dedup
+  // would skip the SIGWINCH. The Ink TUI (Ordna) repaints in response to
+  // SIGWINCH — without one, xterm keeps showing the stale frame from
+  // before the hide (visible as a half-rendered board with only the
+  // column bottom-borders + footer). Two-pass timing (50 ms + 250 ms)
+  // mirrors TerminalPane's agent refit so a slower layout settle still
+  // catches the right dimensions.
   useEffect(() => {
     if (hidden) return;
-    const t = termRef.current;
-    if (!t) return;
-    const id = requestAnimationFrame(() => {
-      if (containerRef.current && containerRef.current.clientHeight > 10) {
-        t.fitAddon.fit();
-        t.terminal.focus();
-        debouncedPtyResize(ptyId, t.terminal.cols, t.terminal.rows);
-      }
-    });
-    return () => cancelAnimationFrame(id);
+    const refit = () => {
+      const t = termRef.current;
+      if (!t) return;
+      const c = containerRef.current;
+      if (!c || c.clientHeight < 10 || c.clientWidth < 10) return;
+      t.fitAddon.fit();
+      t.terminal.focus();
+      // Force-send the resize even if the dims match — guarantees SIGWINCH.
+      window.api.resizeTerminal(ptyId, t.terminal.cols, t.terminal.rows);
+    };
+    const t1 = setTimeout(refit, 50);
+    const t2 = setTimeout(refit, 250);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [hidden, ptyId]);
 
   return (

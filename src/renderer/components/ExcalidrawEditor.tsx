@@ -23,11 +23,16 @@ interface ExcalidrawEditorProps {
    * editor with fresh initialData (Excalidraw doesn't reactively re-read
    * `initialData` after mount). */
   filePath: string;
-  /** Raw file contents from disk (or cache). Empty string is treated as a
-   * fresh / blank scene. */
+  /** What the canvas should *render* at mount time. May contain pending
+   * unsaved edits restored from a tab-switch cache. */
   initialContent: string;
+  /** What's actually on disk for `filePath`. Used as the baseline for the
+   * dirty/modified comparison — distinct from `initialContent` because the
+   * canvas can mount with pending edits that aren't saved yet. Updated by
+   * the parent after a successful save so the dirty flag clears. */
+  savedBaseline: string;
   theme: 'light' | 'dark';
-  /** Fires whenever the scene meaningfully changes vs the loaded baseline. */
+  /** Fires whenever the scene meaningfully changes vs the saved baseline. */
   onModifiedChange: (modified: boolean) => void;
   /** Cmd+S inside the canvas — let the parent run the same save flow it
    * uses for the toolbar Save button. */
@@ -53,11 +58,11 @@ function parseInitialData(raw: string): ExcalidrawInitialDataState | null {
 
 export const ExcalidrawEditor = forwardRef<ExcalidrawEditorHandle, ExcalidrawEditorProps>(
   function ExcalidrawEditor(
-    { filePath, initialContent, theme, onModifiedChange, onSaveRequested },
+    { filePath, initialContent, savedBaseline, theme, onModifiedChange, onSaveRequested },
     ref,
   ) {
     const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
-    const baselineRef = useRef<string>(initialContent);
+    const baselineRef = useRef<string>(savedBaseline);
     const [, setIsModified] = useState(false);
 
     const initialData = useMemo(() => parseInitialData(initialContent), [initialContent]);
@@ -77,13 +82,21 @@ export const ExcalidrawEditor = forwardRef<ExcalidrawEditorHandle, ExcalidrawEdi
       serialize: serializeCurrent,
     }), []);
 
-    // Reset baseline when the file changes (parent remounts via key, but
-    // belt-and-braces in case it doesn't).
+    // Sync baseline against `savedBaseline` (disk) on (re)mount and
+    // whenever the parent saves. Re-derive the dirty flag from the live
+    // canvas — on the very first mount the API may not be wired yet, in
+    // which case fall back to `initialContent` (what we just asked the
+    // canvas to render). This is what makes a tab-switch with pending
+    // edits keep its "*" indicator: savedBaseline is still the disk
+    // content, but `initialContent` (and thus the canvas) holds the
+    // unsaved scene.
     useEffect(() => {
-      baselineRef.current = initialContent;
-      setIsModified(false);
-      onModifiedChange(false);
-    }, [filePath, initialContent]);
+      baselineRef.current = savedBaseline;
+      const current = apiRef.current ? serializeCurrent() : initialContent;
+      const modified = current !== savedBaseline;
+      setIsModified(modified);
+      onModifiedChange(modified);
+    }, [filePath, savedBaseline, initialContent]);
 
     // Cmd+S inside the canvas → parent save flow.
     useEffect(() => {
