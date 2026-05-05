@@ -22,6 +22,7 @@ with the MIT license of this project.
 | [@codemirror/theme-one-dark](https://github.com/codemirror/theme-one-dark) | MIT | Editor dark theme |
 | [react-markdown](https://github.com/remarkjs/react-markdown) | MIT | Markdown renderer |
 | [remark-gfm](https://github.com/remarkjs/remark-gfm) | MIT | GitHub Flavored Markdown |
+| [mermaid](https://github.com/mermaid-js/mermaid) | MIT | Diagram rendering for ```mermaid``` code blocks in the README viewer |
 | [archiver](https://github.com/archiverjs/node-archiver) | MIT | ZIP archive creation |
 | [adm-zip](https://github.com/cthackers/adm-zip) | MIT | ZIP archive extraction |
 | [electron-squirrel-startup](https://github.com/mongodb-js/electron-squirrel-startup) | Apache-2.0 | Windows installer integration |

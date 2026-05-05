@@ -1,7 +1,8 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
+import mermaid from 'mermaid';
 import { EditorView, keymap } from '@codemirror/view';
 import { EditorState, EditorSelection } from '@codemirror/state';
 import { markdown } from '@codemirror/lang-markdown';
@@ -10,6 +11,60 @@ import { basicSetup } from 'codemirror';
 import { FileEntry } from '../../shared/types';
 import { FileIcon } from '../file-icons';
 import { ResizeHandle } from './ResizeHandle';
+
+// One-time mermaid setup. `startOnLoad: false` means we only render
+// charts when our component asks (no automatic DOM scan); the dark
+// theme reads cleanly on the app's dark chrome.
+let mermaidInitialized = false;
+function ensureMermaidInitialized() {
+  if (mermaidInitialized) return;
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'dark',
+    securityLevel: 'strict',
+    fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
+  });
+  mermaidInitialized = true;
+}
+
+let mermaidIdSeq = 0;
+
+/** Render one mermaid block. We render asynchronously into local state
+ * because mermaid.render is async and returns SVG markup. On invalid
+ * input we surface the parser error inline so the user can fix the
+ * source. */
+function MermaidBlock({ code }: { code: string }) {
+  const [svg, setSvg] = useState<string>('');
+  const [error, setError] = useState<string>('');
+
+  useEffect(() => {
+    let cancelled = false;
+    ensureMermaidInitialized();
+    const id = `mermaid-${++mermaidIdSeq}`;
+    mermaid.render(id, code).then(
+      (result) => { if (!cancelled) { setSvg(result.svg); setError(''); } },
+      (err) => { if (!cancelled) { setSvg(''); setError(err instanceof Error ? err.message : String(err)); } },
+    );
+    return () => { cancelled = true; };
+  }, [code]);
+
+  if (error) {
+    return (
+      <pre className="readme-mermaid-error" title="Mermaid parse error">
+        {`Mermaid error: ${error}\n\n${code}`}
+      </pre>
+    );
+  }
+  if (!svg) return <div className="readme-mermaid-loading">rendering diagram…</div>;
+  return (
+    <div
+      className="readme-mermaid"
+      // mermaid output is trusted (we set securityLevel:'strict' above);
+      // this is the standard react-markdown / mermaid integration.
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}
 
 interface ReadmeViewerProps {
   workingDirectory: string;
@@ -225,6 +280,46 @@ export function ReadmeViewer({ workingDirectory }: ReadmeViewerProps) {
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorHostRef = useRef<HTMLDivElement>(null);
   const editorViewRef = useRef<EditorView | null>(null);
+  // Pinch-to-zoom state for the rendered markdown. Uses the CSS `zoom`
+  // property so the content reflows at the new size (transform:scale
+  // would just rescale pixels and keep wrapping at 1×).
+  const [zoom, setZoom] = useState(1);
+
+  // Memoise the react-markdown `components` prop so its identity is
+  // stable across renders. Otherwise zoom changes (which re-render this
+  // component) would cause react-markdown to unmount + remount the
+  // custom `MermaidBlock`, losing its rendered SVG state and
+  // re-running mermaid.render — visible as the diagram briefly
+  // shrinking then "reloading" back to its original size.
+  const markdownComponents = useMemo(() => ({
+    code(props: { className?: string; children?: React.ReactNode; inline?: boolean }) {
+      const { className, children, ...rest } = props;
+      const lang = /language-(\w+)/.exec(className ?? '')?.[1];
+      if (lang === 'mermaid') {
+        return <MermaidBlock code={String(children ?? '').trim()} />;
+      }
+      return <code className={className} {...rest}>{children}</code>;
+    },
+  }), []);
+
+  // Trackpad pinch arrives in Chromium as a `wheel` event with
+  // `ctrlKey: true`. We intercept it on the viewer (passive:false so
+  // preventDefault works) and turn deltaY into a zoom multiplier.
+  // The deps include `mode/loading/content` because the viewer div is
+  // conditionally rendered — the ref is null until the view-mode JSX
+  // mounts, so we need to re-run the effect when it does.
+  useEffect(() => {
+    const el = viewerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      // 0.01 step per wheel-tick reads naturally on a mac trackpad.
+      setZoom((z) => Math.max(0.5, Math.min(3, z * (1 - e.deltaY * 0.01))));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [mode, loading, content]);
   // Avoid stale closures for the latest editor content / mounted file.
   const currentFileRef = useRef('');
   const modifiedRef = useRef(false);
@@ -565,6 +660,19 @@ export function ReadmeViewer({ workingDirectory }: ReadmeViewerProps) {
       e.preventDefault();
       goBack();
     }
+    // ⌘= / ⌘+ → zoom in, ⌘- → zoom out, ⌘0 → reset.
+    if (e.metaKey || e.ctrlKey) {
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        setZoom((z) => Math.min(3, z * 1.1));
+      } else if (e.key === '-') {
+        e.preventDefault();
+        setZoom((z) => Math.max(0.5, z / 1.1));
+      } else if (e.key === '0') {
+        e.preventDefault();
+        setZoom(1);
+      }
+    }
   }, [goBack, history]);
 
   // Intercept link clicks
@@ -816,8 +924,15 @@ export function ReadmeViewer({ workingDirectory }: ReadmeViewerProps) {
             </svg>
           </button>
         )}
-        <div className="readme-content">
-          <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>{content}</Markdown>
+        <div
+          className="readme-content"
+          style={{ zoom } as React.CSSProperties}
+        >
+          <Markdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw]}
+            components={markdownComponents}
+          >{content}</Markdown>
         </div>
       </div>
       {tree}

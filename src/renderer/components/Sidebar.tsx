@@ -249,6 +249,40 @@ export function Sidebar({
 
   const [confirmDeleteFolderId, setConfirmDeleteFolderId] = useState<string | null>(null);
 
+  // Folder-config modal state. Opened from the gear button on the folder
+  // header. Lets the user rename the folder and set a per-folder
+  // reference image used by AI icon generation for profiles inside.
+  const [configFolderId, setConfigFolderId] = useState<string | null>(null);
+  const [configName, setConfigName] = useState('');
+  const [configRef, setConfigRef] = useState('');
+
+  const openFolderConfig = (folderId: string) => {
+    const folder = folderMap.get(folderId);
+    if (!folder) return;
+    setConfigFolderId(folderId);
+    setConfigName(folder.name);
+    setConfigRef(folder.referenceImage ?? '');
+  };
+
+  const saveFolderConfig = () => {
+    if (!configFolderId) return;
+    const name = configName.trim();
+    const folders = effective.folders.map((f) =>
+      f.id === configFolderId
+        ? { ...f, name: name || f.name, referenceImage: configRef || undefined }
+        : f,
+    );
+    onLayoutChange({ ...effective, folders });
+    setConfigFolderId(null);
+  };
+
+  const browseFolderRefImage = async () => {
+    const file = await window.api.selectFile();
+    if (file) setConfigRef(file);
+  };
+
+  const resetFolderRefImage = () => setConfigRef('');
+
   const handleDeleteFolder = (folderId: string) => {
     setConfirmDeleteFolderId(folderId);
   };
@@ -622,31 +656,31 @@ export function Sidebar({
                     {folder.name}
                   </span>
                 )}
-                <span className="folder-count">
-                  {folder.profileIds.length}
-                </span>
                 <button
-                  className="folder-delete-btn"
+                  className="folder-config-btn"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleDeleteFolder(folder.id);
+                    openFolderConfig(folder.id);
                   }}
-                  title="Delete folder (profiles will be ungrouped)"
+                  title="Folder settings"
                 >
                   <svg
-                    width="10"
-                    height="10"
+                    width="11"
+                    height="11"
                     viewBox="0 0 16 16"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth={2}
+                    strokeWidth={1.5}
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
-                    <line x1="4" y1="4" x2="12" y2="12" />
-                    <line x1="12" y1="4" x2="4" y2="12" />
+                    <circle cx="8" cy="8" r="2" />
+                    <path d="M13.5 8a5.5 5.5 0 0 0-.1-1.1l1.4-1-1.5-2.6-1.7.6a5.5 5.5 0 0 0-1.9-1.1L9.4 1H6.6L6.3 2.8a5.5 5.5 0 0 0-1.9 1.1l-1.7-.6L1.2 5.9l1.4 1A5.5 5.5 0 0 0 2.5 8c0 .4 0 .7.1 1.1l-1.4 1L2.7 12.7l1.7-.6a5.5 5.5 0 0 0 1.9 1.1l.3 1.8h2.8l.3-1.8a5.5 5.5 0 0 0 1.9-1.1l1.7.6 1.5-2.6-1.4-1c.1-.4.1-.7.1-1.1z" />
                   </svg>
                 </button>
+                <span className="folder-count">
+                  {folder.profileIds.length}
+                </span>
               </div>
               {folder.isOpen &&
                 folder.profileIds.map((pid) => renderProfile(pid, true, folder.id))}
@@ -668,6 +702,81 @@ export function Sidebar({
             <span className="nav-arrow">&#x2193;</span>
           </div>
         </>
+      )}
+      {configFolderId && (
+        <div className="modal-overlay" onClick={() => setConfigFolderId(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Folder Settings</h3>
+            </div>
+            <div className="modal-body">
+              <label className="field">
+                <span className="field-label">Name</span>
+                <input
+                  type="text"
+                  value={configName}
+                  onChange={(e) => setConfigName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveFolderConfig(); } }}
+                  autoFocus
+                />
+              </label>
+              <label className="field">
+                <span className="field-label">Icon reference image</span>
+                <span className="field-hint" style={{ marginBottom: 6 }}>
+                  When set, AI icon generation for profiles in this folder uses
+                  this image as the style reference instead of the global one
+                  in Settings → Icons.
+                </span>
+                <div className="field-with-btn">
+                  <input
+                    type="text"
+                    value={configRef}
+                    onChange={(e) => setConfigRef(e.target.value)}
+                    placeholder="(use global default)"
+                  />
+                  <button className="browse-btn" onClick={browseFolderRefImage}>Browse</button>
+                  <button
+                    className="browse-btn"
+                    onClick={resetFolderRefImage}
+                    disabled={!configRef}
+                    title="Clear the per-folder reference; profiles in this folder will use the global setting again"
+                  >
+                    Reset
+                  </button>
+                </div>
+                {configRef && (
+                  <div className="icon-preview" style={{ marginTop: 8 }}>
+                    <img
+                      src={`local-file://${configRef}`}
+                      alt="Reference preview"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                  </div>
+                )}
+              </label>
+            </div>
+            <div className="modal-footer">
+              <button
+                className="delete-btn"
+                onClick={() => {
+                  // Close the settings dialog first, then surface the
+                  // existing confirm-delete modal so the user gets a
+                  // final "profiles will be ungrouped" warning.
+                  const folderId = configFolderId;
+                  setConfigFolderId(null);
+                  if (folderId) handleDeleteFolder(folderId);
+                }}
+                title="Delete this folder; profiles inside will be ungrouped"
+              >
+                Delete folder…
+              </button>
+              <div className="modal-footer-right">
+                <button className="cancel-btn" onClick={() => setConfigFolderId(null)}>Cancel</button>
+                <button className="save-btn" onClick={saveFolderConfig}>Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
       {confirmDeleteFolderId && (
         <div className="modal-overlay" onClick={() => setConfirmDeleteFolderId(null)}>

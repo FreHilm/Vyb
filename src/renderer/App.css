@@ -185,6 +185,28 @@
   color: var(--c-red);
 }
 
+/* Gear icon that opens the folder config modal. Hover-only — same
+   fade-in pattern as the (now-removed) delete X. */
+.folder-config-btn {
+  background: none;
+  border: none;
+  color: var(--c-overlay0);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.sidebar-folder-header:hover .folder-config-btn {
+  opacity: 1;
+}
+.folder-config-btn:hover {
+  color: var(--c-blue);
+}
+
 /* Drag and Drop */
 .sidebar-drag-item {
   position: relative;
@@ -3000,6 +3022,37 @@
   color: var(--c-overlay0);
   font-size: 12px;
   text-align: center;
+}
+
+/* Mermaid diagrams rendered inside markdown — center the SVG and give
+   it some breathing room so it doesn't collide with surrounding text. */
+.readme-mermaid {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0;
+  overflow-x: auto;
+}
+.readme-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+.readme-mermaid-loading {
+  color: var(--c-overlay0);
+  font-size: 12px;
+  font-style: italic;
+  margin: 16px 0;
+}
+.readme-mermaid-error {
+  background: color-mix(in srgb, var(--c-red) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-red) 40%, transparent);
+  border-radius: 4px;
+  color: var(--c-text);
+  padding: 10px 12px;
+  margin: 12px 0;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  overflow-x: auto;
 }
 
 /* Inline rename input shown when creating a new .md file. */
