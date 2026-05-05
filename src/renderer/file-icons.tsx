@@ -92,6 +92,8 @@ const COLOR_MAP: Record<string, ColorDef> = {
   svg: { color: '#eab308' },
   webp: { color: '#a855f7' },
   ico: { color: '#a855f7' },
+  // Drawings
+  excalidraw: { color: '#a78bfa' },
   // Misc
   pdf: { color: '#ef4444' },
   zip: { color: '#a16207' },

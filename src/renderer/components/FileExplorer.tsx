@@ -18,6 +18,7 @@ import { EditMenuAction, FileEntry } from '../../shared/types';
 import { FileIcon } from '../file-icons';
 import { ResizeHandle } from './ResizeHandle';
 import { MermaidBlock } from './MermaidBlock';
+import { ExcalidrawEditor, type ExcalidrawEditorHandle } from './ExcalidrawEditor';
 
 interface FileExplorerProps {
   workingDirectory: string;
@@ -32,6 +33,20 @@ interface FileExplorerProps {
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp']);
 const MD_EXT = /\.mdx?$/i;
+const EXCALIDRAW_EXT = /\.excalidraw$/i;
+
+const EMPTY_EXCALIDRAW = JSON.stringify(
+  {
+    type: 'excalidraw',
+    version: 2,
+    source: 'vyb',
+    elements: [],
+    appState: { gridSize: null, viewBackgroundColor: '#ffffff' },
+    files: {},
+  },
+  null,
+  2,
+);
 
 function isImageFile(filename: string): boolean {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
@@ -40,6 +55,10 @@ function isImageFile(filename: string): boolean {
 
 function isMdFile(filename: string): boolean {
   return MD_EXT.test(filename);
+}
+
+function isExcalidrawFile(filename: string): boolean {
+  return EXCALIDRAW_EXT.test(filename);
 }
 
 function getLanguageExtension(filename: string): Extension {
@@ -391,11 +410,18 @@ export function FileExplorer({
   // (re)mount + on save so the view-mode preview stays fresh without
   // re-reading from disk on every render.
   const [mdContent, setMdContent] = useState<Map<string, string>>(new Map());
+  // Per-tab loaded content for `.excalidraw` files. Drives the
+  // ExcalidrawEditor's initialContent — gating the editor's mount on this
+  // map being populated avoids a race where the editor mounts with `''`
+  // before the disk read completes (which would later overwrite the file
+  // on save with an empty scene).
+  const [excalidrawContent, setExcalidrawContent] = useState<Map<string, string>>(new Map());
   // Drives the tree's auto-expand + scroll-into-view when a file is opened
   // externally (e.g. by clicking a file link in the agent terminal).
   const [revealRequest, setRevealRequest] = useState<{ path: string; nonce: number } | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const excalidrawRef = useRef<ExcalidrawEditorHandle | null>(null);
   const activePathRef = useRef<string | null>(null);
   // Store editor doc content per tab so we can restore on switch
   const docCacheRef = useRef<Map<string, string>>(new Map());
@@ -408,7 +434,7 @@ export function FileExplorer({
   const [clipboard, setClipboard] = useState<string | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null);
-  const [creating, setCreating] = useState<{ type: 'file' | 'dir'; dir: string } | null>(null);
+  const [creating, setCreating] = useState<{ type: 'file' | 'dir' | 'excalidraw'; dir: string } | null>(null);
   const [treeWidth, setTreeWidth] = useState(240);
   // DnD: source path tracked in a ref (no re-render needed during drag);
   // current target dir in state (drives the drop highlight).
@@ -555,16 +581,28 @@ export function FileExplorer({
   // ── Editor helpers ───────────────────────────────────────────
 
   const saveCurrentDoc = useCallback(() => {
-    if (activePathRef.current && viewRef.current) {
-      docCacheRef.current.set(activePathRef.current, viewRef.current.state.doc.toString());
+    const path = activePathRef.current;
+    if (!path) return;
+    if (excalidrawRef.current && isExcalidrawFile(fileName(path))) {
+      docCacheRef.current.set(path, excalidrawRef.current.serialize());
+      return;
+    }
+    if (viewRef.current) {
+      docCacheRef.current.set(path, viewRef.current.state.doc.toString());
     }
   }, []);
 
   const handleSave = useCallback(async () => {
-    if (!activePathRef.current || !viewRef.current) return;
-    setSaving(true);
-    const content = viewRef.current.state.doc.toString();
     const path = activePathRef.current;
+    if (!path) return;
+    let content: string | null = null;
+    if (excalidrawRef.current && isExcalidrawFile(fileName(path))) {
+      content = excalidrawRef.current.serialize();
+    } else if (viewRef.current) {
+      content = viewRef.current.state.doc.toString();
+    }
+    if (content === null) return;
+    setSaving(true);
     await window.api.saveFile(path, content);
     docCacheRef.current.set(path, content);
     savedContentRef.current.set(path, content);
@@ -572,18 +610,25 @@ export function FileExplorer({
     // Keep the markdown preview in sync so switching to view mode after a
     // save shows the just-saved content.
     if (isMdFile(fileName(path))) {
-      setMdContent((m) => { const n = new Map(m); n.set(path, content); return n; });
+      setMdContent((m) => { const n = new Map(m); n.set(path, content!); return n; });
     }
     setSaving(false);
   }, []);
 
   const handleSaveAs = useCallback(async () => {
-    if (!activePathRef.current || !viewRef.current) return;
-    const content = viewRef.current.state.doc.toString();
-    const newPath = await window.api.saveFileAs(content, activePathRef.current);
+    const path = activePathRef.current;
+    if (!path) return;
+    let content: string | null = null;
+    if (excalidrawRef.current && isExcalidrawFile(fileName(path))) {
+      content = excalidrawRef.current.serialize();
+    } else if (viewRef.current) {
+      content = viewRef.current.state.doc.toString();
+    }
+    if (content === null) return;
+    const newPath = await window.api.saveFileAs(content, path);
     if (newPath) {
       // Update the tab to point to the new path
-      const oldPath = activePathRef.current;
+      const oldPath = path;
       docCacheRef.current.delete(oldPath);
       docCacheRef.current.set(newPath, content);
       savedContentRef.current.delete(oldPath);
@@ -618,6 +663,16 @@ export function FileExplorer({
     // Capture the disk baseline once per file — used to detect undo-to-clean.
     if (!savedContentRef.current.has(filePath)) {
       savedContentRef.current.set(filePath, content);
+    }
+
+    // Excalidraw files render via the ExcalidrawEditor component (sibling of
+    // the CodeMirror host). Stash the loaded content in state so the editor
+    // only mounts once it's available — otherwise it'd mount with an empty
+    // scene before the disk read finishes and the next save would clobber
+    // the file.
+    if (isExcalidrawFile(fileName(filePath))) {
+      setExcalidrawContent((m) => { const n = new Map(m); n.set(filePath, content!); return n; });
+      return;
     }
 
     // Markdown files default to view mode and skip the CodeMirror mount.
@@ -886,6 +941,12 @@ export function FileExplorer({
   const doCloseTab = useCallback((filePath: string) => {
     docCacheRef.current.delete(filePath);
     savedContentRef.current.delete(filePath);
+    setExcalidrawContent((m) => {
+      if (!m.has(filePath)) return m;
+      const n = new Map(m);
+      n.delete(filePath);
+      return n;
+    });
     setModifiedSet((s) => { const n = new Set(s); n.delete(filePath); return n; });
     setTabs((prev) => {
       const next = prev.filter((t) => t.path !== filePath);
@@ -1062,6 +1123,11 @@ export function FileExplorer({
     const fullPath = `${creating.dir}/${name}`;
     if (creating.type === 'dir') {
       await window.api.createDir(fullPath);
+    } else if (creating.type === 'excalidraw') {
+      // Make sure the new file ends in `.excalidraw` so isExcalidrawFile()
+      // routes it to the Excalidraw editor on first open.
+      const finalPath = isExcalidrawFile(name) ? fullPath : `${fullPath}.excalidraw`;
+      await window.api.saveFile(finalPath, EMPTY_EXCALIDRAW);
     } else {
       await window.api.createFile(fullPath);
     }
@@ -1071,6 +1137,7 @@ export function FileExplorer({
 
   const activeIsImage = activeTabPath ? isImageFile(fileName(activeTabPath)) : false;
   const activeIsMd = activeTabPath ? isMdFile(fileName(activeTabPath)) : false;
+  const activeIsExcalidraw = activeTabPath ? isExcalidrawFile(fileName(activeTabPath)) : false;
   const activeIsModified = activeTabPath ? modifiedSet.has(activeTabPath) : false;
   // For markdown tabs: 'view' (default) renders the rendered markdown,
   // 'edit' mounts CodeMirror.
@@ -1283,11 +1350,36 @@ export function FileExplorer({
             </Markdown>
           </div>
         )}
+        {/* Excalidraw editor — same swap-with-CodeMirror pattern as the md
+            view above. Keyed on the path so a tab switch fully remounts the
+            canvas with fresh initialData (Excalidraw doesn't observe its
+            initialData prop after mount). Gated on `excalidrawContent.has`
+            so we never mount before the disk read finishes — mounting empty
+            and then saving would otherwise wipe the file. */}
+        {activeIsExcalidraw && activeTabPath && excalidrawContent.has(activeTabPath) && (
+          <ExcalidrawEditor
+            ref={excalidrawRef}
+            key={activeTabPath}
+            filePath={activeTabPath}
+            initialContent={excalidrawContent.get(activeTabPath) ?? ''}
+            theme="dark"
+            onModifiedChange={(modified) => {
+              setModifiedSet((s) => {
+                const has = s.has(activeTabPath);
+                if (has === modified) return s;
+                const n = new Set(s);
+                if (modified) n.add(activeTabPath); else n.delete(activeTabPath);
+                return n;
+              });
+            }}
+            onSaveRequested={handleSave}
+          />
+        )}
         <div
           className="file-editor-content"
           ref={editorRef}
           style={{
-            display: activeTabPath && !activeIsImage && !activeMdShowing ? 'block' : 'none',
+            display: activeTabPath && !activeIsImage && !activeMdShowing && !activeIsExcalidraw ? 'block' : 'none',
           }}
         />
         {!activeTabPath && (
@@ -1320,6 +1412,16 @@ export function FileExplorer({
                 <path d="M7 7v4m-2-2h4" fill="none" strokeWidth="1.5" />
               </svg>
             </button>
+            <button
+              className="file-tree-action-btn"
+              onClick={() => setCreating({ type: 'excalidraw', dir: workingDirectory })}
+              title="New Excalidraw drawing"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 1.5l3.5 3.5L5 14.5H1.5V11L11 1.5z" />
+                <path d="M9.5 3l3.5 3.5" />
+              </svg>
+            </button>
           </div>
         </div>
         <div
@@ -1330,9 +1432,20 @@ export function FileExplorer({
         >
           {creating && creating.dir === workingDirectory && (
             <div className="file-tree-item" style={{ paddingLeft: 12 }}>
-              <FileIcon filename={creating.type === 'dir' ? '__dir__' : 'untitled'} isDirectory={creating.type === 'dir'} />
+              <FileIcon
+                filename={
+                  creating.type === 'dir' ? '__dir__'
+                    : creating.type === 'excalidraw' ? 'untitled.excalidraw'
+                      : 'untitled'
+                }
+                isDirectory={creating.type === 'dir'}
+              />
               <InlineInput
-                initialValue={creating.type === 'dir' ? 'new-folder' : 'untitled.txt'}
+                initialValue={
+                  creating.type === 'dir' ? 'new-folder'
+                    : creating.type === 'excalidraw' ? 'untitled.excalidraw'
+                      : 'untitled.txt'
+                }
                 onSubmit={handleCreateSubmit}
                 onCancel={() => setCreating(null)}
               />
