@@ -2244,13 +2244,25 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       const settings = loadSettings();
       const prompt = `Make a project icon for the project "${projectName}" that matches the following universe: ${settings.iconPromptPrefix}`;
 
+      // Resolve the reference image: prefer the containing folder's
+      // `referenceImage` (set via the folder-config modal) when present,
+      // otherwise fall back to the global `settings.iconReferenceImage`.
+      let referenceImagePath = settings.iconReferenceImage;
+      try {
+        const layout = loadLayout();
+        const folder = layout.folders.find((f) => f.profileIds.includes(profileId));
+        if (folder?.referenceImage && fs.existsSync(folder.referenceImage)) {
+          referenceImagePath = folder.referenceImage;
+        }
+      } catch { /* layout may be empty/missing — stick with the global */ }
+
       // Load reference image if configured
       let refImageBase64: string | null = null;
       let refMimeType = 'image/png';
-      if (settings.iconReferenceImage && fs.existsSync(settings.iconReferenceImage)) {
-        const refBuf = fs.readFileSync(settings.iconReferenceImage);
+      if (referenceImagePath && fs.existsSync(referenceImagePath)) {
+        const refBuf = fs.readFileSync(referenceImagePath);
         refImageBase64 = refBuf.toString('base64');
-        const refExt = path.extname(settings.iconReferenceImage).toLowerCase();
+        const refExt = path.extname(referenceImagePath).toLowerCase();
         if (refExt === '.jpg' || refExt === '.jpeg') refMimeType = 'image/jpeg';
         else if (refExt === '.webp') refMimeType = 'image/webp';
       }
@@ -2267,7 +2279,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         if (refImageBase64) {
           // Use edits endpoint with reference image
           const boundary = `----formdata${Date.now()}`;
-          const refBuffer = fs.readFileSync(settings.iconReferenceImage);
+          const refBuffer = fs.readFileSync(referenceImagePath);
 
           // Build multipart form data manually
           const parts: Buffer[] = [];
@@ -2282,7 +2294,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
           addField('size', '1024x1024');
 
           // Add image file
-          const imgExt = path.extname(settings.iconReferenceImage).toLowerCase();
+          const imgExt = path.extname(referenceImagePath).toLowerCase();
           const imgMime = imgExt === '.png' ? 'image/png' : 'image/jpeg';
           parts.push(Buffer.from(
             `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="ref${imgExt}"\r\nContent-Type: ${imgMime}\r\n\r\n`,

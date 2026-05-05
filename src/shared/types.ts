@@ -186,6 +186,11 @@ export interface SidebarFolder {
   name: string;
   isOpen: boolean;
   profileIds: string[];
+  /** Optional path to a reference image for AI icon generation. When set,
+   * profiles inside this folder use it instead of the global
+   * `settings.iconReferenceImage`. Empty / undefined → fall back to the
+   * global setting. */
+  referenceImage?: string;
 }
 
 export type SidebarItem =
