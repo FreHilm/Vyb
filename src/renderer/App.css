@@ -2641,6 +2641,24 @@
   min-width: 0;
 }
 
+/* Excalidraw editor host — Excalidraw fills its parent and brings its own
+   chrome, so we just need a flex-filling box with explicit dimensions. */
+.excalidraw-host {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+}
+.excalidraw-host .excalidraw {
+  width: 100%;
+  height: 100%;
+}
+/* Hide the Library button (the default sidebar's trigger). The Library
+   panel itself stays usable via the API; we just don't expose the toggle. */
+.excalidraw-host .excalidraw .default-sidebar-trigger {
+  display: none !important;
+}
+
 /* Tab action button "active" styling — used by the markdown view/edit
    toggle. Mirrors the file-tree-action-btn.is-active treatment. */
 .file-tab-action-btn.is-active {
