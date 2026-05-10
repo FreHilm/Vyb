@@ -70,6 +70,10 @@ export interface AppSettings {
   flameLength: number; // 0-100, default 64. Controls how far flames extend from edge.
   flameSpeed: number; // 0-100, default 23. Controls animation speed.
   showAgentBadge: boolean; // Show agent logo badge on profile items
+  /** When true, command-bar action buttons (Terminal, Mic, Folder) render
+   * with a text label next to the icon. False = icon-only. External app
+   * buttons are unaffected — they always show their name. */
+  showActionLabels: boolean;
   ordnaMode: 'web' | 'tui'; // Kanban mode for Ordna integration
   ordnaHookPort: number; // Local HTTP port for receiving Ordna agent hooks
   ordnaHookToken: string; // Random shared secret for the X-Token header
@@ -165,6 +169,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   flameLength: 64,
   flameSpeed: 23,
   showAgentBadge: true,
+  showActionLabels: false,
   ordnaMode: 'web',
   ordnaHookPort: 9876,
   ordnaHookToken: '',
@@ -243,6 +248,7 @@ export const IPC_CHANNELS = {
   GIT_STAGE: 'git:stage',
   GIT_UNSTAGE: 'git:unstage',
   GIT_COMMIT: 'git:commit',
+  GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',
   GIT_MERGE: 'git:merge',
