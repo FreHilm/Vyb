@@ -1167,6 +1167,47 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // Discard a single file's working-tree changes (and its staged copy if
+  // any). Behaviour per status:
+  //   untracked → delete from disk (it isn't in git, so `git restore`
+  //               can't help; we just `fs.unlinkSync` it).
+  //   anything else → `git restore --staged --worktree -- <path>` which
+  //               drops both the index and working-tree copies, returning
+  //               the file to its HEAD state. Falls back to the older
+  //               `git checkout HEAD -- <path>` + `git reset HEAD -- <path>`
+  //               combo when `git restore` isn't available.
+  // Always destructive — caller is expected to have confirmed with the user.
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_DISCARD_FILE,
+    (_, cwd: string, filePath: string, untracked: boolean): boolean => {
+      if (!filePath) return false;
+      if (untracked) {
+        try {
+          fs.unlinkSync(path.join(cwd, filePath));
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      try {
+        try {
+          execFileSync(
+            'git',
+            ['restore', '--staged', '--worktree', '--', filePath],
+            { cwd, timeout: 10000, encoding: 'utf-8' },
+          );
+        } catch {
+          // Fallback for older git: unstage, then checkout the HEAD copy.
+          execFileSync('git', ['reset', 'HEAD', '--', filePath], { cwd, timeout: 10000, encoding: 'utf-8' });
+          execFileSync('git', ['checkout', 'HEAD', '--', filePath], { cwd, timeout: 10000, encoding: 'utf-8' });
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  );
+
   // Commit whatever's currently staged. Subject + optional body; both
   // travel as separate `-m` flags so git renders the body as the
   // standard "blank line then paragraph" message.
@@ -2223,8 +2264,8 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     },
   );
 
-  ipcMain.handle(IPC_CHANNELS.PARALLEL_AGENT_DESTROY, async (_, id: string) => {
-    await parallelManager.destroy(id);
+  ipcMain.handle(IPC_CHANNELS.PARALLEL_AGENT_DESTROY, async (_, id: string, discardWork?: boolean) => {
+    await parallelManager.destroy(id, discardWork === true);
   });
 
   ipcMain.handle(IPC_CHANNELS.PARALLEL_AGENT_LIST, (_, profileId?: string): ParallelAgent[] => {

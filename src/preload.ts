@@ -144,6 +144,9 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.GIT_FILE_DIFF, cwd, filePath, staged),
   gitStage: (cwd: string, filePath: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_STAGE, cwd, filePath),
+
+  gitDiscardFile: (cwd: string, filePath: string, untracked: boolean): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_DISCARD_FILE, cwd, filePath, untracked),
   gitUnstage: (cwd: string, filePath: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_UNSTAGE, cwd, filePath),
   gitCommit: (cwd: string, subject: string, description: string): Promise<GitCommitResult> =>
@@ -305,8 +308,8 @@ contextBridge.exposeInMainWorld('api', {
   ): Promise<ParallelAgent | { error: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_AGENT_SPAWN, profileId, task),
 
-  destroyParallelAgent: (id: string): Promise<void> =>
-    ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_AGENT_DESTROY, id),
+  destroyParallelAgent: (id: string, discardWork?: boolean): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_AGENT_DESTROY, id, discardWork === true),
 
   listParallelAgents: (profileId?: string): Promise<ParallelAgent[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_AGENT_LIST, profileId),

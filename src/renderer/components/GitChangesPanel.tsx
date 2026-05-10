@@ -13,6 +13,76 @@ interface GitChangedFile {
 
 export type GitPanelTab = 'changes' | 'tree' | 'branches';
 
+interface ChangesCtxMenuState {
+  x: number;
+  y: number;
+  file: GitChangedFile;
+}
+
+function ChangesContextMenu({
+  state,
+  onClose,
+  onStageOrUnstage,
+  onDiscard,
+  onOpen,
+}: {
+  state: ChangesCtxMenuState;
+  onClose: () => void;
+  onStageOrUnstage: () => void;
+  onDiscard: () => void;
+  onOpen: () => void;
+}) {
+  useEffect(() => {
+    const handleDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest('.file-context-menu')) return;
+      onClose();
+    };
+    window.addEventListener('mousedown', handleDown);
+    return () => window.removeEventListener('mousedown', handleDown);
+  }, [onClose]);
+
+  const { file } = state;
+  return (
+    <div className="file-context-menu" style={{ left: state.x, top: state.y }} onClick={(e) => e.stopPropagation()}>
+      <button className="file-ctx-item" onClick={onStageOrUnstage}>
+        <span className="file-ctx-icon">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+            {file.staged ? (
+              <>
+                <line x1="8" y1="13" x2="8" y2="3" />
+                <polyline points="4 7 8 3 12 7" />
+              </>
+            ) : (
+              <>
+                <line x1="8" y1="3" x2="8" y2="13" />
+                <polyline points="4 9 8 13 12 9" />
+              </>
+            )}
+          </svg>
+        </span>
+        {file.staged ? 'Unstage' : 'Stage'}
+      </button>
+      <button className="file-ctx-item" onClick={onOpen}>
+        <span className="file-ctx-icon">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 2H4.5A1.5 1.5 0 0 0 3 3.5v9A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V6" />
+            <path d="M9 2v4h4" />
+          </svg>
+        </span>
+        Open file
+      </button>
+      <div className="file-ctx-divider" />
+      <button className="file-ctx-item file-ctx-danger" onClick={onDiscard}>
+        <span className="file-ctx-icon">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 1h5l.5.5V3h3.5v1H13l-.7 10.2a1 1 0 01-1 .8H4.7a1 1 0 01-1-.8L3 4h-.5V3H6V1.5l.5-.5zM6 3h4V2H6v1z" /></svg>
+        </span>
+        Discard changes
+      </button>
+    </div>
+  );
+}
+
 interface GitChangesPanelProps {
   workingDirectory: string;
   onClose: () => void;
@@ -111,6 +181,8 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
   const [commitDescription, setCommitDescription] = useState('');
   const [commitBusy, setCommitBusy] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<ChangesCtxMenuState | null>(null);
+  const [discardTarget, setDiscardTarget] = useState<GitChangedFile | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -204,6 +276,38 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
       setCommitBusy(false);
     }
   }, [workingDirectory, commitSubject, commitDescription, commitBusy, reloadFiles]);
+
+  const openContextMenu = useCallback((e: React.MouseEvent, file: GitChangedFile) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, file });
+  }, []);
+
+  const openFileInExplorer = useCallback((file: GitChangedFile) => {
+    setCtxMenu(null);
+    // The file path is repo-relative; the global open-file-in-explorer
+    // handler in App.tsx switches to the Files tab and opens an absolute
+    // path, so we join with the working directory here.
+    const abs = workingDirectory.replace(/\/$/, '') + '/' + file.path;
+    window.dispatchEvent(new CustomEvent('open-file-in-explorer', { detail: { path: abs } }));
+  }, [workingDirectory]);
+
+  const confirmDiscard = useCallback((file: GitChangedFile) => {
+    setCtxMenu(null);
+    setDiscardTarget(file);
+  }, []);
+
+  const runDiscard = useCallback(async () => {
+    if (!discardTarget) return;
+    const target = discardTarget;
+    setDiscardTarget(null);
+    // Optimistic: drop the row from local state so the UI feels snappy.
+    // The post-discard reload reconciles (e.g. if discard failed the file
+    // reappears).
+    setFiles((prev) => prev.filter((f) => f.path !== target.path || f.staged !== target.staged));
+    await window.api.gitDiscardFile(workingDirectory, target.path, target.status === 'untracked');
+    await reloadFiles();
+  }, [discardTarget, workingDirectory, reloadFiles]);
 
   // Resize handle drag logic
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
@@ -301,6 +405,7 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
           onUnstageOne={unstageOne}
           onStageAll={stageAll}
           onUnstageAll={unstageAll}
+          onContextMenu={openContextMenu}
           rowKey={rowKey}
           commitSubject={commitSubject}
           commitDescription={commitDescription}
@@ -311,6 +416,41 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
           onCommit={handleCommit}
           onDismissCommitError={() => setCommitError(null)}
         />
+      )}
+      {ctxMenu && (
+        <ChangesContextMenu
+          state={ctxMenu}
+          onClose={() => setCtxMenu(null)}
+          onStageOrUnstage={() => {
+            const f = ctxMenu.file;
+            setCtxMenu(null);
+            if (f.staged) unstageOne(f.path); else stageOne(f.path);
+          }}
+          onDiscard={() => confirmDiscard(ctxMenu.file)}
+          onOpen={() => openFileInExplorer(ctxMenu.file)}
+        />
+      )}
+      {discardTarget && (
+        <div className="modal-overlay" onClick={() => setDiscardTarget(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Discard changes</h3></div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, lineHeight: 1.5 }}>
+                Discard local changes to <strong>{discardTarget.path}</strong>?
+                {discardTarget.status === 'untracked'
+                  ? ' This will delete the file from disk.'
+                  : ' This will revert the file to its HEAD state.'}
+                <br /><span style={{ opacity: 0.6 }}>This cannot be undone.</span>
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="cancel-btn" onClick={() => setDiscardTarget(null)}>Cancel</button>
+              <div className="modal-footer-right">
+                <button className="delete-btn" onClick={runDiscard}>Discard</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -328,6 +468,7 @@ interface ChangesViewProps {
   onUnstageOne: (path: string) => void;
   onStageAll: (paths: string[]) => void;
   onUnstageAll: (paths: string[]) => void;
+  onContextMenu: (e: React.MouseEvent, file: GitChangedFile) => void;
   rowKey: (path: string, staged: boolean) => string;
   commitSubject: string;
   commitDescription: string;
@@ -349,6 +490,7 @@ function ChangesView({
   onUnstageOne,
   onStageAll,
   onUnstageAll,
+  onContextMenu,
   rowKey,
   commitSubject,
   commitDescription,
@@ -382,6 +524,7 @@ function ChangesView({
             onToggle={onToggle}
             onMove={onStageOne}
             onMoveAll={() => onStageAll(unstaged.map((f) => f.path))}
+            onContextMenu={onContextMenu}
             rowKey={rowKey}
           />
         )}
@@ -397,6 +540,7 @@ function ChangesView({
             onToggle={onToggle}
             onMove={onUnstageOne}
             onMoveAll={() => onUnstageAll(staged.map((f) => f.path))}
+            onContextMenu={onContextMenu}
             rowKey={rowKey}
           />
         )}
@@ -458,11 +602,12 @@ interface FileSectionProps {
   onToggle: (path: string, staged: boolean) => void;
   onMove: (path: string) => void;
   onMoveAll: () => void;
+  onContextMenu: (e: React.MouseEvent, file: GitChangedFile) => void;
   rowKey: (path: string, staged: boolean) => string;
 }
 
 function FileSection({
-  title, count, files, staged, expanded, diffs, onToggle, onMove, onMoveAll, rowKey,
+  title, count, files, staged, expanded, diffs, onToggle, onMove, onMoveAll, onContextMenu, rowKey,
 }: FileSectionProps) {
   return (
     <div className="git-changes-section">
@@ -486,7 +631,7 @@ function FileSection({
         const name = fileName(file.path);
         return (
           <div key={key} className={`git-changes-item ${isOpen ? 'git-changes-item-open' : ''}`}>
-            <div className="git-changes-row">
+            <div className="git-changes-row" onContextMenu={(e) => onContextMenu(e, file)}>
               <button
                 className="git-changes-file-btn"
                 onClick={() => onToggle(file.path, staged)}

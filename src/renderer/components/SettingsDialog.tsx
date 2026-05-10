@@ -187,6 +187,7 @@ export function SettingsDialog({
   const [flamePreviewMode, setFlamePreviewMode] = useState<'working' | 'ready' | 'needs-input'>('working');
   const [editingAgentIdx, setEditingAgentIdx] = useState<number | null>(null);
   const [showAgentBadge, setShowAgentBadge] = useState(settings.showAgentBadge !== false);
+  const [showActionLabels, setShowActionLabels] = useState(settings.showActionLabels === true);
   const [ordnaMode, setOrdnaMode] = useState<'web' | 'tui'>(settings.ordnaMode || 'web');
   const [ordnaHookPort, setOrdnaHookPort] = useState(settings.ordnaHookPort || 9876);
   const [ordnaHookInfo, setOrdnaHookInfo] = useState<{ url: string; port: number } | null>(null);
@@ -230,6 +231,7 @@ export function SettingsDialog({
       flameLength,
       flameSpeed,
       showAgentBadge,
+      showActionLabels,
       ordnaMode,
       ordnaHookPort,
       parallelAgentAutoRun,
@@ -472,6 +474,18 @@ export function SettingsDialog({
                     type="checkbox"
                     checked={showAgentBadge}
                     onChange={(e) => setShowAgentBadge(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+
+              <label className="field field-row-toggle">
+                <span className="field-label">Show labels on toolbar buttons</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={showActionLabels}
+                    onChange={(e) => setShowActionLabels(e.target.checked)}
                   />
                   <span className="toggle-slider" />
                 </label>
@@ -1103,7 +1117,7 @@ export function SettingsDialog({
               )}
 
               <label className="field field-row-toggle" style={{ marginTop: 12 }}>
-                <span className="field-label">Auto-run dispatched Kanban tasks</span>
+                <span className="field-label">Auto-submit dispatched Kanban tasks</span>
                 <label className="integration-toggle">
                   <input
                     type="checkbox"
@@ -1114,9 +1128,10 @@ export function SettingsDialog({
                 </label>
               </label>
               <span className="field-hint">
-                After a parallel agent spawns, automatically paste the task and
-                press Enter (~2.5s after spawn so the CLI has time to load).
-                Off = the row stays in &quot;Awaiting run&quot; until you click ▶.
+                The task is always pasted into the spawned agent&apos;s prompt as
+                soon as it&apos;s ready. When this is on, Enter is also pressed
+                automatically to submit. Off = the task is pasted but stays in
+                the prompt; click ▶ (or press Enter in the terminal) to run it.
               </span>
 
             </>

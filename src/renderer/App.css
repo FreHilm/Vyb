@@ -443,6 +443,14 @@
   pointer-events: none;
 }
 
+/* Container that holds the icon + the agent badge. The badge lives here
+   instead of inside .profile-icon so it isn't clipped by the icon's
+   overflow:hidden + rounded corner. */
+.profile-icon-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
 .profile-icon {
   width: 42px;
   height: 42px;
@@ -716,6 +724,12 @@
 
 .action-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.05);
+}
+
+/* Compact icon-only variant — used for the Terminal/Mic/Folder built-ins
+   when the user disables toolbar labels in Settings → Appearance. */
+.action-btn-icon {
+  padding: 3px 7px;
 }
 
 .action-btn svg {

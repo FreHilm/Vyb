@@ -172,11 +172,17 @@ export class ParallelAgentManager {
     }
   }
 
-  /** Tear down PTY + worktree + drop the entry. Idempotent. Before removing
-   * the worktree we attempt to commit any uncommitted changes as a WIP commit
-   * so the branch keeps the agent's work even if the agent never marked the
-   * task as done. */
-  async destroy(id: string): Promise<void> {
+  /** Tear down PTY + worktree + drop the entry. Idempotent.
+   *
+   * `discardWork` controls what happens to uncommitted work:
+   * - false (default): commit anything outstanding as a WIP commit so the
+   *   branch keeps the agent's work — the branch survives so the user can
+   *   recover it later. Used for crashes, soft-deletes after PR, and the
+   *   "Save WIP" choice from the Stop dialog.
+   * - true: skip the WIP commit AND delete the agent's branch. The work
+   *   in the worktree is thrown away. Used when the user explicitly picks
+   *   "Discard work" from the Stop dialog. */
+  async destroy(id: string, discardWork = false): Promise<void> {
     const agent = this.agents.get(id);
     if (!agent) return;
     this.agents.delete(id);
@@ -190,26 +196,28 @@ export class ParallelAgentManager {
     this.statusDetector.unregister(ptyId);
 
     if (fs.existsSync(agent.worktreePath)) {
-      // Safety net: commit any uncommitted work as WIP so it isn't lost
-      // when the worktree directory is removed.
-      try {
-        await run('git', ['add', '-A'], agent.worktreePath, 60000);
-        let nothingStaged = false;
+      if (!discardWork) {
+        // Safety net: commit any uncommitted work as WIP so it isn't lost
+        // when the worktree directory is removed.
         try {
-          await run('git', ['diff', '--cached', '--quiet'], agent.worktreePath, 30000);
-          nothingStaged = true;
+          await run('git', ['add', '-A'], agent.worktreePath, 60000);
+          let nothingStaged = false;
+          try {
+            await run('git', ['diff', '--cached', '--quiet'], agent.worktreePath, 30000);
+            nothingStaged = true;
+          } catch {
+            // exit non-zero ⇒ there are staged changes
+          }
+          if (!nothingStaged) {
+            const wipMsg =
+              agent.phase === 'completed'
+                ? `${agent.taskId}: ${agent.taskTitle}`
+                : `WIP: ${agent.taskId}: ${agent.taskTitle}`;
+            await run('git', ['commit', '-m', wipMsg], agent.worktreePath, 60000);
+          }
         } catch {
-          // exit non-zero ⇒ there are staged changes
+          // best-effort; never block the destroy on a failed commit
         }
-        if (!nothingStaged) {
-          const wipMsg =
-            agent.phase === 'completed'
-              ? `${agent.taskId}: ${agent.taskTitle}`
-              : `WIP: ${agent.taskId}: ${agent.taskTitle}`;
-          await run('git', ['commit', '-m', wipMsg], agent.worktreePath, 60000);
-        }
-      } catch {
-        // best-effort; never block the destroy on a failed commit
       }
 
       // Remove the worktree directory
@@ -221,6 +229,17 @@ export class ParallelAgentManager {
         } catch {
           // best-effort
         }
+      }
+    }
+
+    if (discardWork) {
+      // Drop the branch from the parent repo so a future retry of the same
+      // task ID isn't blocked by a stale branch reference. Only safe with
+      // `-D` (force) since the branch was never merged into anything.
+      try {
+        await run('git', ['branch', '-D', agent.branch], agent.parentRepoPath, 30000);
+      } catch {
+        // best-effort — if it can't be deleted, leave it for manual cleanup
       }
     }
 

@@ -114,6 +114,7 @@ declare global {
       gitCheckoutCommit: (cwd: string, sha: string) => Promise<GitCheckoutResult>;
       gitStage: (cwd: string, filePath: string) => Promise<boolean>;
       gitUnstage: (cwd: string, filePath: string) => Promise<boolean>;
+      gitDiscardFile: (cwd: string, filePath: string, untracked: boolean) => Promise<boolean>;
       gitCommit: (cwd: string, subject: string, description: string) => Promise<GitCommitResult>;
       gitPush: (cwd: string) => Promise<GitOpResult>;
       gitPull: (cwd: string) => Promise<GitOpResult>;
@@ -187,7 +188,7 @@ declare global {
         profileId: string,
         task: { id: string; title: string; filePath?: string },
       ) => Promise<ParallelAgent | { error: string }>;
-      destroyParallelAgent: (id: string) => Promise<void>;
+      destroyParallelAgent: (id: string, discardWork?: boolean) => Promise<void>;
       listParallelAgents: (profileId?: string) => Promise<ParallelAgent[]>;
       finishParallelAgent: (id: string) => Promise<void>;
       onParallelAgentChange: (callback: (agent: ParallelAgent) => void) => () => void;
@@ -233,6 +234,10 @@ export function App() {
   const [parallelAgents, setParallelAgents] = useState<Map<string, ParallelAgent>>(new Map());
   // Which parallel-agent the user is viewing (PTY id `parallel:<id>`); null = parent profile
   const [selectedParallelId, setSelectedParallelId] = useState<string | null>(null);
+  // The parallel-agent id whose Stop button was clicked — drives the
+  // confirm-dialog asking whether to discard the agent's work or save
+  // it as a WIP commit on its branch.
+  const [stopParallelTarget, setStopParallelTarget] = useState<string | null>(null);
   // Track parallel agents whose `completed` state has been seen by the user (for soft-delete)
   const inspectedParallelRef = useRef<Set<string>>(new Set());
   const [changesVisible, setChangesVisible] = useState(false);
@@ -516,6 +521,20 @@ export function App() {
 
         return next;
       });
+
+      // Auto-paste hook for parallel agents: as soon as the spawned CLI's
+      // prompt is ready (status: 'ready' / 'needs-input'), drop the queued
+      // task into the input. The `parallelAgentAutoRun` setting only
+      // controls whether we *also* press Enter — when it's off the task
+      // sits in the prompt for the user to review and submit manually.
+      if (
+        profileId.startsWith('parallel:') &&
+        (status === 'ready' || status === 'needs-input')
+      ) {
+        const id = profileId.slice('parallel:'.length);
+        const submit = settingsRef.current.parallelAgentAutoRun !== false;
+        tryAutoRunParallelRef.current?.(id, submit);
+      }
       // Reference hasNewContent so eslint doesn't flag it; it remains in the
       // payload for forward-compat / future renderers that want to bypass
       // the confirmation delay.
@@ -576,8 +595,7 @@ export function App() {
               return;
             }
             // Build the message with worktree-rewritten paths so the agent
-            // never touches the parent repo. The manager returns the resolved
-            // parent path, so we don't have to expand `~` in the renderer.
+            // never touches the parent repo.
             const message = buildOrdnaTaskMessage(payload, {
               worktreePath: res.worktreePath,
               branch: res.branch,
@@ -585,18 +603,28 @@ export function App() {
             });
             pendingParallelMessagesRef.current.set(res.id, message);
             setParallelAgents((prev) => new Map(prev).set(res.id, res));
-            // Auto-select so the user immediately sees the new sub-agent
-            setSelectedParallelId(res.id);
 
-            // Schedule auto-submit unless the user disabled it. We wait long
-            // enough for the agent CLI (claude/codex/gemini) to print its
-            // prompt — pasting too early can land in a startup banner.
-            if (settingsRef.current.parallelAgentAutoRun !== false) {
-              const timer = setTimeout(() => {
-                submitParallelTask(res.id);
-              }, 2500);
-              autoRunTimersRef.current.set(res.id, timer);
+            // Auto-paste fires from two sources: the status-change listener
+            // (when 'ready' / 'needs-input' is detected) AND a 4 s fallback
+            // timer. tryAutoRunParallel is idempotent — once it sends, it
+            // deletes the pending message so the second trigger is a no-op.
+            // The paste runs regardless of `parallelAgentAutoRun`; the
+            // toggle only decides whether Enter is pressed to submit.
+            const submit = settingsRef.current.parallelAgentAutoRun !== false;
+
+            // Switch to the new parallel agent only when auto-submit is OFF
+            // — that case wants the user to review the pasted task and
+            // click ▶, so they need to see the new pane. With auto-submit
+            // on, the agent runs autonomously and the user keeps their
+            // current view (typically the Kanban board).
+            if (!submit) {
+              setSelectedParallelId(res.id);
             }
+
+            const timer = setTimeout(() => {
+              tryAutoRunParallel(res.id, submit);
+            }, 4000);
+            autoRunTimersRef.current.set(res.id, timer);
           });
         return;
       }
@@ -759,6 +787,44 @@ export function App() {
       window.api.sendInput(ptyId, '\r');
     }
   }, []);
+
+  /** Auto-paste a queued task into a spawned parallel agent. Called by
+   * both the 4 s fallback timer AND the status-change listener (which
+   * fires when the agent CLI's prompt becomes ready). The dual trigger
+   * covers the race where the fixed timer would have fired before the
+   * CLI was accepting stdin: whichever signal arrives first pastes, and
+   * the loser becomes a no-op since the pending message is deleted on
+   * send. The `submit` flag controls whether to also press Enter — when
+   * `parallelAgentAutoRun` is off the user wants the task pasted but
+   * left in the prompt so they can review before submitting. */
+  const tryAutoRunParallel = useCallback((id: string, submit: boolean) => {
+    const msg = pendingParallelMessagesRef.current.get(id);
+    if (!msg) return; // already sent (or never queued)
+    const t = autoRunTimersRef.current.get(id);
+    if (t) {
+      clearTimeout(t);
+      autoRunTimersRef.current.delete(id);
+    }
+    const ptyId = `parallel:${id}`;
+    // Paste body first. The CLI's auto-paste detection groups bytes that
+    // arrive in rapid succession into a single paste, so a trailing \r in
+    // the same chunk is treated as just another embedded newline rather
+    // than a submit. Send Enter as a separate keystroke after a long
+    // enough pause that the CLI has closed the paste boundary.
+    window.api.sendInput(ptyId, msg);
+    pendingParallelMessagesRef.current.delete(id);
+    if (submit) {
+      setTimeout(() => window.api.sendInput(ptyId, '\r'), 800);
+    }
+  }, []);
+  // Mirror into a ref so the once-mounted onStatusChange listener (which
+  // captured this scope on first render) can still call the current
+  // version. useCallback([]) gives a stable identity, but using the ref
+  // keeps the listener resilient to future refactors that change the deps.
+  const tryAutoRunParallelRef = useRef(tryAutoRunParallel);
+  useEffect(() => {
+    tryAutoRunParallelRef.current = tryAutoRunParallel;
+  }, [tryAutoRunParallel]);
 
   const cancelAutoRun = useCallback((id: string) => {
     const t = autoRunTimersRef.current.get(id);
@@ -1220,11 +1286,16 @@ export function App() {
     if (activeProfile) window.api.openInFinder(activeProfile.workingDirectory);
   }, [activeProfile]);
 
+  const toggleGit = useCallback(() => {
+    setGitPanelTab('changes');
+    setChangesVisible((v) => !v);
+  }, []);
+
   const navActions = useMemo(() => {
     // Keep this in sync with CommandBar.tsx button order:
-    // Tabs: Agent(0) Files(1) Kanban(2) | Terminal(3) | Mic | Folder(4) | external(5+)
-    const actions = [goAgent, goFiles, goKanban, toggleShell, openFolder];
-    const labels = ['Agent', 'Files', 'Kanban', 'Terminal', 'Folder'];
+    // Tabs: Agent(0) Files(1) Kanban(2) | Terminal(3) Git(4) | Mic | Folder(5) | external(6+)
+    const actions = [goAgent, goFiles, goKanban, toggleShell, toggleGit, openFolder];
+    const labels = ['Agent', 'Files', 'Kanban', 'Terminal', 'Git', 'Folder'];
     for (const app of settings.externalApps || []) {
       const cmd = app.command;
       const wd = activeProfile?.workingDirectory || '';
@@ -1232,7 +1303,7 @@ export function App() {
       labels.push(app.name);
     }
     return { actions, labels };
-  }, [goAgent, goFiles, goKanban, toggleShell, openFolder, settings.externalApps, activeProfile]);
+  }, [goAgent, goFiles, goKanban, toggleShell, toggleGit, openFolder, settings.externalApps, activeProfile]);
 
   // Keyboard profile navigation — only updates visual selection.
   // The auto-init effect (2s debounce) handles terminal initialization.
@@ -1382,8 +1453,13 @@ export function App() {
         onSelectParallel={(id) => setSelectedParallelId(id)}
         onRunParallel={(id) => submitParallelTask(id)}
         onStopParallel={(id) => {
+          // Show a confirmation dialog so an accidental Stop click doesn't
+          // silently throw away an agent's branch+work. The dialog lets
+          // the user pick between "Discard" (drop the branch) and the
+          // default "Save WIP" (commit anything outstanding so the work
+          // can be recovered later via the branch).
           cancelAutoRun(id);
-          window.api.destroyParallelAgent(id).catch((): void => undefined);
+          setStopParallelTarget(id);
         }}
       />
       <ResizeHandle direction="horizontal" onResize={handleSidebarResize} />
@@ -1394,8 +1470,11 @@ export function App() {
           activeTab={activeTab}
           onSelectTab={selectTab}
           onToggleShell={toggleShell}
+          onToggleGit={toggleGit}
+          gitActive={changesVisible}
           externalApps={settings.externalApps || []}
           navActive={navActive}
+          showActionLabels={settings.showActionLabels === true}
           dictationListening={dictation.listening}
           dictationSupported={dictation.supported}
           dictationInterim={dictation.interim}
@@ -1584,6 +1663,41 @@ export function App() {
           profilesWithoutIcons={profiles.filter((p) => !p.icon).length}
         />
       )}
+      {stopParallelTarget && (() => {
+        const target = parallelAgents.get(stopParallelTarget);
+        const closeDialog = () => setStopParallelTarget(null);
+        const stopWith = (discardWork: boolean) => {
+          const id = stopParallelTarget;
+          setStopParallelTarget(null);
+          window.api.destroyParallelAgent(id, discardWork).catch((): void => undefined);
+        };
+        return (
+          <div className="modal-overlay" onClick={closeDialog}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>Stop parallel agent</h3>
+              </div>
+              <div className="modal-body">
+                <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 8 }}>
+                  Stopping <strong>{target?.taskTitle || target?.taskId || 'this agent'}</strong>.
+                  What should happen to its work?
+                </p>
+                <ul style={{ fontSize: 12, lineHeight: 1.55, color: 'var(--c-overlay0)', marginLeft: 16 }}>
+                  <li><strong>Save WIP</strong> — commits any uncommitted changes onto the agent&apos;s branch (<code>{target?.branch}</code>) so you can recover the work later. The worktree directory is removed.</li>
+                  <li><strong>Discard</strong> — throws away the work and deletes the branch. Use this if you started the agent by mistake.</li>
+                </ul>
+              </div>
+              <div className="modal-footer">
+                <button className="cancel-btn" onClick={closeDialog}>Cancel</button>
+                <div className="modal-footer-right">
+                  <button className="delete-btn" onClick={() => stopWith(true)}>Discard</button>
+                  <button className="save-btn" onClick={() => stopWith(false)}>Save WIP</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

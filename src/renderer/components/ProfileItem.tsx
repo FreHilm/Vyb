@@ -130,31 +130,35 @@ export function ProfileItem({
           </svg>
         </div>
       )}
-      <div className={`profile-icon ${bouncing ? 'icon-bounce' : ''}`}>
-        {profile.icon ? (
-          <img src={`local-file://${profile.icon}?v=${iconRevision}`} alt={profile.name} />
-        ) : (
-          <div className="profile-icon-placeholder">
-            {profile.name.charAt(0).toUpperCase()}
-          </div>
-        )}
-        <div
-          className={`status-badge ${status === 'working' ? 'working' : ''}`}
-          style={{
-            backgroundColor: STATUS_COLORS[status],
-            color: STATUS_COLORS[status],
-          }}
-          title={STATUS_LABELS[status]}
-        />
-        <button
-          className="edit-badge"
-          onClick={handleEdit}
-          title="Edit profile"
-        >
-          <svg width="8" height="8" viewBox="0 0 12 12" fill="currentColor">
-            <path d="M9.1.9a1.5 1.5 0 012.1 2.1L4 10.2 0 12l1.8-4L9.1.9z" />
-          </svg>
-        </button>
+      <div className="profile-icon-wrap">
+        <div className={`profile-icon ${bouncing ? 'icon-bounce' : ''}`}>
+          {profile.icon ? (
+            <img src={`local-file://${profile.icon}?v=${iconRevision}`} alt={profile.name} />
+          ) : (
+            <div className="profile-icon-placeholder">
+              {profile.name.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div
+            className={`status-badge ${status === 'working' ? 'working' : ''}`}
+            style={{
+              backgroundColor: STATUS_COLORS[status],
+              color: STATUS_COLORS[status],
+            }}
+            title={STATUS_LABELS[status]}
+          />
+          <button
+            className="edit-badge"
+            onClick={handleEdit}
+            title="Edit profile"
+          >
+            <svg width="8" height="8" viewBox="0 0 12 12" fill="currentColor">
+              <path d="M9.1.9a1.5 1.5 0 012.1 2.1L4 10.2 0 12l1.8-4L9.1.9z" />
+            </svg>
+          </button>
+        </div>
+        {/* Agent badge lives OUTSIDE .profile-icon's overflow:hidden +
+            border-radius — otherwise the rounded corner crops it. */}
         {showAgentBadge && profile.agentId && (
           <div className="agent-badge" title={profile.agentId}>
             <SmallAgentIcon agentId={profile.agentId} />
