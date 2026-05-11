@@ -49,6 +49,70 @@
   position: relative;
 }
 
+/* Compact sidebar — icon-only mode. Triggered by dragging the resizer
+   past the snap threshold (see handleSidebarResize in App.tsx). Hides
+   labels and adornments so only the profile icon remains. */
+.app-sidebar-compact .sidebar-header h2,
+.app-sidebar-compact .folder-name,
+.app-sidebar-compact .folder-count,
+.app-sidebar-compact .folder-toggle,
+.app-sidebar-compact .folder-delete-btn,
+.app-sidebar-compact .folder-config-btn,
+.app-sidebar-compact .profile-info,
+.app-sidebar-compact .profile-controls,
+.app-sidebar-compact .profile-update-indicator,
+.app-sidebar-compact .parallel-agent-text,
+.app-sidebar-compact .parallel-agent-controls,
+.app-sidebar-compact .sidebar-empty,
+.app-sidebar-compact .flame-indicator {
+  display: none !important;
+}
+.app-sidebar-compact .sidebar-header {
+  padding: 0;
+  justify-content: center;
+}
+.app-sidebar-compact .sidebar-header-actions {
+  width: 100%;
+  justify-content: center;
+}
+/* Folder header in compact mode becomes a thin horizontal divider —
+   still clickable to expand/collapse the folder, no chip/count/name. */
+.app-sidebar-compact .sidebar-folder-header {
+  height: 1px;
+  padding: 0;
+  margin: 8px 12px;
+  background: var(--c-surface1);
+  border-radius: 0;
+  cursor: pointer;
+  gap: 0;
+}
+.app-sidebar-compact .sidebar-folder-header:hover {
+  background: var(--c-blue);
+}
+/* Kill the folder-child indent in compact mode so every icon column-aligns
+   regardless of nesting depth. These rules need to match the specificity
+   of the originals (`.sidebar-drag-item.sidebar-indent .profile-item` and
+   `.sidebar-indent .parallel-agent-list`) — not just `.sidebar-indent`. */
+.app-sidebar-compact .sidebar-indent,
+.app-sidebar-compact .sidebar-drag-item.sidebar-indent .profile-item,
+.app-sidebar-compact .sidebar-indent .parallel-agent-list {
+  padding-left: 0 !important;
+}
+.app-sidebar-compact .profile-item {
+  padding: 4px 0;
+  justify-content: center;
+  gap: 0;
+}
+.app-sidebar-compact .parallel-agent-row {
+  padding: 4px 0;
+  justify-content: center;
+}
+.app-sidebar-compact .parallel-agent-list {
+  padding-left: 0;
+  padding-right: 0;
+  align-items: center;
+}
+
 .sidebar-header {
   height: 32px;
   padding: 0 20px;

@@ -56,7 +56,12 @@ export interface AppSettings {
   openaiApiKey: string; // OpenAI API key
   iconPromptPrefix: string; // Universe/style description for generated icons
   iconReferenceImage: string; // Path to reference image for style consistency
-  sidebarWidth: number; // pixels, default 250
+  sidebarWidth: number; // pixels, default 250 — the "expanded" width
+  /** When true, the sidebar renders in a narrow icon-only mode. Drives the
+   * snap behaviour: dragging the resizer below ~110 px snaps to compact;
+   * dragging back above ~110 px from compact snaps to the saved
+   * `sidebarWidth`. */
+  sidebarCompact: boolean;
   terminalSplitPercent: number; // agent pane %, default 67
   agents: AgentConfig[];
   externalApps: ExternalApp[];
@@ -153,6 +158,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   iconPromptPrefix: 'A minimal, modern flat icon with a dark background, clean geometric shapes, suitable as a project avatar',
   iconReferenceImage: '',
   sidebarWidth: 250,
+  sidebarCompact: false,
   terminalSplitPercent: 67,
   agents: [...DEFAULT_AGENTS],
   externalApps: [
