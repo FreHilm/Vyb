@@ -199,6 +199,15 @@ declare global {
   }
 }
 
+// Width of the sidebar when collapsed to icon-only mode. Fits the 42 px
+// profile icon + the agent badge that sticks out 2 px past its top-left
+// corner, with a touch of margin so the icons don't feel cramped.
+const SIDEBAR_COMPACT_WIDTH = 64;
+const SIDEBAR_EXPANDED_MIN = 160;
+const SIDEBAR_EXPANDED_MAX = 500;
+// Drag past this width (in either direction) flips the snap.
+const SIDEBAR_SNAP_THRESHOLD = 120;
+
 export function App() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
@@ -215,6 +224,11 @@ export function App() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(250);
+  // Sidebar collapse-to-icons mode. Drives a snap behaviour when dragging
+  // the resize handle past a threshold. When true, `sidebarWidth` is the
+  // saved expanded width to restore on un-collapse; the rendered width is
+  // `SIDEBAR_COMPACT_WIDTH`.
+  const [sidebarCompact, setSidebarCompact] = useState(false);
   const [layout, setLayout] = useState<SidebarLayout>({ items: [], folders: [] });
   // Overlay visibility is per-VIEW so each parallel agent has its own state
   // independent of the parent profile and its siblings. View key is the
@@ -454,6 +468,10 @@ export function App() {
     window.api.loadSettings().then((loaded) => {
       setSettings(loaded);
       setSidebarWidth(loaded.sidebarWidth);
+      setSidebarCompact(loaded.sidebarCompact === true);
+      logicalSidebarWidthRef.current = loaded.sidebarCompact === true
+        ? SIDEBAR_COMPACT_WIDTH
+        : loaded.sidebarWidth;
       applyTheme(loaded.baseHue, loaded.darkness, loaded.textLightness, loaded.profileFontSize, {
         intensity: loaded.flameIntensity,
         spread: loaded.flameSpread,
@@ -1128,13 +1146,44 @@ export function App() {
     [],
   );
 
+  // Track an unclamped "logical width" that accumulates each mousemove
+  // delta from ResizeHandle. The visible width + compact flag are derived
+  // from it. Without this, deltas that would push the visible width past
+  // a clamp boundary (EXPANDED_MIN or COMPACT_WIDTH) get silently
+  // discarded, so the snap only ever fires when a single mousemove event
+  // crosses the threshold in one shot — i.e., a fast jerk of the mouse.
+  // With the logical ref, small per-frame deltas compose normally and
+  // the snap fires the moment the cumulative drag crosses the threshold.
+  const sidebarWidthRef = useRef(sidebarWidth);
+  sidebarWidthRef.current = sidebarWidth;
+  const sidebarCompactRef = useRef(sidebarCompact);
+  sidebarCompactRef.current = sidebarCompact;
+  const logicalSidebarWidthRef = useRef<number>(
+    sidebarCompact ? SIDEBAR_COMPACT_WIDTH : sidebarWidth,
+  );
+
   const handleSidebarResize = useCallback(
     (delta: number) => {
-      setSidebarWidth((w) => {
-        const next = Math.max(160, Math.min(500, w + delta));
-        savePaneSizes({ sidebarWidth: next });
-        return next;
-      });
+      const logical = Math.max(
+        SIDEBAR_COMPACT_WIDTH,
+        Math.min(SIDEBAR_EXPANDED_MAX, logicalSidebarWidthRef.current + delta),
+      );
+      logicalSidebarWidthRef.current = logical;
+
+      const nextCompact = logical < SIDEBAR_SNAP_THRESHOLD;
+      if (nextCompact !== sidebarCompactRef.current) {
+        sidebarCompactRef.current = nextCompact;
+        setSidebarCompact(nextCompact);
+        savePaneSizes({ sidebarCompact: nextCompact });
+      }
+      if (!nextCompact) {
+        const visible = Math.max(SIDEBAR_EXPANDED_MIN, logical);
+        if (visible !== sidebarWidthRef.current) {
+          sidebarWidthRef.current = visible;
+          setSidebarWidth(visible);
+          savePaneSizes({ sidebarWidth: visible });
+        }
+      }
     },
     [savePaneSizes],
   );
@@ -1421,7 +1470,12 @@ export function App() {
   }, [settings.dictationMode, dictation]);
 
   return (
-    <div className="app" style={{ gridTemplateColumns: `${sidebarWidth}px auto 1fr` }}>
+    <div
+      className={`app${sidebarCompact ? ' app-sidebar-compact' : ''}`}
+      style={{
+        gridTemplateColumns: `${sidebarCompact ? SIDEBAR_COMPACT_WIDTH : sidebarWidth}px auto 1fr`,
+      }}
+    >
       <div className="titlebar">
         {activeProfile && (
           <>
