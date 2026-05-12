@@ -8,6 +8,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { ResizeHandle } from './components/ResizeHandle';
 import { FileExplorer } from './components/FileExplorer';
 import { KanbanViewer } from './components/KanbanViewer';
+import { WebViewer } from './components/WebViewer';
 import { ParallelAgentTerminal } from './components/ParallelAgentTerminal';
 import { StatusBar } from './components/StatusBar';
 import { GitChangesPanel } from './components/GitChangesPanel';
@@ -244,6 +245,17 @@ export function App() {
   // shows the existing Ordna view without reloading.
   const [kanbanViews, setKanbanViews] = useState<Set<string>>(new Set());
   const [kanbanRunning, setKanbanRunning] = useState<Set<string>>(new Set());
+  // Web (in-app browser) views — mirrors the kanbanViews/kanbanRunning
+  // pattern. `webViews` = currently shown as the active overlay (or as
+  // the right pane in split mode). `webRunning` = ever opened so the
+  // <webview> stays mounted and keeps its history/scroll position.
+  const [webViews, setWebViews] = useState<Set<string>>(new Set());
+  const [webRunning, setWebRunning] = useState<Set<string>>(new Set());
+  // External navigation request for the Web tab (triggered by clicking a
+  // link in the agent terminal). Keyed by viewKey so each profile/parallel
+  // routes its own navigations; nonce so a re-click of the same URL still
+  // navigates.
+  const [pendingWebNavigate, setPendingWebNavigate] = useState<{ key: string; url: string; nonce: number } | null>(null);
   // Per-view-key: when true, the Agent terminal is pinned to the left half
   // and the right half shows Files or Kanban side-by-side. Toggled via the
   // split button next to the Kanban tab. In-memory only — survives profile
@@ -292,6 +304,7 @@ export function App() {
   // Derived: visible state for the currently-active view
   const filesVisible = activeViewKey ? filesViews.has(activeViewKey) : false;
   const kanbanVisible = activeViewKey ? kanbanViews.has(activeViewKey) : false;
+  const webVisible = activeViewKey ? webViews.has(activeViewKey) : false;
   const [hasUpdates, setHasUpdates] = useState<Set<string>>(new Set());
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState('');
@@ -778,6 +791,29 @@ export function App() {
     return () => window.removeEventListener('open-file-in-explorer', handleOpenFile);
   }, [activeViewKey]);
 
+  // Link clicks from the agent terminal — when the Web function is on,
+  // TerminalPane dispatches this event instead of calling shell.openExternal
+  // (see openTerminal in TerminalPane.tsx). We surface the embedded Web
+  // tab for the active view and push the URL into the matching WebViewer
+  // via the pendingWebNavigate state. Other right-pane overlays close so
+  // the Web view is visible; split mode is respected — the URL lands on
+  // the right pane there too.
+  useEffect(() => {
+    const handleOpenUrl = (e: Event) => {
+      const detail = (e as CustomEvent<{ url: string }>).detail;
+      if (!detail?.url) return;
+      const key = activeViewKey;
+      if (!key) return;
+      setWebRunning((prev) => ensureInSet(prev, key));
+      setWebViews((prev) => ensureInSet(prev, key));
+      setKanbanViews((prev) => removeFromSet(prev, key));
+      if (filesViews.has(key)) setFilesCloseRequested(true);
+      setPendingWebNavigate({ key, url: detail.url, nonce: Date.now() });
+    };
+    window.addEventListener('open-url-in-browser', handleOpenUrl);
+    return () => window.removeEventListener('open-url-in-browser', handleOpenUrl);
+  }, [activeViewKey, filesViews]);
+
   // Mirror profiles into a ref so the once-mounted onOrdnaTask listener can
   // look up profile.parallelAgentEnabled at hook-fire time.
   const profilesRef = useRef<Profile[]>([]);
@@ -1143,6 +1179,22 @@ export function App() {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
+  // Sweep open views of a function the user just disabled in Settings →
+  // Functions. Without this, an already-open Kanban / Web overlay would
+  // stay onscreen even though its tab disappears from the command bar.
+  useEffect(() => {
+    if (settings.functionKanbanEnabled === false) {
+      setKanbanViews(new Set());
+      setKanbanRunning(new Set());
+    }
+  }, [settings.functionKanbanEnabled]);
+  useEffect(() => {
+    if (settings.functionWebEnabled === false) {
+      setWebViews(new Set());
+      setWebRunning(new Set());
+    }
+  }, [settings.functionWebEnabled]);
+
   const savePaneSizes = useCallback(
     (patch: Partial<AppSettings>) => {
       if (savePaneTimerRef.current) clearTimeout(savePaneTimerRef.current);
@@ -1280,38 +1332,36 @@ export function App() {
   // 'kanban' → KanbanViewer overlay (its KanbanRunning entry stays put
   //   when the user moves to a different tab, so Ordna keeps running
   //   in the background).
-  const selectTab = useCallback((tab: 'agent' | 'files' | 'kanban') => {
+  const selectTab = useCallback((tab: 'agent' | 'files' | 'kanban' | 'web') => {
     const key = activeViewKey;
     if (!key) return;
+
+    // Helper to set exactly one of files/kanban/web as the right pane.
+    const setSoleOverlay = (which: 'files' | 'kanban' | 'web') => {
+      setFilesViews((prev) => which === 'files' ? ensureInSet(prev, key) : removeFromSet(prev, key));
+      setKanbanViews((prev) => which === 'kanban' ? ensureInSet(prev, key) : removeFromSet(prev, key));
+      setWebViews((prev) => which === 'web' ? ensureInSet(prev, key) : removeFromSet(prev, key));
+      if (which === 'kanban') setKanbanRunning((prev) => ensureInSet(prev, key));
+      if (which === 'web') setWebRunning((prev) => ensureInSet(prev, key));
+      // Files has the unsaved-changes confirmation flow — only ask for
+      // permission to close it if we're leaving Files for something else.
+      if (which !== 'files' && filesViews.has(key)) setFilesCloseRequested(true);
+    };
+
     // In split mode the Agent pane is permanently on the left; tapping
-    // Agent is a no-op. Files / Kanban tabs switch the RIGHT pane and
-    // remain mutually exclusive.
+    // Agent is a no-op. Other tabs switch the RIGHT pane.
     if (splitViews.has(key)) {
       if (tab === 'agent') return;
-      if (tab === 'files') {
-        setFilesViews((prev) => ensureInSet(prev, key));
-        setKanbanViews((prev) => removeFromSet(prev, key));
-      } else {
-        setKanbanViews((prev) => ensureInSet(prev, key));
-        setKanbanRunning((prev) => ensureInSet(prev, key));
-        if (filesViews.has(key)) setFilesCloseRequested(true);
-      }
+      setSoleOverlay(tab);
       return;
     }
     if (tab === 'agent') {
       if (filesViews.has(key)) setFilesCloseRequested(true);
       setKanbanViews((prev) => removeFromSet(prev, key));
+      setWebViews((prev) => removeFromSet(prev, key));
       return;
     }
-    if (tab === 'files') {
-      setFilesViews((prev) => ensureInSet(prev, key));
-      setKanbanViews((prev) => removeFromSet(prev, key));
-      return;
-    }
-    // tab === 'kanban'
-    setKanbanViews((prev) => ensureInSet(prev, key));
-    setKanbanRunning((prev) => ensureInSet(prev, key));
-    if (filesViews.has(key)) setFilesCloseRequested(true);
+    setSoleOverlay(tab);
   }, [activeViewKey, filesViews, splitViews]);
 
   // Keyboard-nav targets — same-tab presses are no-ops, so ⌘1 from
@@ -1319,11 +1369,13 @@ export function App() {
   const goAgent = useCallback(() => selectTab('agent'), [selectTab]);
   const goFiles = useCallback(() => selectTab('files'), [selectTab]);
   const goKanban = useCallback(() => selectTab('kanban'), [selectTab]);
+  const goWeb = useCallback(() => selectTab('web'), [selectTab]);
 
   // Derived current tab — the Agent tab is the default whenever no
   // overlay is active.
-  const activeTab: 'agent' | 'files' | 'kanban' = filesVisible ? 'files'
+  const activeTab: 'agent' | 'files' | 'kanban' | 'web' = filesVisible ? 'files'
     : kanbanVisible ? 'kanban'
+    : webVisible ? 'web'
     : 'agent';
   const shellOpen = activeProfileId ? shellOpenSet.has(activeProfileId) : false;
   // Split mode is per-view-key (so each profile + each parallel agent
@@ -1337,21 +1389,22 @@ export function App() {
     setSplitViews((prev) => {
       const next = new Set(prev);
       if (next.has(key)) {
-        // Exiting split — drop back to agent-only and clear the Files /
-        // Kanban overlay so the user gets the "original" view.
+        // Exiting split — drop back to agent-only and clear every
+        // right-pane overlay so the user gets the "original" view.
         next.delete(key);
         setFilesViews((p) => removeFromSet(p, key));
         setKanbanViews((p) => removeFromSet(p, key));
+        setWebViews((p) => removeFromSet(p, key));
       } else {
-        // Entering split — guarantee one of Files/Kanban is the right pane.
+        // Entering split — guarantee one of Files/Kanban/Web is the right pane.
         next.add(key);
-        if (!filesViews.has(key) && !kanbanViews.has(key)) {
+        if (!filesViews.has(key) && !kanbanViews.has(key) && !webViews.has(key)) {
           setFilesViews((p) => ensureInSet(p, key));
         }
       }
       return next;
     });
-  }, [activeViewKey, selectedParallelId, filesViews, kanbanViews]);
+  }, [activeViewKey, selectedParallelId, filesViews, kanbanViews, webViews]);
 
   const agentSplitRef = useRef<HTMLDivElement>(null);
   const handleAgentSplitResize = useCallback((delta: number) => {
@@ -1406,9 +1459,17 @@ export function App() {
 
   const navActions = useMemo(() => {
     // Keep this in sync with CommandBar.tsx button order:
-    // Tabs: Agent(0) Files(1) Kanban(2) | Terminal(3) Git(4) | Mic | Folder(5) | external(6+)
-    const actions = [goAgent, goFiles, goKanban, toggleShell, toggleGit, openFolder];
-    const labels = ['Agent', 'Files', 'Kanban', 'Terminal', 'Git', 'Folder'];
+    //   Agent(0) Files(1) [Kanban] [Web] | Terminal Git | Mic Folder | external apps
+    // Kanban / Web are skipped from the array when their feature flag is
+    // off, so downstream indices shift accordingly.
+    const kanbanOn = settings.functionKanbanEnabled !== false;
+    const webOn = settings.functionWebEnabled !== false;
+    const actions: Array<() => void> = [goAgent, goFiles];
+    const labels: string[] = ['Agent', 'Files'];
+    if (kanbanOn) { actions.push(goKanban); labels.push('Kanban'); }
+    if (webOn) { actions.push(goWeb); labels.push('Web'); }
+    actions.push(toggleShell, toggleGit, openFolder);
+    labels.push('Terminal', 'Git', 'Folder');
     for (const app of settings.externalApps || []) {
       const cmd = app.command;
       const wd = activeProfile?.workingDirectory || '';
@@ -1416,7 +1477,7 @@ export function App() {
       labels.push(app.name);
     }
     return { actions, labels };
-  }, [goAgent, goFiles, goKanban, toggleShell, toggleGit, openFolder, settings.externalApps, activeProfile]);
+  }, [goAgent, goFiles, goKanban, goWeb, toggleShell, toggleGit, openFolder, settings.externalApps, settings.functionKanbanEnabled, settings.functionWebEnabled, activeProfile]);
 
   // Keyboard profile navigation — only updates visual selection.
   // The auto-init effect (2s debounce) handles terminal initialization.
@@ -1593,6 +1654,8 @@ export function App() {
           splitActive={splitMode}
           onToggleSplit={toggleSplit}
           agentSplitPercent={agentSplitPercent}
+          kanbanEnabled={settings.functionKanbanEnabled !== false}
+          webEnabled={settings.functionWebEnabled !== false}
           externalApps={settings.externalApps || []}
           navActive={navActive}
           showActionLabels={settings.showActionLabels === true}
@@ -1640,11 +1703,12 @@ export function App() {
               activeProfileId={activeProfileId}
               initialized={initialized}
               shellOpen={shellOpen}
-              hidden={!splitMode && (filesVisible || kanbanVisible || selectedParallelId !== null)}
+              hidden={!splitMode && (filesVisible || kanbanVisible || webVisible || selectedParallelId !== null)}
               settings={settings}
               focusedPane={focusedPane}
               navActive={navActive}
               splitWidth={splitMode ? agentSplitPercent : null}
+              webEnabled={settings.functionWebEnabled !== false}
             />
             {splitMode && (
               <ResizeHandle direction="horizontal" onResize={handleAgentSplitResize} />
@@ -1698,6 +1762,23 @@ export function App() {
                 />
               );
             })}
+            {/* Mount one WebViewer per view in webRunning — same persist-
+                in-background pattern as Kanban. View key includes the
+                parallel-agent id so each agent gets its own page. */}
+            {[...webRunning].map((key) => {
+              const visible = key === activeViewKey && webViews.has(key);
+              const nav = pendingWebNavigate && pendingWebNavigate.key === key
+                ? { url: pendingWebNavigate.url, nonce: pendingWebNavigate.nonce }
+                : null;
+              return (
+                <WebViewer
+                  key={key}
+                  instanceKey={key}
+                  hidden={!visible}
+                  pendingNavigate={nav}
+                />
+              );
+            })}
             {/* Mount one ParallelAgentTerminal per parallel agent so each PTY's
                 xterm.js stays alive and switching between them is just CSS.
                 In split mode the parent's agent terminal occupies the left,
@@ -1708,7 +1789,7 @@ export function App() {
                 key={sa.id}
                 agent={sa}
                 settings={settings}
-                hidden={splitMode || !(selectedParallelId === sa.id && activeProfileId === sa.profileId && !filesVisible && !kanbanVisible)}
+                hidden={splitMode || !(selectedParallelId === sa.id && activeProfileId === sa.profileId && !filesVisible && !kanbanVisible && !webVisible)}
               />
             ))}
           </div>

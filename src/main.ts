@@ -225,6 +225,11 @@ const createWindow = () => {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Enables <webview> for the in-app Web tab. Webviews give us a
+      // separate process with its own session, so we bypass the
+      // X-Frame-Options block that would prevent loading most sites in
+      // a plain iframe.
+      webviewTag: true,
     },
   });
 

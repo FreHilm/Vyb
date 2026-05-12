@@ -21,6 +21,10 @@ interface TerminalPaneProps {
    * Used by the split-with-Files/Kanban layout to pin the agent on the
    * left while the right pane takes the remainder. Null = normal flex. */
   splitWidth?: number | null;
+  /** When true, http(s) links clicked in the agent output open inside
+   * the embedded Web tab (via a window event consumed by App.tsx).
+   * When false, they fall through to shell.openExternal — the OS browser. */
+  webEnabled?: boolean;
 }
 
 interface TerminalInstance {
@@ -335,6 +339,7 @@ function openTerminal(
   gpuMode: string,
   profileId: string,
   workingDirectory: string,
+  webEnabledRef: { current: boolean },
 ): void {
   if (instance.opened) return;
   instance.opened = true;
@@ -345,11 +350,19 @@ function openTerminal(
   instance.terminal.attachCustomKeyEventHandler(
     makeTerminalKeyHandler(instance.terminal, sendInput),
   );
-  // Make http(s) URLs in agent output clickable — opens in OS default browser
-  // via shell.openExternal instead of the addon's default window.open.
+  // Click-handler for http(s) URLs in agent output. Route depends on the
+  // Web function flag at click-time (mirrored via the ref so toggling the
+  // flag is picked up without rebuilding the xterm instance):
+  //   Web ON  → dispatch open-url-in-browser, consumed by App.tsx which
+  //             switches to the Web tab and navigates the embedded view.
+  //   Web OFF → shell.openExternal via window.api.openUrl (OS browser).
   instance.terminal.loadAddon(
     new WebLinksAddon((_event, uri) => {
-      window.api.openUrl(uri);
+      if (webEnabledRef.current) {
+        window.dispatchEvent(new CustomEvent('open-url-in-browser', { detail: { url: uri } }));
+      } else {
+        window.api.openUrl(uri);
+      }
     }),
   );
   // File-token link provider — clicking a file path in agent output
@@ -405,7 +418,13 @@ export function TerminalPane({
   navActive,
   shellOpen,
   splitWidth = null,
+  webEnabled = false,
 }: TerminalPaneProps) {
+  // Mirror webEnabled into a ref so the WebLinksAddon callback (captured
+  // once per agent terminal at openTerminal time) reads the latest value
+  // instead of the one in scope when the addon was attached.
+  const webEnabledRef = useRef(webEnabled);
+  webEnabledRef.current = webEnabled;
   const agentContainerRef = useRef<HTMLDivElement>(null);
   const agentTerminalsRef = useRef<Map<string, TerminalInstance>>(new Map());
   const dataUnsubRef = useRef<(() => void) | null>(null);
@@ -496,6 +515,7 @@ export function TerminalPane({
           settings.gpuAcceleration,
           id,
           profileForOpen?.workingDirectory ?? '',
+          webEnabledRef,
         );
         instance.element.style.display = 'block';
         activateWebgl(instance, settings.gpuAcceleration);

@@ -3,7 +3,7 @@ import { Profile, ExternalApp } from '../../shared/types';
 import { APP_ICONS } from '../icons';
 import { NavBadge } from './KeyNav';
 
-export type CommandBarTab = 'agent' | 'files' | 'kanban';
+export type CommandBarTab = 'agent' | 'files' | 'kanban' | 'web';
 
 interface CommandBarProps {
   profile: Profile | null;
@@ -27,6 +27,9 @@ interface CommandBarProps {
   /** Width % of the agent pane in split mode — drives the grid template
    * so the Files/Kanban tab cluster lands flush above the right pane. */
   agentSplitPercent: number;
+  /** Feature flags from Settings → Functions. Disabled tabs are hidden. */
+  kanbanEnabled: boolean;
+  webEnabled: boolean;
   externalApps: ExternalApp[];
   navActive: boolean;
   /** When false (default), the built-in action buttons (Terminal, Mic,
@@ -68,6 +71,8 @@ export function CommandBar({
   splitActive,
   onToggleSplit,
   agentSplitPercent,
+  kanbanEnabled,
+  webEnabled,
   externalApps,
   navActive,
   showActionLabels,
@@ -126,7 +131,7 @@ export function CommandBar({
       <span>Files</span>
     </button>
   );
-  const kanbanTabButton = (
+  const kanbanTabButton = kanbanEnabled ? (
     <button
       className={`command-bar-tab ${activeTab === 'kanban' ? 'command-bar-tab-active' : ''}`}
       onClick={() => onSelectTab('kanban')}
@@ -140,7 +145,22 @@ export function CommandBar({
       </svg>
       <span>Kanban</span>
     </button>
-  );
+  ) : null;
+  const webTabButton = webEnabled ? (
+    <button
+      className={`command-bar-tab ${activeTab === 'web' ? 'command-bar-tab-active' : ''}`}
+      onClick={() => onSelectTab('web')}
+      title="In-app browser"
+    >
+      <NavNum active={navActive} idx={kanbanEnabled ? 3 : 2} />
+      <svg {...ICON_PROPS}>
+        <circle cx="8" cy="8" r="6.2" />
+        <path d="M1.8 8h12.4" />
+        <path d="M8 1.8c2 2 3 4 3 6.2s-1 4.2-3 6.2c-2-2-3-4-3-6.2s1-4.2 3-6.2z" />
+      </svg>
+      <span>Web</span>
+    </button>
+  ) : null;
   const splitToggleButton = (
     <button
       className={`command-bar-split-toggle ${splitActive ? 'is-active' : ''}`}
@@ -174,6 +194,7 @@ export function CommandBar({
           <div className="command-bar-tabs command-bar-tabs-right">
             {filesTabButton}
             {kanbanTabButton}
+            {webTabButton}
             {splitToggleButton}
           </div>
         </>
@@ -182,6 +203,7 @@ export function CommandBar({
           {agentTabButton}
           {filesTabButton}
           {kanbanTabButton}
+          {webTabButton}
           {splitToggleButton}
         </div>
       )}
