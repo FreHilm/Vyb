@@ -194,6 +194,7 @@ export function SettingsDialog({
   const [parallelAgentAutoRun, setParallelAgentAutoRun] = useState(settings.parallelAgentAutoRun !== false);
   const [functionKanbanEnabled, setFunctionKanbanEnabled] = useState(settings.functionKanbanEnabled !== false);
   const [functionWebEnabled, setFunctionWebEnabled] = useState(settings.functionWebEnabled !== false);
+  const [webDefaultUrl, setWebDefaultUrl] = useState(settings.webDefaultUrl || 'https://duckduckgo.com/');
 
   useEffect(() => {
     window.api.getOrdnaHookInfo().then(setOrdnaHookInfo).catch((): void => undefined);
@@ -239,6 +240,7 @@ export function SettingsDialog({
       parallelAgentAutoRun,
       functionKanbanEnabled,
       functionWebEnabled,
+      webDefaultUrl: webDefaultUrl.trim() || 'https://duckduckgo.com/',
     });
   };
 
@@ -261,14 +263,8 @@ export function SettingsDialog({
         </div>
 
         <div className="settings-tabs">
-          {/* Order: Agents → Apps → Kanban → Integrations → Icons →
-              Appearance. (Flames tab still hidden — see DEFAULT_SETTINGS.) */}
-          <button
-            className={`settings-tab ${tab === 'functions' ? 'settings-tab-active' : ''}`}
-            onClick={() => setTab('functions')}
-          >
-            Functions
-          </button>
+          {/* Tabs sorted alphabetically by label. (Flames tab still hidden
+              — see DEFAULT_SETTINGS. Backup tab is gated on BACKUP_TAB_ENABLED.) */}
           <button
             className={`settings-tab ${tab === 'agents' ? 'settings-tab-active' : ''}`}
             onClick={() => setTab('agents')}
@@ -276,34 +272,16 @@ export function SettingsDialog({
             Agents
           </button>
           <button
-            className={`settings-tab ${tab === 'apps' ? 'settings-tab-active' : ''}`}
-            onClick={() => setTab('apps')}
-          >
-            Apps
-          </button>
-          <button
-            className={`settings-tab ${tab === 'ordna' ? 'settings-tab-active' : ''}`}
-            onClick={() => setTab('ordna')}
-          >
-            Kanban
-          </button>
-          <button
-            className={`settings-tab ${tab === 'integrations' ? 'settings-tab-active' : ''}`}
-            onClick={() => setTab('integrations')}
-          >
-            Integrations
-          </button>
-          <button
-            className={`settings-tab ${tab === 'icons' ? 'settings-tab-active' : ''}`}
-            onClick={() => setTab('icons')}
-          >
-            Icons
-          </button>
-          <button
             className={`settings-tab ${tab === 'appearance' ? 'settings-tab-active' : ''}`}
             onClick={() => setTab('appearance')}
           >
             Appearance
+          </button>
+          <button
+            className={`settings-tab ${tab === 'apps' ? 'settings-tab-active' : ''}`}
+            onClick={() => setTab('apps')}
+          >
+            Apps
           </button>
           {BACKUP_TAB_ENABLED && (
             <button
@@ -313,6 +291,30 @@ export function SettingsDialog({
               Backup
             </button>
           )}
+          <button
+            className={`settings-tab ${tab === 'functions' ? 'settings-tab-active' : ''}`}
+            onClick={() => setTab('functions')}
+          >
+            Functions
+          </button>
+          <button
+            className={`settings-tab ${tab === 'icons' ? 'settings-tab-active' : ''}`}
+            onClick={() => setTab('icons')}
+          >
+            Icons
+          </button>
+          <button
+            className={`settings-tab ${tab === 'integrations' ? 'settings-tab-active' : ''}`}
+            onClick={() => setTab('integrations')}
+          >
+            Integrations
+          </button>
+          <button
+            className={`settings-tab ${tab === 'ordna' ? 'settings-tab-active' : ''}`}
+            onClick={() => setTab('ordna')}
+          >
+            Kanban
+          </button>
         </div>
 
         <div className="modal-body">
@@ -355,6 +357,24 @@ export function SettingsDialog({
                 An in-app browser with back/forward/reload and an address bar.
                 Each profile remembers its last URL.
               </span>
+
+              {functionWebEnabled && (
+                <label className="field" style={{ marginTop: 12 }}>
+                  <span className="field-label">Default page</span>
+                  <input
+                    type="text"
+                    value={webDefaultUrl}
+                    onChange={(e) => setWebDefaultUrl(e.target.value)}
+                    placeholder="https://duckduckgo.com/"
+                    spellCheck={false}
+                  />
+                  <span className="field-hint">
+                    Loaded the first time a profile opens its Web tab.
+                    Once the user navigates, that page is remembered per
+                    profile and used in its place.
+                  </span>
+                </label>
+              )}
             </>
           )}
           {tab === 'appearance' && (

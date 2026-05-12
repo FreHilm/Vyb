@@ -95,6 +95,17 @@ export interface AppSettings {
    * view of that kind is closed. Both default to true. */
   functionKanbanEnabled: boolean;
   functionWebEnabled: boolean;
+  /** Default landing page for a Web tab that has never been navigated.
+   * Once a view has a saved URL in `webUrls`, this is ignored. Free-form
+   * text — non-URL input is interpreted as a DuckDuckGo search at click
+   * time (same normalisation as the address bar). */
+  webDefaultUrl: string;
+  /** Per-view last URL for the in-app browser, keyed by viewKey
+   * (`profileId` for parents, `profileId|parallelId` for parallel agents).
+   * Lets the Web tab restore the page the user was on after an app
+   * restart. Combined with the webview's `persist:` partition this also
+   * means cookies / logins survive. */
+  webUrls: Record<string, string>;
 }
 
 export interface AgentConfig {
@@ -192,6 +203,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   parallelAgentAutoRun: true,
   functionKanbanEnabled: true,
   functionWebEnabled: true,
+  webDefaultUrl: 'https://duckduckgo.com/',
+  webUrls: {},
 };
 
 /** Resolve the command and args for a profile, looking up the agent config if set */
