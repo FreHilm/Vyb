@@ -53,6 +53,7 @@
    past the snap threshold (see handleSidebarResize in App.tsx). Hides
    labels and adornments so only the profile icon remains. */
 .app-sidebar-compact .sidebar-header h2,
+.app-sidebar-compact .sidebar-header-actions,
 .app-sidebar-compact .folder-name,
 .app-sidebar-compact .folder-count,
 .app-sidebar-compact .folder-toggle,
