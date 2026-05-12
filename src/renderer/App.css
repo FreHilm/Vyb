@@ -760,6 +760,57 @@
   opacity: 1;
 }
 
+/* Split-view toggle — sits right of the Kanban tab. Styled like the
+   action-btn pills (Terminal / Git / etc.) but vertically centered inside
+   the 32 px tab strip via inline-flex on the parent. */
+.command-bar-split-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 28px;
+  height: 24px;
+  margin: 0 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--c-text);
+  cursor: pointer;
+  transition: background 100ms, color 100ms, border-color 100ms;
+  padding: 0;
+  font-family: inherit;
+}
+.command-bar-split-toggle svg {
+  color: currentColor;
+  opacity: 0.9;
+}
+.command-bar-split-toggle:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.command-bar-split-toggle.is-active {
+  color: var(--c-blue);
+  background: var(--c-surface0);
+}
+
+/* Split mode — grid layout makes the right tab cluster (Files / Kanban /
+   split-toggle) land flush above the right pane. Column 1 takes the
+   agent pane's width, column 2 fills the right pane, column 3 is the
+   action area. */
+.command-bar.command-bar-split {
+  display: grid;
+  grid-template-columns: var(--agent-split-pct, 50%) 1fr auto;
+  padding-right: 0;
+}
+.command-bar.command-bar-split .command-bar-tabs-right {
+  /* Right cluster sits at the start of column 2, which is the right
+     pane's left edge. */
+  justify-self: start;
+}
+.command-bar.command-bar-split .command-bar-actions {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
 .command-bar-actions {
   display: flex;
   align-items: center;
