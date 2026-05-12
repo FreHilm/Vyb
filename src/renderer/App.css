@@ -1392,7 +1392,7 @@
 
 /* Settings tabs */
 .settings-modal {
-  width: 600px;
+  width: 680px;
   height: 75vh;
   display: flex;
   flex-direction: column;

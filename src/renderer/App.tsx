@@ -1207,6 +1207,14 @@ export function App() {
     [],
   );
 
+  /** Persist a Web tab's current URL back to settings.webUrls so it
+   * survives a Vyb restart. Debounced via savePaneSizes. */
+  const handleWebUrlChange = useCallback((key: string, url: string) => {
+    const current = settingsRef.current.webUrls || {};
+    if (current[key] === url) return;
+    savePaneSizes({ webUrls: { ...current, [key]: url } });
+  }, [savePaneSizes]);
+
   // Track an unclamped "logical width" that accumulates each mousemove
   // delta from ResizeHandle. The visible width + compact flag are derived
   // from it. Without this, deltas that would push the visible width past
@@ -1770,12 +1778,20 @@ export function App() {
               const nav = pendingWebNavigate && pendingWebNavigate.key === key
                 ? { url: pendingWebNavigate.url, nonce: pendingWebNavigate.nonce }
                 : null;
+              // Per-view saved URL wins; otherwise fall back to the
+              // user's configured default landing page.
+              const saved = settings.webUrls?.[key];
+              const initialUrl = saved && saved.length > 0
+                ? saved
+                : (settings.webDefaultUrl || 'https://duckduckgo.com/');
               return (
                 <WebViewer
                   key={key}
                   instanceKey={key}
+                  initialUrl={initialUrl}
                   hidden={!visible}
                   pendingNavigate={nav}
+                  onUrlChange={handleWebUrlChange}
                 />
               );
             })}
