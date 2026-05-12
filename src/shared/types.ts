@@ -63,6 +63,10 @@ export interface AppSettings {
    * `sidebarWidth`. */
   sidebarCompact: boolean;
   terminalSplitPercent: number; // agent pane %, default 67
+  /** Width % of the agent pane when split-with-Files/Kanban mode is on.
+   * Per-profile split-mode on/off is in-memory (splitViews Set); the
+   * width itself is shared across profiles. */
+  agentSplitPercent: number;
   agents: AgentConfig[];
   externalApps: ExternalApp[];
   navModifierKey: 'meta' | 'alt'; // Modifier key for quick navigation
@@ -160,6 +164,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sidebarWidth: 250,
   sidebarCompact: false,
   terminalSplitPercent: 67,
+  agentSplitPercent: 50,
   agents: [...DEFAULT_AGENTS],
   externalApps: [
     { id: 'vscode', name: 'VS Code', icon: 'vscode', command: 'open -a "Visual Studio Code" "{path}"' },

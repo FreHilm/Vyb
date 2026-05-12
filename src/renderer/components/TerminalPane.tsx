@@ -17,6 +17,10 @@ interface TerminalPaneProps {
   focusedPane: { pane: 'agent' | 'shell'; shellIndex: number };
   navActive: boolean;
   shellOpen: boolean;
+  /** When set, the agent pane renders at this width % instead of flex: 1.
+   * Used by the split-with-Files/Kanban layout to pin the agent on the
+   * left while the right pane takes the remainder. Null = normal flex. */
+  splitWidth?: number | null;
 }
 
 interface TerminalInstance {
@@ -400,6 +404,7 @@ export function TerminalPane({
   focusedPane,
   navActive,
   shellOpen,
+  splitWidth = null,
 }: TerminalPaneProps) {
   const agentContainerRef = useRef<HTMLDivElement>(null);
   const agentTerminalsRef = useRef<Map<string, TerminalInstance>>(new Map());
@@ -597,7 +602,13 @@ export function TerminalPane({
     <div
       className="terminal-pane agent-pane"
       ref={agentContainerRef}
-      style={hidden ? { display: 'none' } : { flex: 1, minHeight: 0 }}
+      style={
+        hidden
+          ? { display: 'none' }
+          : splitWidth !== null
+            ? { width: `${splitWidth}%`, flex: '0 0 auto', minHeight: 0, minWidth: 0 }
+            : { flex: 1, minHeight: 0 }
+      }
     >
       {!activeProfileId && (
         <div className="terminal-placeholder">Select a profile to start</div>

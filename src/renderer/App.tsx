@@ -244,6 +244,12 @@ export function App() {
   // shows the existing Ordna view without reloading.
   const [kanbanViews, setKanbanViews] = useState<Set<string>>(new Set());
   const [kanbanRunning, setKanbanRunning] = useState<Set<string>>(new Set());
+  // Per-view-key: when true, the Agent terminal is pinned to the left half
+  // and the right half shows Files or Kanban side-by-side. Toggled via the
+  // split button next to the Kanban tab. In-memory only — survives profile
+  // switches within a session, not app restarts.
+  const [splitViews, setSplitViews] = useState<Set<string>>(new Set());
+  const [agentSplitPercent, setAgentSplitPercent] = useState(50);
   // Parallel agents (Kanban-spawned worktree agents). Keyed by parallel agent id.
   const [parallelAgents, setParallelAgents] = useState<Map<string, ParallelAgent>>(new Map());
   // Which parallel-agent the user is viewing (PTY id `parallel:<id>`); null = parent profile
@@ -472,6 +478,9 @@ export function App() {
       logicalSidebarWidthRef.current = loaded.sidebarCompact === true
         ? SIDEBAR_COMPACT_WIDTH
         : loaded.sidebarWidth;
+      if (typeof loaded.agentSplitPercent === 'number') {
+        setAgentSplitPercent(loaded.agentSplitPercent);
+      }
       applyTheme(loaded.baseHue, loaded.darkness, loaded.textLightness, loaded.profileFontSize, {
         intensity: loaded.flameIntensity,
         spread: loaded.flameSpread,
@@ -1274,6 +1283,21 @@ export function App() {
   const selectTab = useCallback((tab: 'agent' | 'files' | 'kanban') => {
     const key = activeViewKey;
     if (!key) return;
+    // In split mode the Agent pane is permanently on the left; tapping
+    // Agent is a no-op. Files / Kanban tabs switch the RIGHT pane and
+    // remain mutually exclusive.
+    if (splitViews.has(key)) {
+      if (tab === 'agent') return;
+      if (tab === 'files') {
+        setFilesViews((prev) => ensureInSet(prev, key));
+        setKanbanViews((prev) => removeFromSet(prev, key));
+      } else {
+        setKanbanViews((prev) => ensureInSet(prev, key));
+        setKanbanRunning((prev) => ensureInSet(prev, key));
+        if (filesViews.has(key)) setFilesCloseRequested(true);
+      }
+      return;
+    }
     if (tab === 'agent') {
       if (filesViews.has(key)) setFilesCloseRequested(true);
       setKanbanViews((prev) => removeFromSet(prev, key));
@@ -1288,7 +1312,7 @@ export function App() {
     setKanbanViews((prev) => ensureInSet(prev, key));
     setKanbanRunning((prev) => ensureInSet(prev, key));
     if (filesViews.has(key)) setFilesCloseRequested(true);
-  }, [activeViewKey, filesViews]);
+  }, [activeViewKey, filesViews, splitViews]);
 
   // Keyboard-nav targets — same-tab presses are no-ops, so ⌘1 from
   // Files goes to Agent and from Agent stays on Agent.
@@ -1302,6 +1326,46 @@ export function App() {
     : kanbanVisible ? 'kanban'
     : 'agent';
   const shellOpen = activeProfileId ? shellOpenSet.has(activeProfileId) : false;
+  // Split mode is per-view-key (so each profile + each parallel agent
+  // remembers its own state). For now we restrict to parent views — a
+  // selected parallel agent always occupies the full pane.
+  const splitMode = !!(activeViewKey && !selectedParallelId && splitViews.has(activeViewKey));
+
+  const toggleSplit = useCallback(() => {
+    const key = activeViewKey;
+    if (!key || selectedParallelId) return;
+    setSplitViews((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        // Exiting split — drop back to agent-only and clear the Files /
+        // Kanban overlay so the user gets the "original" view.
+        next.delete(key);
+        setFilesViews((p) => removeFromSet(p, key));
+        setKanbanViews((p) => removeFromSet(p, key));
+      } else {
+        // Entering split — guarantee one of Files/Kanban is the right pane.
+        next.add(key);
+        if (!filesViews.has(key) && !kanbanViews.has(key)) {
+          setFilesViews((p) => ensureInSet(p, key));
+        }
+      }
+      return next;
+    });
+  }, [activeViewKey, selectedParallelId, filesViews, kanbanViews]);
+
+  const agentSplitRef = useRef<HTMLDivElement>(null);
+  const handleAgentSplitResize = useCallback((delta: number) => {
+    const container = agentSplitRef.current;
+    if (!container) return;
+    const totalWidth = container.clientWidth;
+    if (totalWidth === 0) return;
+    const deltaPct = (delta / totalWidth) * 100;
+    setAgentSplitPercent((p) => {
+      const next = Math.max(20, Math.min(80, p + deltaPct));
+      savePaneSizes({ agentSplitPercent: next });
+      return next;
+    });
+  }, [savePaneSizes]);
 
   const toggleShell = useCallback(() => {
     if (!activeProfileId) return;
@@ -1526,6 +1590,9 @@ export function App() {
           onToggleShell={toggleShell}
           onToggleGit={toggleGit}
           gitActive={changesVisible}
+          splitActive={splitMode}
+          onToggleSplit={toggleSplit}
+          agentSplitPercent={agentSplitPercent}
           externalApps={settings.externalApps || []}
           navActive={navActive}
           showActionLabels={settings.showActionLabels === true}
@@ -1543,13 +1610,45 @@ export function App() {
             shared across all tabs and toggled via the Terminal button. */}
         <div className="terminal-split" ref={splitRef}>
           <div
-            className="main-content-top"
+            className={`main-content-top${splitMode ? ' is-split' : ''}`}
+            ref={agentSplitRef}
             style={
               shellOpen
-                ? { height: `${agentPercent}%`, display: 'flex', flexDirection: 'column', position: 'relative', minHeight: 0, overflow: 'hidden' }
-                : { flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', minHeight: 0, overflow: 'hidden' }
+                ? {
+                    height: `${agentPercent}%`,
+                    display: 'flex',
+                    flexDirection: splitMode ? 'row' : 'column',
+                    position: 'relative',
+                    minHeight: 0,
+                    overflow: 'hidden',
+                  }
+                : {
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: splitMode ? 'row' : 'column',
+                    position: 'relative',
+                    minHeight: 0,
+                    overflow: 'hidden',
+                  }
             }
           >
+            {/* TerminalPane first so flex-direction:row puts it on the
+                left in split mode. In normal mode it lives at the top of
+                the flex column (hidden when Files/Kanban is selected). */}
+            <TerminalPane
+              profiles={profiles}
+              activeProfileId={activeProfileId}
+              initialized={initialized}
+              shellOpen={shellOpen}
+              hidden={!splitMode && (filesVisible || kanbanVisible || selectedParallelId !== null)}
+              settings={settings}
+              focusedPane={focusedPane}
+              navActive={navActive}
+              splitWidth={splitMode ? agentSplitPercent : null}
+            />
+            {splitMode && (
+              <ResizeHandle direction="horizontal" onResize={handleAgentSplitResize} />
+            )}
             {filesVisible && activeProfile && (
               <FileExplorer
                 workingDirectory={activeViewCwd || activeProfile.workingDirectory}
@@ -1600,25 +1699,18 @@ export function App() {
               );
             })}
             {/* Mount one ParallelAgentTerminal per parallel agent so each PTY's
-                xterm.js stays alive and switching between them is just CSS. */}
+                xterm.js stays alive and switching between them is just CSS.
+                In split mode the parent's agent terminal occupies the left,
+                so we hide all parallels — split is intentionally a
+                parent-profile-only layout. */}
             {[...parallelAgents.values()].map((sa) => (
               <ParallelAgentTerminal
                 key={sa.id}
                 agent={sa}
                 settings={settings}
-                hidden={!(selectedParallelId === sa.id && activeProfileId === sa.profileId && !filesVisible && !kanbanVisible)}
+                hidden={splitMode || !(selectedParallelId === sa.id && activeProfileId === sa.profileId && !filesVisible && !kanbanVisible)}
               />
             ))}
-            <TerminalPane
-              profiles={profiles}
-              activeProfileId={activeProfileId}
-              initialized={initialized}
-              shellOpen={shellOpen}
-              hidden={filesVisible || kanbanVisible || selectedParallelId !== null}
-              settings={settings}
-              focusedPane={focusedPane}
-              navActive={navActive}
-            />
           </div>
           {shellOpen && (
             <ResizeHandle direction="vertical" onResize={handleTerminalSplitResize} />

@@ -1,3 +1,4 @@
+import type React from 'react';
 import { Profile, ExternalApp } from '../../shared/types';
 import { APP_ICONS } from '../icons';
 import { NavBadge } from './KeyNav';
@@ -17,6 +18,15 @@ interface CommandBarProps {
   onToggleGit: () => void;
   /** Whether the Git panel is currently shown — drives the active styling. */
   gitActive: boolean;
+  /** Whether split-view (agent left + files/kanban right) is on for the
+   * current profile. When true, the Agent tab is rendered as a permanent
+   * left-pane indicator (always "selected"), and tapping Files/Kanban
+   * switches the right pane instead of replacing the agent. */
+  splitActive: boolean;
+  onToggleSplit: () => void;
+  /** Width % of the agent pane in split mode — drives the grid template
+   * so the Files/Kanban tab cluster lands flush above the right pane. */
+  agentSplitPercent: number;
   externalApps: ExternalApp[];
   navActive: boolean;
   /** When false (default), the built-in action buttons (Terminal, Mic,
@@ -55,6 +65,9 @@ export function CommandBar({
   onToggleShell,
   onToggleGit,
   gitActive,
+  splitActive,
+  onToggleSplit,
+  agentSplitPercent,
   externalApps,
   navActive,
   showActionLabels,
@@ -84,48 +97,94 @@ export function CommandBar({
   // Nav indices skip the dictation button (it has its own Ctrl+Shift+D shortcut).
   const extStart = 6;
 
+  const agentTabButton = (
+    <button
+      className={`command-bar-tab ${activeTab === 'agent' || splitActive ? 'command-bar-tab-active' : ''}`}
+      onClick={() => onSelectTab('agent')}
+      title={splitActive ? 'Agent pane (pinned left while split-view is on)' : 'Show the agent terminal'}
+    >
+      <NavNum active={navActive} idx={0} />
+      <svg {...ICON_PROPS}>
+        <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
+        <polyline points="4.5 7 6.5 9 4.5 11" />
+        <line x1="8" y1="11" x2="11" y2="11" />
+      </svg>
+      <span>Agent</span>
+    </button>
+  );
+  const filesTabButton = (
+    <button
+      className={`command-bar-tab ${activeTab === 'files' ? 'command-bar-tab-active' : ''}`}
+      onClick={() => onSelectTab('files')}
+      title="File explorer"
+    >
+      <NavNum active={navActive} idx={1} />
+      <svg {...ICON_PROPS}>
+        <path d="M9 2H5A1.5 1.5 0 0 0 3.5 3.5v9A1.5 1.5 0 0 0 5 14h6a1.5 1.5 0 0 0 1.5-1.5V5.5L9 2Z" />
+        <path d="M9 2v3.5h3.5" />
+      </svg>
+      <span>Files</span>
+    </button>
+  );
+  const kanbanTabButton = (
+    <button
+      className={`command-bar-tab ${activeTab === 'kanban' ? 'command-bar-tab-active' : ''}`}
+      onClick={() => onSelectTab('kanban')}
+      title="Kanban (Ordna)"
+    >
+      <NavNum active={navActive} idx={2} />
+      <svg {...ICON_PROPS}>
+        <rect x="2" y="3" width="3.2" height="10" rx="0.5" />
+        <rect x="6.4" y="3" width="3.2" height="7" rx="0.5" />
+        <rect x="10.8" y="3" width="3.2" height="4" rx="0.5" />
+      </svg>
+      <span>Kanban</span>
+    </button>
+  );
+  const splitToggleButton = (
+    <button
+      className={`command-bar-split-toggle ${splitActive ? 'is-active' : ''}`}
+      onClick={onToggleSplit}
+      title={splitActive
+        ? 'Exit split view (show only the agent)'
+        : 'Split view: agent on the left, Files/Kanban on the right'}
+      aria-pressed={splitActive}
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+        <rect x="1.5" y="3" width="5.5" height="10" rx="1" />
+        <rect x="9" y="3" width="5.5" height="10" rx="1" />
+      </svg>
+    </button>
+  );
+
   return (
-    <div className="command-bar">
-      <div className="command-bar-tabs">
-        <button
-          className={`command-bar-tab ${activeTab === 'agent' ? 'command-bar-tab-active' : ''}`}
-          onClick={() => onSelectTab('agent')}
-          title="Show the agent terminal"
-        >
-          <NavNum active={navActive} idx={0} />
-          <svg {...ICON_PROPS}>
-            <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
-            <polyline points="4.5 7 6.5 9 4.5 11" />
-            <line x1="8" y1="11" x2="11" y2="11" />
-          </svg>
-          <span>Agent</span>
-        </button>
-        <button
-          className={`command-bar-tab ${activeTab === 'files' ? 'command-bar-tab-active' : ''}`}
-          onClick={() => onSelectTab('files')}
-          title="File explorer"
-        >
-          <NavNum active={navActive} idx={1} />
-          <svg {...ICON_PROPS}>
-            <path d="M9 2H5A1.5 1.5 0 0 0 3.5 3.5v9A1.5 1.5 0 0 0 5 14h6a1.5 1.5 0 0 0 1.5-1.5V5.5L9 2Z" />
-            <path d="M9 2v3.5h3.5" />
-          </svg>
-          <span>Files</span>
-        </button>
-        <button
-          className={`command-bar-tab ${activeTab === 'kanban' ? 'command-bar-tab-active' : ''}`}
-          onClick={() => onSelectTab('kanban')}
-          title="Kanban (Ordna)"
-        >
-          <NavNum active={navActive} idx={2} />
-          <svg {...ICON_PROPS}>
-            <rect x="2" y="3" width="3.2" height="10" rx="0.5" />
-            <rect x="6.4" y="3" width="3.2" height="7" rx="0.5" />
-            <rect x="10.8" y="3" width="3.2" height="4" rx="0.5" />
-          </svg>
-          <span>Kanban</span>
-        </button>
-      </div>
+    <div
+      className={`command-bar${splitActive ? ' command-bar-split' : ''}`}
+      style={
+        splitActive
+          ? ({ ['--agent-split-pct' as string]: `${agentSplitPercent}%` } as React.CSSProperties)
+          : undefined
+      }
+    >
+      {splitActive ? (
+        <>
+          <div className="command-bar-tabs command-bar-tabs-left">
+            {agentTabButton}
+          </div>
+          <div className="command-bar-tabs command-bar-tabs-right">
+            {filesTabButton}
+            {kanbanTabButton}
+            {splitToggleButton}
+          </div>
+        </>
+      ) : (
+        <div className="command-bar-tabs">
+          {agentTabButton}
+          {filesTabButton}
+          {kanbanTabButton}
+          {splitToggleButton}
+        </div>
+      )}
       <div className="command-bar-actions">
         <button
           className={`${actionBtnCls} ${shellOpen ? 'action-btn-active' : ''}`}
