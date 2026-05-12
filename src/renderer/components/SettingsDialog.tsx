@@ -54,7 +54,7 @@ interface SettingsDialogProps {
   profilesWithoutIcons: number;
 }
 
-type SettingsTab = 'appearance' | 'flames' | 'agents' | 'icons' | 'apps' | 'integrations' | 'ordna' | 'backup';
+type SettingsTab = 'appearance' | 'flames' | 'agents' | 'icons' | 'apps' | 'integrations' | 'ordna' | 'backup' | 'functions';
 
 // Flip this to `true` to bring the Backup tab back. The BackupTab
 // component + its IPC bindings + Export/Import buttons are all still in
@@ -192,6 +192,8 @@ export function SettingsDialog({
   const [ordnaHookPort, setOrdnaHookPort] = useState(settings.ordnaHookPort || 9876);
   const [ordnaHookInfo, setOrdnaHookInfo] = useState<{ url: string; port: number } | null>(null);
   const [parallelAgentAutoRun, setParallelAgentAutoRun] = useState(settings.parallelAgentAutoRun !== false);
+  const [functionKanbanEnabled, setFunctionKanbanEnabled] = useState(settings.functionKanbanEnabled !== false);
+  const [functionWebEnabled, setFunctionWebEnabled] = useState(settings.functionWebEnabled !== false);
 
   useEffect(() => {
     window.api.getOrdnaHookInfo().then(setOrdnaHookInfo).catch((): void => undefined);
@@ -235,6 +237,8 @@ export function SettingsDialog({
       ordnaMode,
       ordnaHookPort,
       parallelAgentAutoRun,
+      functionKanbanEnabled,
+      functionWebEnabled,
     });
   };
 
@@ -259,6 +263,12 @@ export function SettingsDialog({
         <div className="settings-tabs">
           {/* Order: Agents → Apps → Kanban → Integrations → Icons →
               Appearance. (Flames tab still hidden — see DEFAULT_SETTINGS.) */}
+          <button
+            className={`settings-tab ${tab === 'functions' ? 'settings-tab-active' : ''}`}
+            onClick={() => setTab('functions')}
+          >
+            Functions
+          </button>
           <button
             className={`settings-tab ${tab === 'agents' ? 'settings-tab-active' : ''}`}
             onClick={() => setTab('agents')}
@@ -306,6 +316,47 @@ export function SettingsDialog({
         </div>
 
         <div className="modal-body">
+          {tab === 'functions' && (
+            <>
+              <p className="field-hint" style={{ marginBottom: 12 }}>
+                Toggle optional features on or off. Disabling a function
+                hides its tab from the command bar and closes any open
+                view of that kind. Re-enable any time.
+              </p>
+              <label className="field field-row-toggle">
+                <span className="field-label">Kanban</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={functionKanbanEnabled}
+                    onChange={(e) => setFunctionKanbanEnabled(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+              <span className="field-hint">
+                The Kanban tab embeds Ordna (web or TUI mode — configured under
+                Settings → Kanban) so tasks dispatched from the board open
+                directly in the agent.
+              </span>
+
+              <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                <span className="field-label">Web</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={functionWebEnabled}
+                    onChange={(e) => setFunctionWebEnabled(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+              <span className="field-hint">
+                An in-app browser with back/forward/reload and an address bar.
+                Each profile remembers its last URL.
+              </span>
+            </>
+          )}
           {tab === 'appearance' && (
             <>
               <label className="field">

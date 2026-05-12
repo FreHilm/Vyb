@@ -90,6 +90,11 @@ export interface AppSettings {
    * spawned parallel agent automatically after a short delay. When false,
    * the task waits in the agent's prompt until the user clicks ▶ Run. */
   parallelAgentAutoRun: boolean;
+  /** Per-function feature flags (Settings → Functions). When disabled,
+   * the corresponding tab is hidden from the command bar and any open
+   * view of that kind is closed. Both default to true. */
+  functionKanbanEnabled: boolean;
+  functionWebEnabled: boolean;
 }
 
 export interface AgentConfig {
@@ -185,6 +190,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ordnaHookPort: 9876,
   ordnaHookToken: '',
   parallelAgentAutoRun: true,
+  functionKanbanEnabled: true,
+  functionWebEnabled: true,
 };
 
 /** Resolve the command and args for a profile, looking up the agent config if set */
