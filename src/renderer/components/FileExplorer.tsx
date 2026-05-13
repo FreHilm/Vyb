@@ -23,8 +23,11 @@ import { SWORD_SHAPE } from '../file-icons';
 
 interface FileExplorerProps {
   workingDirectory: string;
-  closeRequested: boolean;
-  onCloseHandled: (proceed: boolean) => void;
+  /** When true the explorer is rendered with `display: none` so its open
+   * tabs + unsaved edits survive tab toggles and profile switches.
+   * Also suppresses menu / pendingOpenPath wiring while hidden so an
+   * inactive instance doesn't fight an active sibling for the menu state. */
+  hidden?: boolean;
   /** External request to open a file in a tab — typically from a click on
    * a file link in the agent terminal. The `nonce` discriminates re-opens
    * of the same path so the effect re-runs. */
@@ -390,8 +393,7 @@ function FileTreeNode({
 
 export function FileExplorer({
   workingDirectory,
-  closeRequested,
-  onCloseHandled,
+  hidden = false,
   pendingOpenPath,
   onPendingOpenHandled,
 }: FileExplorerProps) {
@@ -444,8 +446,6 @@ export function FileExplorer({
 
   // Close-tab dialog
   const [closingTabPath, setClosingTabPath] = useState<string | null>(null);
-  // Close-all dialog (parent requesting close)
-  const [pendingClose, setPendingClose] = useState(false);
 
   const handleTreeResize = useCallback((delta: number) => {
     setTreeWidth((w) => Math.max(140, Math.min(500, w - delta)));
@@ -552,16 +552,6 @@ export function FileExplorer({
       refresh();
     }
   }, [workingDirectory, refresh]);
-
-  // ── Handle parent close request ──────────────────────────────
-  useEffect(() => {
-    if (!closeRequested) return;
-    if (modifiedSet.size > 0) {
-      setPendingClose(true);
-    } else {
-      onCloseHandled(true);
-    }
-  }, [closeRequested, onCloseHandled, modifiedSet.size]);
 
   // Load root directory
   useEffect(() => {
@@ -925,11 +915,12 @@ export function FileExplorer({
   // active tab; if the file is already open we just switch to its tab.
   // Also drives the tree to expand the path and scroll the row into view.
   useEffect(() => {
+    if (hidden) return;
     if (!pendingOpenPath) return;
     openInTab(pendingOpenPath.path, true);
     setRevealRequest({ path: pendingOpenPath.path, nonce: pendingOpenPath.nonce });
     onPendingOpenHandled?.();
-  }, [pendingOpenPath, openInTab, onPendingOpenHandled]);
+  }, [hidden, pendingOpenPath, openInTab, onPendingOpenHandled]);
 
   const closeTab = useCallback((filePath: string) => {
     if (modifiedSet.has(filePath)) {
@@ -988,18 +979,6 @@ export function FileExplorer({
     setClosingTabPath(null);
     doCloseTab(p);
   }, [closingTabPath, doCloseTab]);
-
-  // Parent close-all handlers
-  const handleCloseAllDiscard = useCallback(() => {
-    setPendingClose(false);
-    setModifiedSet(new Set());
-    onCloseHandled(true);
-  }, [onCloseHandled]);
-
-  const handleCloseAllCancel = useCallback(() => {
-    setPendingClose(false);
-    onCloseHandled(false);
-  }, [onCloseHandled]);
 
   // ── Tree file selection ──────────────────────────────────────
 
@@ -1199,17 +1178,23 @@ export function FileExplorer({
 
   // Keep the application Edit menu (main process) in sync with what's actually
   // editable here: text-file open ⇒ items enabled; modified ⇒ Save enabled too.
+  // Skip when hidden so a background FileExplorer doesn't fight the visible
+  // one for the menu state.
   useEffect(() => {
+    if (hidden) return;
     window.api.setEditMenuState({
       hasFile: !!activeTabPath && !activeIsImage,
       canSave: !!activeTabPath && !activeIsImage && activeIsModified,
     });
-  }, [activeTabPath, activeIsImage, activeIsModified]);
+  }, [hidden, activeTabPath, activeIsImage, activeIsModified]);
 
   // Handle clicks coming back from the Edit menu in the application menu.
   // CodeMirror's basicSetup already binds Cmd+Z / Cmd+F / etc. to the editor,
-  // so this only runs when the user clicks the menu item itself.
+  // so this only runs when the user clicks the menu item itself. Hidden
+  // instances ignore menu clicks so they don't act on the visible one's
+  // behalf.
   useEffect(() => {
+    if (hidden) return;
     const unsub = window.api.onEditMenuAction(async (action: EditMenuAction) => {
       if (action === 'save') { handleSave(); return; }
       if (action === 'saveAs') { handleSaveAs(); return; }
@@ -1256,10 +1241,13 @@ export function FileExplorer({
       }
     });
     return unsub;
-  }, [handleSave, handleSaveAs]);
+  }, [hidden, handleSave, handleSaveAs]);
 
   return (
-    <div className="file-explorer">
+    <div
+      className="file-explorer"
+      style={hidden ? { display: 'none' } : undefined}
+    >
       <div className="file-editor-pane">
         {/* Tab bar */}
         <div className="file-tab-bar">
@@ -1543,27 +1531,6 @@ export function FileExplorer({
         </div>
       )}
 
-      {/* Close all with unsaved changes */}
-      {pendingClose && (
-        <div className="modal-overlay" onClick={handleCloseAllCancel}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Unsaved Changes</h3>
-            </div>
-            <div className="modal-body">
-              <p style={{ fontSize: 13, lineHeight: 1.5 }}>
-                You have {modifiedSet.size} unsaved file{modifiedSet.size > 1 ? 's' : ''}. Close anyway?
-              </p>
-            </div>
-            <div className="modal-footer">
-              <button className="cancel-btn" onClick={handleCloseAllCancel}>Cancel</button>
-              <div className="modal-footer-right">
-                <button className="delete-btn" onClick={handleCloseAllDiscard}>Discard All</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
