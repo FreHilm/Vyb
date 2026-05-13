@@ -238,6 +238,10 @@ export function App() {
   // existing behavior (open Files on profile A, switch to B, switch back —
   // Files reappears) is preserved.
   const [filesViews, setFilesViews] = useState<Set<string>>(new Set());
+  // Files mounts persist for every view that has ever been opened (same
+  // pattern as kanbanRunning / webRunning). Lets a profile keep its open
+  // tabs + unsaved edits across tab toggles and profile switches.
+  const [filesRunning, setFilesRunning] = useState<Set<string>>(new Set());
   // kanbanViews = views whose Kanban tab is currently SHOWN (overlay active).
   // kanbanRunning = views whose KanbanViewer is mounted and whose Ordna
   // instance is alive in the background. kanbanRunning ⊇ kanbanViews.
@@ -278,7 +282,6 @@ export function App() {
   const [focusedPane, setFocusedPane] = useState<{ pane: 'agent' | 'shell'; shellIndex: number }>({ pane: 'agent', shellIndex: 0 });
   const shellCountRef = useRef(1);
   const profileMemoryRef = useRef<ProfileMemoryMap>({});
-  const [filesCloseRequested, setFilesCloseRequested] = useState(false);
   // When a file path is clicked in the agent terminal, we ensure Files is
   // visible and stash the resolved path here. FileExplorer reacts to changes
   // by opening the file in a tab. Stamped with a counter so re-clicks of the
@@ -679,7 +682,8 @@ export function App() {
         return next;
       };
       setKanbanViews(dropParent);
-      setFilesCloseRequested(true);
+      setFilesViews(dropParent);
+      setWebViews(dropParent);
       // Drop back to the parent view so the user immediately sees the agent
       // they just dispatched to.
       setSelectedParallelId(null);
@@ -772,18 +776,10 @@ export function App() {
       if (!detail?.path) return;
       if (activeViewKey) {
         const key = activeViewKey;
-        setFilesViews((prev) => {
-          if (prev.has(key)) return prev;
-          const next = new Set(prev);
-          next.add(key);
-          return next;
-        });
-        setKanbanViews((prev) => {
-          if (!prev.has(key)) return prev;
-          const next = new Set(prev);
-          next.delete(key);
-          return next;
-        });
+        setFilesViews((prev) => ensureInSet(prev, key));
+        setFilesRunning((prev) => ensureInSet(prev, key));
+        setKanbanViews((prev) => removeFromSet(prev, key));
+        setWebViews((prev) => removeFromSet(prev, key));
       }
       setPendingFileOpen({ path: detail.path, nonce: Date.now() });
     };
@@ -807,12 +803,12 @@ export function App() {
       setWebRunning((prev) => ensureInSet(prev, key));
       setWebViews((prev) => ensureInSet(prev, key));
       setKanbanViews((prev) => removeFromSet(prev, key));
-      if (filesViews.has(key)) setFilesCloseRequested(true);
+      setFilesViews((prev) => removeFromSet(prev, key));
       setPendingWebNavigate({ key, url: detail.url, nonce: Date.now() });
     };
     window.addEventListener('open-url-in-browser', handleOpenUrl);
     return () => window.removeEventListener('open-url-in-browser', handleOpenUrl);
-  }, [activeViewKey, filesViews]);
+  }, [activeViewKey]);
 
   // Mirror profiles into a ref so the once-mounted onOrdnaTask listener can
   // look up profile.parallelAgentEnabled at hook-fire time.
@@ -1179,6 +1175,16 @@ export function App() {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
+  // Clear the main-process Edit menu state when no FileExplorer is on
+  // screen. Persistent FileExplorers only push menu state while visible,
+  // so without this the menu would keep advertising the last file as
+  // editable after the user switches away from the Files tab.
+  useEffect(() => {
+    if (!filesVisible) {
+      window.api.setEditMenuState({ hasFile: false, canSave: false });
+    }
+  }, [filesVisible]);
+
   // Sweep open views of a function the user just disabled in Settings →
   // Functions. Without this, an already-open Kanban / Web overlay would
   // stay onscreen even though its tab disappears from the command bar.
@@ -1345,15 +1351,16 @@ export function App() {
     if (!key) return;
 
     // Helper to set exactly one of files/kanban/web as the right pane.
+    // Each path-type maintains a `*Running` set so its mount persists
+    // even after we hide it — switching tabs only changes which view
+    // has `hidden=false`, not what's mounted.
     const setSoleOverlay = (which: 'files' | 'kanban' | 'web') => {
       setFilesViews((prev) => which === 'files' ? ensureInSet(prev, key) : removeFromSet(prev, key));
       setKanbanViews((prev) => which === 'kanban' ? ensureInSet(prev, key) : removeFromSet(prev, key));
       setWebViews((prev) => which === 'web' ? ensureInSet(prev, key) : removeFromSet(prev, key));
+      if (which === 'files') setFilesRunning((prev) => ensureInSet(prev, key));
       if (which === 'kanban') setKanbanRunning((prev) => ensureInSet(prev, key));
       if (which === 'web') setWebRunning((prev) => ensureInSet(prev, key));
-      // Files has the unsaved-changes confirmation flow — only ask for
-      // permission to close it if we're leaving Files for something else.
-      if (which !== 'files' && filesViews.has(key)) setFilesCloseRequested(true);
     };
 
     // In split mode the Agent pane is permanently on the left; tapping
@@ -1364,13 +1371,13 @@ export function App() {
       return;
     }
     if (tab === 'agent') {
-      if (filesViews.has(key)) setFilesCloseRequested(true);
+      setFilesViews((prev) => removeFromSet(prev, key));
       setKanbanViews((prev) => removeFromSet(prev, key));
       setWebViews((prev) => removeFromSet(prev, key));
       return;
     }
     setSoleOverlay(tab);
-  }, [activeViewKey, filesViews, splitViews]);
+  }, [activeViewKey, splitViews]);
 
   // Keyboard-nav targets — same-tab presses are no-ops, so ⌘1 from
   // Files goes to Agent and from Agent stays on Agent.
@@ -1408,6 +1415,7 @@ export function App() {
         next.add(key);
         if (!filesViews.has(key) && !kanbanViews.has(key) && !webViews.has(key)) {
           setFilesViews((p) => ensureInSet(p, key));
+          setFilesRunning((p) => ensureInSet(p, key));
         }
       }
       return next;
@@ -1721,25 +1729,34 @@ export function App() {
             {splitMode && (
               <ResizeHandle direction="horizontal" onResize={handleAgentSplitResize} />
             )}
-            {filesVisible && activeProfile && (
-              <FileExplorer
-                workingDirectory={activeViewCwd || activeProfile.workingDirectory}
-                closeRequested={filesCloseRequested}
-                onCloseHandled={(proceed) => {
-                  setFilesCloseRequested(false);
-                  if (proceed && activeViewKey) {
-                    setFilesViews((prev) => {
-                      if (!prev.has(activeViewKey)) return prev;
-                      const next = new Set(prev);
-                      next.delete(activeViewKey);
-                      return next;
-                    });
-                  }
-                }}
-                pendingOpenPath={pendingFileOpen}
-                onPendingOpenHandled={() => setPendingFileOpen(null)}
-              />
-            )}
+            {/* Mount one FileExplorer per view in filesRunning. Same
+                persist-in-background pattern as Kanban / Web — keeps open
+                tabs and unsaved edits alive when switching profiles or
+                hiding the tab. The active instance gets pendingOpenPath
+                wired up so file-link clicks from the terminal route here. */}
+            {[...filesRunning].map((key) => {
+              const sepIdx = key.indexOf('|');
+              const profileId = sepIdx === -1 ? key : key.slice(0, sepIdx);
+              const parallelId = sepIdx === -1 ? null : key.slice(sepIdx + 1);
+              const p = profiles.find((pp) => pp.id === profileId);
+              if (!p) return null;
+              let cwd = p.workingDirectory;
+              if (parallelId) {
+                const pa = parallelAgents.get(parallelId);
+                if (!pa) return null;
+                cwd = pa.worktreePath;
+              }
+              const visible = key === activeViewKey && filesViews.has(key);
+              return (
+                <FileExplorer
+                  key={key}
+                  workingDirectory={cwd}
+                  hidden={!visible}
+                  pendingOpenPath={visible ? pendingFileOpen : null}
+                  onPendingOpenHandled={() => setPendingFileOpen(null)}
+                />
+              );
+            })}
             {/* Mount one KanbanViewer per view in kanbanRunning. The set persists
                 across tab close — clicking the Kanban button to hide just removes
                 the view from kanbanViews, leaving the viewer mounted and Ordna
