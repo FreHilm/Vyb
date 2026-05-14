@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { GitCommit, GitRef, GitStatus } from '../../shared/types';
 import { buildGraph, GraphRow, maxLane } from '../git-graph';
 import {
@@ -321,6 +321,13 @@ export function GitTree({ workingDirectory, reloadEpoch = 0 }: GitTreeProps) {
   // runs `gitRewordHead` and reloads. Only opened from the commit menu's
   // "Reword commit message…" item, which is HEAD-only.
   const [rewordDialog, setRewordDialog] = useState<{ subject: string; body: string; busy: boolean; error: string | null } | null>(null);
+  // Search state. `query` mirrors the input value live; `appliedQuery`
+  // is the debounced value the filter actually uses (150ms delay so
+  // typing doesn't make the graph flicker per keystroke).
+  const [query, setQuery] = useState('');
+  const [appliedQuery, setAppliedQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -350,6 +357,66 @@ export function GitTree({ workingDirectory, reloadEpoch = 0 }: GitTreeProps) {
     load();
     // reloadEpoch bumps every time the parent runs Push / Pull / Fetch.
   }, [load, reloadEpoch]);
+
+  // Debounced search application. Live `query` updates the input
+  // immediately; `appliedQuery` is what the filter uses (150ms after
+  // the last keystroke).
+  useEffect(() => {
+    const t = setTimeout(() => setAppliedQuery(query), 150);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  /** Per-commit match predicate. Subject, author name/email, and SHA
+   * prefix; case-insensitive substring match. Empty query = always
+   * matches (no dimming). Returns null when no query is active so the
+   * caller can fast-path.
+   *
+   * Path filtering ("touches file") was scoped out of v1 because the
+   * client-side commit window doesn't carry per-commit file lists yet.
+   * The task notes flag it as a future enhancement (`git log --
+   * <path>`). */
+  const matchesQuery = useCallback((c: GitCommit): boolean => {
+    if (!appliedQuery) return true;
+    const q = appliedQuery.toLowerCase();
+    return (
+      c.subject.toLowerCase().includes(q)
+      || c.author.toLowerCase().includes(q)
+      || (c.email ?? '').toLowerCase().includes(q)
+      || c.sha.toLowerCase().startsWith(q)
+    );
+  }, [appliedQuery]);
+
+  // List of matching SHAs in graph order — used by Enter / Shift+Enter
+  // to jump between matches. Recomputed only when commits or the
+  // applied query change.
+  const matchedShas = useMemo(() => {
+    if (!appliedQuery) return [] as string[];
+    return commits.filter(matchesQuery).map((c) => c.sha);
+  }, [commits, matchesQuery, appliedQuery]);
+
+  // Scroll the row for `sha` into view inside the list. Uses
+  // querySelector with a data-attribute we set on each row below.
+  const scrollToSha = useCallback((sha: string) => {
+    if (!listRef.current) return;
+    const el = listRef.current.querySelector<HTMLElement>(`[data-sha="${sha}"]`);
+    if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, []);
+
+  // Jump to next / previous match relative to the currently-selected
+  // SHA. Wraps around. No-op if there are no matches.
+  const jumpMatch = useCallback((direction: 1 | -1) => {
+    if (matchedShas.length === 0) return;
+    const currentIdx = selectedSha ? matchedShas.indexOf(selectedSha) : -1;
+    let next: number;
+    if (currentIdx === -1) {
+      next = direction === 1 ? 0 : matchedShas.length - 1;
+    } else {
+      next = (currentIdx + direction + matchedShas.length) % matchedShas.length;
+    }
+    const target = matchedShas[next];
+    setSelectedSha(target);
+    scrollToSha(target);
+  }, [matchedShas, selectedSha, scrollToSha]);
 
   // Close the right-click menu on outside mousedown.
   useEffect(() => {
@@ -507,7 +574,31 @@ export function GitTree({ workingDirectory, reloadEpoch = 0 }: GitTreeProps) {
   return (
     <div className="git-tree">
       <div className="git-tree-toolbar">
-        <span className="git-tree-count">{commits.length} commits</span>
+        <span className="git-tree-count">
+          {commits.length} commits
+          {appliedQuery && ` · ${matchedShas.length} match${matchedShas.length === 1 ? '' : 'es'}`}
+        </span>
+        <input
+          ref={searchInputRef}
+          type="text"
+          className="git-tree-search"
+          placeholder="Search subject, author, SHA…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setQuery('');
+              setAppliedQuery('');
+              (e.target as HTMLInputElement).blur();
+              return;
+            }
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              jumpMatch(e.shiftKey ? -1 : 1);
+            }
+          }}
+          spellCheck={false}
+        />
       </div>
 
       {checkoutError && (
@@ -594,16 +685,21 @@ export function GitTree({ workingDirectory, reloadEpoch = 0 }: GitTreeProps) {
       )}
       {modals}
 
-      <div className="git-tree-list">
+      <div className="git-tree-list" ref={listRef}>
         {graph.map((row, idx) => {
           const c = commits[idx];
           const rowRefs = refsBySha.get(row.sha) ?? [];
           const isSelected = selectedSha === row.sha;
           const isHead = row.sha === headSha;
+          // When a query is active, non-matching rows dim. Topology is
+          // preserved — rows aren't filtered out so the lane lines
+          // stay continuous.
+          const isDimmed = appliedQuery && !matchesQuery(c);
           return (
             <div
               key={row.sha}
-              className={`git-tree-row${isSelected ? ' git-tree-row-selected' : ''}${isHead ? ' git-tree-row-head' : ''}`}
+              data-sha={row.sha}
+              className={`git-tree-row${isSelected ? ' git-tree-row-selected' : ''}${isHead ? ' git-tree-row-head' : ''}${isDimmed ? ' git-tree-row-dim' : ''}`}
               onClick={() => setSelectedSha((s) => (s === row.sha ? null : row.sha))}
               onDoubleClick={() => initiateCheckout(row.sha)}
               onContextMenu={(e) => {
