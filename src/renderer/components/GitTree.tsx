@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { GitBisectStatus, GitCommit, GitRef, GitReflogEntry, GitStatus } from '../../shared/types';
+import { RebaseInteractiveDialog } from './RebaseInteractiveDialog';
 import { buildGraph, GraphRow, maxLane } from '../git-graph';
 import {
   RefMenuNode, RefContextMenu, useGitRefOps,
@@ -392,6 +393,12 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
   const [bisect, setBisect] = useState<GitBisectStatus>({ inProgress: false, goodCount: 0, badCount: 0, stepsRemaining: -1 });
   const [bisectBusy, setBisectBusy] = useState(false);
   const [bisectError, setBisectError] = useState<string | null>(null);
+  // T-033 interactive rebase. The dialog is mounted here (not in
+  // `useGitRefOps`) because it needs the commit list slice to seed
+  // its rows — that data lives in GitTree's local `commits` state.
+  const [irebase, setIrebase] = useState<{ base: string; commits: GitCommit[] } | null>(null);
+  const [irebaseBusy, setIrebaseBusy] = useState(false);
+  const [irebaseError, setIrebaseError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -652,12 +659,48 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
   }, [bisectBusy, workingDirectory, load]);
   void refreshBisect; // kept for potential V2 explicit refresh button
 
+  // T-033: open the interactive-rebase dialog with the slice
+  // `[<clicked-sha> … <HEAD>]` in oldest-first order. `commits` is
+  // newest-first; reversing the slice puts the user-clicked commit
+  // at the top of the dialog, matching git's todo-list order.
+  const handleRebaseInteractive = useCallback((sha: string) => {
+    const idx = commits.findIndex((c) => c.sha === sha);
+    if (idx < 0) return;
+    const slice = commits.slice(0, idx + 1).slice().reverse();
+    setIrebaseError(null);
+    setIrebase({ base: sha, commits: slice });
+  }, [commits]);
+
+  const submitInteractiveRebase = useCallback(async (todoLines: string[]) => {
+    if (!irebase || irebaseBusy) return;
+    setIrebaseBusy(true);
+    setIrebaseError(null);
+    const result = await window.api.gitRebaseInteractive(workingDirectory, irebase.base, todoLines);
+    setIrebaseBusy(false);
+    if (result.ok) {
+      setIrebase(null);
+      await load();
+      return;
+    }
+    // Conflict / edit-stop: close the dialog so the existing rebase
+    // banner becomes visible above the commit list. The user
+    // resolves via the in-app conflict resolver or shell, then
+    // clicks Continue in the banner.
+    if (result.error === 'conflict') {
+      setIrebase(null);
+      await load();
+      return;
+    }
+    setIrebaseError(result.message || result.error || 'rebase -i failed');
+  }, [irebase, irebaseBusy, workingDirectory, load]);
+
   const opsWithReword = useMemo(() => ({
     ...ops,
     onReword: openRewordDialog,
     onCompareWith,
     onBisectStart: handleBisectStart,
-  }), [ops, openRewordDialog, onCompareWith, handleBisectStart]);
+    onRebaseInteractive: handleRebaseInteractive,
+  }), [ops, openRewordDialog, onCompareWith, handleBisectStart, handleRebaseInteractive]);
 
   // Convert a DisplayRef (which collapses local + remote-tracking pairs
   // into one chip) to the menu's RefMenuNode shape. When both local and
@@ -913,6 +956,17 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
         </div>
       )}
       {modals}
+
+      {irebase && (
+        <RebaseInteractiveDialog
+          base={irebase.base}
+          commits={irebase.commits}
+          busy={irebaseBusy}
+          error={irebaseError}
+          onCancel={() => { if (!irebaseBusy) { setIrebase(null); setIrebaseError(null); } }}
+          onSubmit={submitInteractiveRebase}
+        />
+      )}
 
       {viewMode === 'reflog' ? (
         <div className="git-reflog-list">

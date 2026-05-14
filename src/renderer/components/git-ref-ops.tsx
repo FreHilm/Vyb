@@ -118,6 +118,12 @@ export interface RefOps {
    * playing the named role; HEAD plays the other. Optional so panels
    * that don't host the bisect banner don't have to wire it. */
   onBisectStart?: (sha: string, role: 'good' | 'bad') => void;
+  /** T-033: open the interactive-rebase dialog for the range
+   * `sha..HEAD` (inclusive of `sha`). The hook just routes through
+   * the click — GitTree wraps this with a closure over its loaded
+   * commit list so the dialog gets the right range without the hook
+   * having to know about commit state. */
+  onRebaseInteractive?: (sha: string) => void;
 }
 
 // ── Menu component ────────────────────────────────────────────────
@@ -259,6 +265,15 @@ function buildMenuItems(p: RefContextMenuProps): MenuItem[] {
     items.push({ type: 'item', label: `New tag at ${node.shortSha}…`, onClick: () => p.onNewTag(node.sha, '') });
     items.push({ type: 'divider' });
     items.push({ type: 'item', label: onBranch ? `Reset '${currentBranch}' to ${node.shortSha}…` : 'Reset — checkout a branch first', onClick: () => p.onReset(node.sha), disabled: !onBranch, danger: true });
+    if (p.onRebaseInteractive) {
+      items.push({ type: 'divider' });
+      items.push({
+        type: 'item',
+        label: onBranch ? `Interactive rebase from ${node.shortSha}…` : 'Interactive rebase — checkout a branch first',
+        onClick: () => p.onRebaseInteractive!(node.sha),
+        disabled: !onBranch,
+      });
+    }
     if (p.onBisectStart) {
       items.push({ type: 'divider' });
       items.push({ type: 'item', label: `Start bisect: ${node.shortSha} good, HEAD bad`, onClick: () => p.onBisectStart!(node.sha, 'good') });
