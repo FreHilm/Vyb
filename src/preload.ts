@@ -225,6 +225,11 @@ contextBridge.exposeInMainWorld('api', {
   gitRemoteTrackingBranches: (cwd: string, remoteName: string): Promise<string[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_REMOTE_TRACKING_BRANCHES, cwd, remoteName),
 
+  gitListWorktrees: (cwd: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_LIST_WORKTREES, cwd),
+  gitRemoveWorktree: (cwd: string, worktreePath: string, force: boolean): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_REMOVE_WORKTREE, cwd, worktreePath, force),
+
   gitMerge: (cwd: string, sourceRef: string): Promise<GitMergeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>

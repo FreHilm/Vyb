@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { GitRef, GitRemote, GitStash, GitStatus } from '../../shared/types';
+import { GitRef, GitRemote, GitStash, GitStatus, GitWorktree } from '../../shared/types';
 import {
   LocalBranchNode, RemoteBranchNode, TagNode, StashNode, RefMenuNode,
   RefContextMenu, useGitRefOps,
@@ -152,11 +152,17 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
   const [editRemote, setEditRemote] = useState<{ mode: 'rename' | 'url'; current: GitRemote } | null>(null);
   const [removeRemote, setRemoveRemote] = useState<{ name: string; trackingBranches: string[] } | null>(null);
   const [remoteOpError, setRemoteOpError] = useState<string | null>(null);
+  // T-035: worktree state + UI.
+  const [worktrees, setWorktrees] = useState<GitWorktree[]>([]);
+  const [worktreeMenu, setWorktreeMenu] = useState<{ x: number; y: number; wt: GitWorktree } | null>(null);
+  const [addWorktreeOpen, setAddWorktreeOpen] = useState(false);
+  const [removeWorktreeConfirm, setRemoveWorktreeConfirm] = useState<{ wt: GitWorktree; needsForce: boolean; reason: string } | null>(null);
+  const [worktreeOpError, setWorktreeOpError] = useState<string | null>(null);
 
   // Per-section open/closed state. Default: branches + stashes open,
   // remotes + tags collapsed (they tend to be larger).
   const [openSections, setOpenSections] = useState<Set<string>>(
-    () => new Set(['branches', 'stashes']),
+    () => new Set(['branches', 'worktrees', 'stashes']),
   );
 
   // Folder open state, keyed by `${section}:${fullPath}`.
@@ -171,16 +177,18 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, s, st, rm] = await Promise.all([
+      const [r, s, st, rm, wt] = await Promise.all([
         window.api.getGitRefs(workingDirectory),
         window.api.gitListStashes(workingDirectory),
         window.api.getGitStatus(workingDirectory),
         window.api.gitListRemotes(workingDirectory),
+        window.api.gitListWorktrees(workingDirectory),
       ]);
       setRefs(r);
       setStashes(s);
       setStatus(st);
       setRemotes(rm);
+      setWorktrees(wt);
     } finally {
       setLoading(false);
     }
@@ -291,6 +299,51 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
     return () => window.removeEventListener('mousedown', handler);
   }, [remoteMenu]);
 
+  // ── T-035 worktree ops handlers ────────────────────────────────
+  // Add reuses the existing GIT_ADD_WORKTREE IPC. Remove first tries
+  // without --force; if git refuses for dirty/locked state, we
+  // re-prompt with a "Force remove" checkbox and the git message so
+  // the user can decide. This mirrors git's own gate without an
+  // extra status round-trip.
+  const handleAddWorktree = useCallback(async (worktreePath: string, branch: string): Promise<boolean> => {
+    setWorktreeOpError(null);
+    if (!worktreePath.trim()) { setWorktreeOpError('Path is required.'); return false; }
+    if (!branch.trim()) { setWorktreeOpError('Branch is required.'); return false; }
+    const result = await window.api.gitAddWorktree(workingDirectory, worktreePath.trim(), branch.trim());
+    if (!result.ok) { setWorktreeOpError(result.message || 'Failed to add worktree'); return false; }
+    await load();
+    return true;
+  }, [workingDirectory, load]);
+
+  const handleRemoveWorktree = useCallback(async (wt: GitWorktree, force: boolean): Promise<boolean> => {
+    setWorktreeOpError(null);
+    const result = await window.api.gitRemoveWorktree(workingDirectory, wt.path, force);
+    if (!result.ok) {
+      const msg = result.message || 'Failed to remove worktree';
+      // Re-prompt with a Force checkbox when git refuses because of
+      // dirty / untracked / locked state — git's own gate.
+      if (/contains modified|untracked|is dirty|locked|not\s+clean/i.test(msg) && !force) {
+        setRemoveWorktreeConfirm({ wt, needsForce: true, reason: msg });
+        return false;
+      }
+      setWorktreeOpError(msg);
+      return false;
+    }
+    await load();
+    return true;
+  }, [workingDirectory, load]);
+
+  useEffect(() => {
+    if (!worktreeMenu) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target;
+      if (target instanceof Element && target.closest('.file-context-menu')) return;
+      setWorktreeMenu(null);
+    };
+    window.addEventListener('mousedown', handler);
+    return () => window.removeEventListener('mousedown', handler);
+  }, [worktreeMenu]);
+
   const toggleSection = (key: string) => {
     setOpenSections((prev) => {
       const next = new Set(prev);
@@ -358,6 +411,65 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
               }}
             />
           ))}
+        </Section>
+
+        <Section
+          title={`Worktrees${worktrees.length === 0 ? '' : ` (${worktrees.length})`}`}
+          sectionKey="worktrees"
+          isOpen={openSections.has('worktrees')}
+          onToggle={toggleSection}
+          headerAction={(
+            <button
+              className="git-branches-add-remote"
+              onClick={() => { setWorktreeOpError(null); setAddWorktreeOpen(true); }}
+              title="Add a new worktree"
+              aria-label="Add worktree"
+            >+</button>
+          )}
+        >
+          {worktrees.length === 0 && <div className="git-branches-empty">Loading…</div>}
+          {(() => {
+            // Render main + user-managed first, then a sub-header
+            // before any system-managed (Vyb parallel-agent) worktrees
+            // so users can tell them apart at a glance.
+            const userWts = worktrees.filter((w) => !w.isSystemManaged);
+            const systemWts = worktrees.filter((w) => w.isSystemManaged);
+            return (
+              <>
+                {userWts.map((wt) => (
+                  <WorktreeRow
+                    key={wt.path}
+                    wt={wt}
+                    isCurrent={wt.path === workingDirectory}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setWorktreeOpError(null);
+                      setWorktreeMenu({ x: e.clientX, y: e.clientY, wt });
+                    }}
+                  />
+                ))}
+                {systemWts.length > 0 && (
+                  <>
+                    <div className="git-branches-subheader" title="Worktrees owned by Vyb's parallel-agent dispatcher">
+                      Managed by Vyb ({systemWts.length})
+                    </div>
+                    {systemWts.map((wt) => (
+                      <WorktreeRow
+                        key={wt.path}
+                        wt={wt}
+                        isCurrent={wt.path === workingDirectory}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setWorktreeOpError(null);
+                          setWorktreeMenu({ x: e.clientX, y: e.clientY, wt });
+                        }}
+                      />
+                    ))}
+                  </>
+                )}
+              </>
+            );
+          })()}
         </Section>
 
         <Section
@@ -594,6 +706,222 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
         </div>
       )}
 
+      {/* T-035 worktree ops: menu + modals */}
+      {worktreeMenu && (
+        <div className="file-context-menu" style={{ left: worktreeMenu.x, top: worktreeMenu.y }} onClick={(e) => e.stopPropagation()}>
+          <button className="file-ctx-item" onClick={() => { window.api.openInFinder(worktreeMenu.wt.path); setWorktreeMenu(null); }}>
+            Show in Finder
+          </button>
+          <button className="file-ctx-item" onClick={() => { window.api.openInVSCode(worktreeMenu.wt.path); setWorktreeMenu(null); }}>
+            Open in VS Code
+          </button>
+          <div className="file-ctx-divider" />
+          {(() => {
+            const wt = worktreeMenu.wt;
+            const disabledReason = wt.isMain
+              ? 'Cannot remove the main worktree.'
+              : wt.isSystemManaged
+                ? 'Owned by a Vyb parallel agent — stop the agent to remove.'
+                : null;
+            return (
+              <button
+                className="file-ctx-item file-ctx-danger"
+                disabled={!!disabledReason}
+                title={disabledReason ?? undefined}
+                onClick={() => { setWorktreeMenu(null); if (!disabledReason) setRemoveWorktreeConfirm({ wt, needsForce: false, reason: '' }); }}
+              >
+                Remove worktree…
+              </button>
+            );
+          })()}
+        </div>
+      )}
+
+      {addWorktreeOpen && (
+        <WorktreeAddModal
+          localBranches={refs.filter((r) => r.type === 'local').map((r) => r.name)}
+          error={worktreeOpError}
+          onCancel={() => { setAddWorktreeOpen(false); setWorktreeOpError(null); }}
+          onSubmit={async (worktreePath, branch) => {
+            const ok = await handleAddWorktree(worktreePath, branch);
+            if (ok) setAddWorktreeOpen(false);
+          }}
+        />
+      )}
+
+      {removeWorktreeConfirm && (
+        <WorktreeRemoveModal
+          wt={removeWorktreeConfirm.wt}
+          needsForce={removeWorktreeConfirm.needsForce}
+          reason={removeWorktreeConfirm.reason}
+          error={worktreeOpError}
+          onCancel={() => { setRemoveWorktreeConfirm(null); setWorktreeOpError(null); }}
+          onConfirm={async (force) => {
+            const ok = await handleRemoveWorktree(removeWorktreeConfirm.wt, force);
+            if (ok) setRemoveWorktreeConfirm(null);
+          }}
+        />
+      )}
+
+    </div>
+  );
+}
+
+// ── T-035 worktree row ─────────────────────────────────────────────
+// Renders a single worktree entry. The header row mirrors the
+// remote-row layout (folder-style icon, primary name, muted path)
+// so the visual rhythm of the Branches tab stays consistent.
+function WorktreeRow({ wt, isCurrent, onContextMenu }: {
+  wt: GitWorktree;
+  isCurrent: boolean;
+  onContextMenu: (e: React.MouseEvent) => void;
+}) {
+  const primary = wt.branch
+    ? wt.branch
+    : wt.isBare
+      ? '(bare)'
+      : wt.head
+        ? `(detached @ ${wt.head.slice(0, 7)})`
+        : '(unknown)';
+  return (
+    <div
+      className={`file-tree-item git-branches-worktree-row${wt.isSystemManaged ? ' is-system' : ''}${isCurrent ? ' is-current' : ''}`}
+      style={{ paddingLeft: 18 }}
+      onContextMenu={onContextMenu}
+      title={wt.path}
+    >
+      <span className="git-branches-worktree-icon" aria-hidden>
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+          {wt.isMain
+            ? <path d="M2 8l6-5 6 5v6H2zM6 14V10h4v4" />
+            : <path d="M3 5h4l1 1h5v8H3z" />}
+        </svg>
+      </span>
+      <span className="git-branches-worktree-branch">{primary}</span>
+      {wt.isMain && <span className="git-branches-worktree-badge">main</span>}
+      {wt.isLocked && <span className="git-branches-worktree-badge git-branches-worktree-badge-locked" title={wt.lockedReason || 'Locked'}>locked</span>}
+      {wt.isSystemManaged && <span className="git-branches-worktree-badge git-branches-worktree-badge-system" title="Owned by a Vyb parallel agent">vyb</span>}
+      {isCurrent && <span className="git-branches-worktree-badge git-branches-worktree-badge-current">current</span>}
+      <span className="git-branches-worktree-path">{wt.path}</span>
+    </div>
+  );
+}
+
+// ── T-035 add-worktree modal ────────────────────────────────────────
+function WorktreeAddModal({ localBranches, error, onCancel, onSubmit }: {
+  localBranches: string[];
+  error: string | null;
+  onCancel: () => void;
+  onSubmit: (path: string, branch: string) => void | Promise<void>;
+}) {
+  const [pathInput, setPathInput] = useState('');
+  const [branchInput, setBranchInput] = useState(localBranches[0] || '');
+  const [busy, setBusy] = useState(false);
+  const handleSubmit = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await onSubmit(pathInput, branchInput); } finally { setBusy(false); }
+  }, [busy, pathInput, branchInput, onSubmit]);
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header"><h3>Add worktree</h3></div>
+        <div className="modal-body">
+          <label className="field">
+            <span className="field-label">Path</span>
+            <input
+              type="text"
+              value={pathInput}
+              autoFocus
+              onChange={(e) => setPathInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); }}
+              placeholder="../my-feature-worktree"
+              spellCheck={false}
+            />
+            <span className="field-hint">
+              Absolute or repo-relative. The directory must not exist yet.
+            </span>
+          </label>
+          <label className="field" style={{ marginTop: 12 }}>
+            <span className="field-label">Branch</span>
+            <input
+              type="text"
+              list="worktree-branch-list"
+              value={branchInput}
+              onChange={(e) => setBranchInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); }}
+              placeholder="main"
+              spellCheck={false}
+            />
+            <datalist id="worktree-branch-list">
+              {localBranches.map((b) => <option key={b} value={b} />)}
+            </datalist>
+          </label>
+          {error && <p style={{ fontSize: 12, color: 'var(--c-red)', marginTop: 8 }}>{error}</p>}
+        </div>
+        <div className="modal-footer">
+          <div className="modal-footer-right">
+            <button className="cancel-btn" onClick={onCancel}>Cancel</button>
+            <button className="save-btn" onClick={handleSubmit} disabled={busy || !pathInput.trim() || !branchInput.trim()}>
+              {busy ? 'Adding…' : 'Add worktree'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── T-035 remove-worktree confirm ──────────────────────────────────
+function WorktreeRemoveModal({ wt, needsForce, reason, error, onCancel, onConfirm }: {
+  wt: GitWorktree;
+  needsForce: boolean;
+  reason: string;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: (force: boolean) => void | Promise<void>;
+}) {
+  const [force, setForce] = useState(needsForce);
+  const [busy, setBusy] = useState(false);
+  const handleConfirm = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await onConfirm(force); } finally { setBusy(false); }
+  }, [busy, force, onConfirm]);
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header"><h3>Remove worktree?</h3></div>
+        <div className="modal-body">
+          <p style={{ fontSize: 13, lineHeight: 1.5 }}>
+            <code>{wt.path}</code>
+          </p>
+          {needsForce ? (
+            <>
+              <p style={{ fontSize: 12, lineHeight: 1.5, marginTop: 8, color: 'var(--c-yellow)' }}>
+                ⚠ Git refused: {reason}
+              </p>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12, fontSize: 12 }}>
+                <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
+                <span>Force remove (discards uncommitted changes)</span>
+              </label>
+            </>
+          ) : (
+            <p style={{ fontSize: 12, lineHeight: 1.5, marginTop: 8, opacity: 0.75 }}>
+              The worktree directory is deleted. The branch it pointed at is kept.
+            </p>
+          )}
+          {error && <p style={{ fontSize: 12, color: 'var(--c-red)', marginTop: 8 }}>{error}</p>}
+        </div>
+        <div className="modal-footer">
+          <div className="modal-footer-right">
+            <button className="cancel-btn" onClick={onCancel}>Cancel</button>
+            <button className="delete-btn" onClick={handleConfirm} disabled={busy || (needsForce && !force)}>
+              {busy ? 'Removing…' : (force ? 'Force remove' : 'Remove')}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -322,6 +322,8 @@ export const IPC_CHANNELS = {
   GIT_SET_REMOTE_URL: 'git:setRemoteUrl',
   GIT_REMOVE_REMOTE: 'git:removeRemote',
   GIT_REMOTE_TRACKING_BRANCHES: 'git:remoteTrackingBranches',
+  GIT_LIST_WORKTREES: 'git:listWorktrees',
+  GIT_REMOVE_WORKTREE: 'git:removeWorktree',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',
@@ -500,6 +502,25 @@ export interface GitBlameLine {
   author: string;
   authorTime: string;   // ISO 8601
   summary: string;      // first line of the commit message
+}
+
+/** T-035: a working tree linked to the repo. Returned by
+ * `git:listWorktrees`. Includes the repo's main worktree (where
+ * `.git` is a directory, not a file) plus any linked worktrees added
+ * via `git worktree add`. */
+export interface GitWorktree {
+  path: string;            // absolute filesystem path
+  branch?: string;         // short branch name; undefined when detached
+  head: string;            // commit SHA the worktree is at
+  isMain: boolean;
+  isDetached: boolean;
+  isBare: boolean;
+  isLocked: boolean;
+  lockedReason?: string;
+  /** True when the worktree path lives under Vyb's `parallel-agents/`
+   * directory — owned by the parallel-agent dispatcher. The UI shows
+   * these dimmed and disables Remove to protect in-flight agents. */
+  isSystemManaged: boolean;
 }
 
 /** T-034: configured remote in `.git/config`. Distinct from a

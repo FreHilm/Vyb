@@ -4116,6 +4116,65 @@
   min-width: 0;
 }
 
+/* T-035 worktree rows */
+.git-branches-subheader {
+  padding: 4px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--c-overlay0);
+  background: color-mix(in srgb, var(--c-surface0) 50%, transparent);
+  border-top: 1px solid var(--c-surface0);
+  border-bottom: 1px solid var(--c-surface0);
+}
+.git-branches-worktree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.git-branches-worktree-row.is-system {
+  opacity: 0.65;
+}
+.git-branches-worktree-row.is-current {
+  background: color-mix(in srgb, var(--c-green) 12%, transparent);
+}
+.git-branches-worktree-icon {
+  display: inline-flex;
+  color: var(--c-blue);
+}
+.git-branches-worktree-row.is-system .git-branches-worktree-icon {
+  color: var(--c-overlay0);
+}
+.git-branches-worktree-branch {
+  font-weight: 500;
+}
+.git-branches-worktree-path {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--c-overlay0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 60%;
+  direction: rtl; /* truncate from the left so the tail of the path is readable */
+  text-align: left;
+}
+.git-branches-worktree-badge {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 4px;
+  border-radius: 2px;
+  background: var(--c-surface1);
+  color: var(--c-text);
+  font-weight: 600;
+}
+.git-branches-worktree-badge-current { background: var(--c-green); color: var(--c-base); }
+.git-branches-worktree-badge-locked { background: var(--c-yellow); color: var(--c-base); }
+.git-branches-worktree-badge-system { background: var(--c-surface2); color: var(--c-overlay1); }
+
 /* Highlight the current branch row in the local-branches section. */
 .git-branches-current {
   font-weight: 600;
