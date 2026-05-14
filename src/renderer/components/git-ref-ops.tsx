@@ -109,6 +109,11 @@ export interface RefOps {
    * the right-clicked commit is HEAD. Optional so callers that don't
    * implement it (e.g. test harness) still type-check. */
   onReword?: (sha: string) => void;
+  /** Open the Compare-with picker for an arbitrary source ref. Caller
+   * decides what ref to pre-fill as `a` (typically HEAD / currentBranch)
+   * and `b` (the right-clicked ref). Optional so test/intermediate
+   * callers don't have to wire it. */
+  onCompareWith?: (sourceRef: string, sourceLabel: string) => void;
 }
 
 // ── Menu component ────────────────────────────────────────────────
@@ -181,6 +186,9 @@ function buildMenuItems(p: RefContextMenuProps): MenuItem[] {
     } else {
       items.push({ type: 'item', label: onBranch ? `Merge '${node.fullName}' into '${currentBranch}'` : 'Merge — checkout a branch first', onClick: () => p.onMergeInto(node.fullName), disabled: !onBranch });
       items.push({ type: 'item', label: onBranch ? `Rebase '${currentBranch}' onto '${node.fullName}'…` : 'Rebase — checkout a branch first', onClick: () => p.onRebase(node.fullName), disabled: !onBranch });
+      if (p.onCompareWith) {
+        items.push({ type: 'item', label: `Compare with '${node.fullName}'…`, onClick: () => p.onCompareWith!(node.fullName, node.fullName) });
+      }
     }
     items.push({ type: 'divider' });
     items.push({ type: 'item', label: `New branch from '${node.fullName}'…`, onClick: () => p.onNewBranch(node.fullName, '') });
@@ -198,6 +206,9 @@ function buildMenuItems(p: RefContextMenuProps): MenuItem[] {
     items.push({ type: 'divider' });
     items.push({ type: 'item', label: onBranch ? `Merge '${node.fullName}' into '${currentBranch}'` : 'Merge — checkout a branch first', onClick: () => p.onMergeInto(node.fullName), disabled: !onBranch });
     items.push({ type: 'item', label: onBranch ? `Rebase '${currentBranch}' onto '${node.fullName}'…` : 'Rebase — checkout a branch first', onClick: () => p.onRebase(node.fullName), disabled: !onBranch });
+    if (p.onCompareWith) {
+      items.push({ type: 'item', label: `Compare with '${node.fullName}'…`, onClick: () => p.onCompareWith!(node.fullName, node.fullName) });
+    }
     items.push({ type: 'divider' });
     items.push({ type: 'item', label: `New branch from '${node.fullName}'…`, onClick: () => p.onNewBranch(node.fullName, node.branch) });
     items.push({ type: 'item', label: 'Add as worktree…', onClick: () => p.onWorktree(node.fullName) });
@@ -210,6 +221,9 @@ function buildMenuItems(p: RefContextMenuProps): MenuItem[] {
   if (node.kind === 'tag') {
     items.push({ type: 'item', label: `Checkout '${node.name}' (detached)`, onClick: () => p.onCheckout(node.name) });
     items.push({ type: 'item', label: 'Copy tag name', onClick: () => p.onCopyName(node.name) });
+    if (p.onCompareWith) {
+      items.push({ type: 'item', label: `Compare with '${node.name}'…`, onClick: () => p.onCompareWith!(node.name, node.name) });
+    }
     items.push({ type: 'divider' });
     items.push({ type: 'item', label: `Delete tag '${node.name}'…`, onClick: () => p.onDelete(node), danger: true });
     return items;
@@ -233,6 +247,9 @@ function buildMenuItems(p: RefContextMenuProps): MenuItem[] {
     items.push({ type: 'item', label: onBranch ? `Merge ${node.shortSha} into '${currentBranch}'` : 'Merge — checkout a branch first', onClick: () => p.onMergeInto(node.sha), disabled: !onBranch });
     items.push({ type: 'item', label: onBranch ? `Cherry-pick ${node.shortSha}` : 'Cherry-pick — checkout a branch first', onClick: () => p.onCherryPick(node.sha), disabled: !onBranch });
     items.push({ type: 'item', label: onBranch ? `Revert ${node.shortSha}…` : 'Revert — checkout a branch first', onClick: () => p.onRevert(node.sha), disabled: !onBranch });
+    if (p.onCompareWith) {
+      items.push({ type: 'item', label: `Compare with ${node.shortSha}…`, onClick: () => p.onCompareWith!(node.sha, node.shortSha) });
+    }
     items.push({ type: 'divider' });
     items.push({ type: 'item', label: `New branch from ${node.shortSha}…`, onClick: () => p.onNewBranch(node.sha, '') });
     items.push({ type: 'item', label: `New tag at ${node.shortSha}…`, onClick: () => p.onNewTag(node.sha, '') });

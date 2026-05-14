@@ -12,7 +12,7 @@ interface GitChangedFile {
   staged: boolean;
 }
 
-export type GitPanelTab = 'changes' | 'tree' | 'branches';
+export type GitPanelTab = 'changes' | 'tree' | 'branches' | 'compare';
 
 interface ChangesCtxMenuState {
   x: number;
@@ -423,6 +423,130 @@ function SplitFileDiff({ lines }: { lines: DiffLine[] }) {
   );
 }
 
+// ── Compare view (T-028) ────────────────────────────────────────────
+// Reuses the Changes tab's two-pane layout: file list on the left, full
+// FileDiff for the selected file on the right. Driven entirely by the
+// compare-spec from the panel — when the spec changes (swap / toggle)
+// we reload the file list, then reload the per-file diff when the user
+// picks a different file.
+
+function CompareView({
+  workingDirectory,
+  spec,
+  onSwap,
+  onThreeDotChange,
+  diffViewMode,
+}: {
+  workingDirectory: string;
+  spec: { aRef: string; aLabel: string; bRef: string; bLabel: string; threeDot: boolean };
+  onSwap: () => void;
+  onThreeDotChange: (v: boolean) => void;
+  diffViewMode: 'unified' | 'split';
+}) {
+  const [files, setFiles] = useState<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>([]);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [diff, setDiff] = useState<string>('');
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Reload the file list whenever the spec changes. Keep the
+  // previously-selected path if it's still present, otherwise drop to
+  // the first file in the new list.
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    window.api.gitCompareFiles(workingDirectory, spec.aRef, spec.bRef, spec.threeDot).then((list) => {
+      if (cancelled) return;
+      setFiles(list);
+      setLoading(false);
+      setSelectedPath((prev) => {
+        if (prev && list.some((f) => f.path === prev)) return prev;
+        return list[0]?.path ?? null;
+      });
+    });
+    return () => { cancelled = true; };
+  }, [workingDirectory, spec.aRef, spec.bRef, spec.threeDot]);
+
+  // Reload the per-file diff when the selection changes. Cached map
+  // would be a nice add — for now we re-fetch on switch which is fast
+  // enough for typical PR-sized ranges.
+  useEffect(() => {
+    if (!selectedPath) { setDiff(''); return; }
+    let cancelled = false;
+    setDiffLoading(true);
+    window.api.gitCompareFileDiff(workingDirectory, spec.aRef, spec.bRef, selectedPath, spec.threeDot).then((d) => {
+      if (cancelled) return;
+      setDiff(d);
+      setDiffLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [workingDirectory, selectedPath, spec.aRef, spec.bRef, spec.threeDot]);
+
+  return (
+    <div className="git-compare">
+      <div className="git-compare-toolbar">
+        <span className="git-compare-ref" title={spec.aRef}>{spec.aLabel}</span>
+        <button
+          className="git-compare-swap"
+          onClick={onSwap}
+          title="Swap direction"
+        >
+          {spec.threeDot ? '⇄' : '↔'}
+        </button>
+        <span className="git-compare-ref" title={spec.bRef}>{spec.bLabel}</span>
+        <span className="git-compare-spacer" />
+        <label className="git-compare-mode" title="Three-dot uses the merge-base — 'what would arrive on the left if you merged the right in'. Two-dot shows every difference.">
+          <input
+            type="checkbox"
+            checked={spec.threeDot}
+            onChange={(e) => onThreeDotChange(e.target.checked)}
+          />
+          <span>Merge-base range (a…b)</span>
+        </label>
+        <span className="git-compare-count">
+          {loading ? '…' : `${files.length} file${files.length === 1 ? '' : 's'}`}
+        </span>
+      </div>
+      <div className="git-compare-body">
+        <div className="git-compare-files">
+          {loading && <div className="git-changes-loading">Loading…</div>}
+          {!loading && files.length === 0 && (
+            <div className="git-changes-empty">No differences</div>
+          )}
+          {!loading && files.map((f) => (
+            <button
+              key={f.path}
+              className={`git-compare-file ${selectedPath === f.path ? 'is-selected' : ''}`}
+              onClick={() => setSelectedPath(f.path)}
+              title={f.path}
+            >
+              <FileIcon filename={fileName(f.path)} isDirectory={false} />
+              <span className="git-compare-file-name">{fileName(f.path)}</span>
+              <span className="git-compare-file-dir">{fileDir(f.path)}</span>
+              <span className="git-compare-file-meta">
+                {f.added > 0 && <span className="git-changes-added">+{f.added}</span>}
+                {f.deleted > 0 && <span className="git-changes-deleted">−{f.deleted}</span>}
+                <span className="git-changes-status" data-status={f.status}>
+                  {f.status === 'added' ? 'A' : f.status === 'deleted' ? 'D' : f.status === 'renamed' ? 'R' : 'M'}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="git-compare-diff">
+          {diffLoading ? (
+            <div className="git-diff-empty">Loading diff…</div>
+          ) : selectedPath ? (
+            <FileDiff diff={diff} mode={diffViewMode} />
+          ) : (
+            <div className="git-diff-empty">Select a file to view its diff.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function GitChangesPanel({
   workingDirectory,
   onClose,
@@ -467,6 +591,52 @@ export function GitChangesPanel({
   // sub-tab (Tree / Branches) to reload. ChangesView reloads via its
   // own `reloadFiles`; Tree + BranchTree pick this up as a useEffect dep.
   const [reloadEpoch, setReloadEpoch] = useState(0);
+  // Compare tab spec. `null` = no compare loaded; tab is hidden.
+  // `aLabel` / `bLabel` are display strings (short SHA / branch name);
+  // `aRef` / `bRef` are what we actually pass to git.
+  const [compareSpec, setCompareSpec] = useState<{
+    aRef: string;
+    aLabel: string;
+    bRef: string;
+    bLabel: string;
+    threeDot: boolean;
+  } | null>(null);
+
+  /** Open a compare from a tree right-click. `b` is the clicked ref;
+   * `a` defaults to the current branch (or HEAD when detached) so
+   * "Compare with foo" reads as "what's on foo vs my branch". */
+  const handleCompareWith = useCallback((sourceRef: string, sourceLabel: string) => {
+    const a = status?.branch && !/^[0-9a-f]{7,}$/i.test(status.branch)
+      ? status.branch
+      : 'HEAD';
+    setCompareSpec({
+      aRef: a,
+      aLabel: a,
+      bRef: sourceRef,
+      bLabel: sourceLabel,
+      threeDot: true, // default — Fork's "what would arrive if merged"
+    });
+    onTabChange('compare');
+  }, [status, onTabChange]);
+
+  const closeCompare = useCallback(() => {
+    setCompareSpec(null);
+    onTabChange('changes');
+  }, [onTabChange]);
+
+  const swapCompareDirection = useCallback(() => {
+    setCompareSpec((spec) => spec ? ({
+      aRef: spec.bRef,
+      aLabel: spec.bLabel,
+      bRef: spec.aRef,
+      bLabel: spec.aLabel,
+      threeDot: spec.threeDot,
+    }) : spec);
+  }, []);
+
+  const setCompareThreeDot = useCallback((v: boolean) => {
+    setCompareSpec((spec) => spec ? { ...spec, threeDot: v } : spec);
+  }, []);
   // Local diff view mode mirror — synced to the prop on change so the
   // panel re-renders whatever is in AppSettings, but the toggle button
   // can flip it without waiting for the parent.
@@ -809,6 +979,22 @@ export function GitChangesPanel({
           >
             Branches
           </button>
+          {compareSpec && (
+            <button
+              className={`git-panel-tab git-panel-tab-compare ${activeTab === 'compare' ? 'git-panel-tab-active' : ''}`}
+              onClick={() => onTabChange('compare')}
+              title={`${compareSpec.aLabel} ${compareSpec.threeDot ? '...' : '..'} ${compareSpec.bLabel}`}
+            >
+              <span>Compare</span>
+              <span
+                role="button"
+                tabIndex={-1}
+                className="git-panel-tab-close"
+                onClick={(e) => { e.stopPropagation(); closeCompare(); }}
+                title="Close compare"
+              >×</span>
+            </button>
+          )}
         </div>
         <div className="git-changes-actions">
           <button className="git-changes-btn" onClick={onClose} title="Close">
@@ -1006,11 +1192,21 @@ export function GitChangesPanel({
       )}
       {activeTab === 'tree' ? (
         <div className="git-changes-body">
-          <GitTree workingDirectory={workingDirectory} reloadEpoch={reloadEpoch} />
+          <GitTree workingDirectory={workingDirectory} reloadEpoch={reloadEpoch} onCompareWith={handleCompareWith} />
         </div>
       ) : activeTab === 'branches' ? (
         <div className="git-changes-body">
-          <BranchTree workingDirectory={workingDirectory} reloadEpoch={reloadEpoch} />
+          <BranchTree workingDirectory={workingDirectory} reloadEpoch={reloadEpoch} onCompareWith={handleCompareWith} />
+        </div>
+      ) : activeTab === 'compare' && compareSpec ? (
+        <div className="git-changes-body">
+          <CompareView
+            workingDirectory={workingDirectory}
+            spec={compareSpec}
+            onSwap={swapCompareDirection}
+            onThreeDotChange={setCompareThreeDot}
+            diffViewMode={diffViewMode}
+          />
         </div>
       ) : (
         <ChangesView

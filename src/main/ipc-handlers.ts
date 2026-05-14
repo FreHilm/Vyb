@@ -1057,6 +1057,111 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     return result;
   });
 
+  // Compare two refs: surface every file that changed between them, plus
+  // per-file diffs on demand. Powers the "Compare with…" panel (T-028).
+  //
+  // `threeDot` toggles the semantics:
+  //   false (default) → `git diff a..b` = "every difference, even commits
+  //          that aren't on b's branch"
+  //   true  → `git diff a...b` = "what would land on a if you merged b
+  //          into a" (changes since the merge-base)
+  // We mirror that exactly using git's own range syntax.
+  ipcMain.handle(IPC_CHANNELS.GIT_COMPARE_FILES, (_, cwd: string, a: string, b: string, threeDot?: boolean): { path: string; added: number; deleted: number; status: string; staged: boolean }[] => {
+    if (!cwd || !a || !b) return [];
+    const sep = threeDot ? '...' : '..';
+    const range = `${a}${sep}${b}`;
+    // --numstat for +/- counts; --name-status for the A/M/D/R letter.
+    // Two passes so we keep the existing GitChangedFile shape verbatim.
+    let numstat = '';
+    let namestat = '';
+    try {
+      numstat = execFileSync('git', ['diff', '--numstat', '-z', range], { cwd, timeout: 30000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 });
+    } catch { /* range invalid / unknown ref — empty list is the right answer */ }
+    try {
+      namestat = execFileSync('git', ['diff', '--name-status', '-z', range], { cwd, timeout: 30000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 });
+    } catch { /* ditto */ }
+    // Parse --numstat -z: each record is "added\tdeleted\tpath\0". For
+    // renames the path is "oldPath\0newPath" so the record spans an
+    // extra NUL — handled below.
+    const stats = new Map<string, { added: number; deleted: number }>();
+    {
+      const tokens = numstat.split('\0');
+      let i = 0;
+      while (i < tokens.length) {
+        const t = tokens[i];
+        if (!t) { i++; continue; }
+        // Each line has "a\td\tpath" — split on tab.
+        const tabIdx = t.indexOf('\t');
+        if (tabIdx === -1) { i++; continue; }
+        const tab2 = t.indexOf('\t', tabIdx + 1);
+        if (tab2 === -1) { i++; continue; }
+        const aStr = t.slice(0, tabIdx);
+        const dStr = t.slice(tabIdx + 1, tab2);
+        let pathPart = t.slice(tab2 + 1);
+        // Binary files report "-\t-\t<path>" — count as 0/0.
+        const addedNum = aStr === '-' ? 0 : parseInt(aStr, 10) || 0;
+        const deletedNum = dStr === '-' ? 0 : parseInt(dStr, 10) || 0;
+        // Renames: numstat emits an empty path then the old name then the
+        // new name (in NUL form). Heuristic: if pathPart is empty, the
+        // next two records are old/new — we keep the new name.
+        if (!pathPart && i + 2 < tokens.length) {
+          i++; // skip old name
+          pathPart = tokens[i + 1] ?? '';
+        }
+        if (pathPart) stats.set(pathPart, { added: addedNum, deleted: deletedNum });
+        i++;
+      }
+    }
+    // Parse --name-status -z: tokens like "M", path, "M", path, ...
+    // Renames use "R<score>", old, new.
+    const out: { path: string; added: number; deleted: number; status: string; staged: boolean }[] = [];
+    {
+      const tokens = namestat.split('\0').filter((t) => t.length > 0);
+      let i = 0;
+      while (i < tokens.length) {
+        const code = tokens[i];
+        if (!code) { i++; continue; }
+        const letter = code[0];
+        if (letter === 'R' || letter === 'C') {
+          // Renames / copies use two paths
+          const newPath = tokens[i + 2];
+          if (newPath) {
+            const s = stats.get(newPath) ?? { added: 0, deleted: 0 };
+            out.push({ path: newPath, added: s.added, deleted: s.deleted, status: letter === 'R' ? 'renamed' : 'added', staged: false });
+          }
+          i += 3;
+        } else {
+          const filePath = tokens[i + 1];
+          if (filePath) {
+            const s = stats.get(filePath) ?? { added: 0, deleted: 0 };
+            const status = letter === 'A' ? 'added' : letter === 'D' ? 'deleted' : 'modified';
+            out.push({ path: filePath, added: s.added, deleted: s.deleted, status, staged: false });
+          }
+          i += 2;
+        }
+      }
+    }
+    return out;
+  });
+
+  // Per-file diff for the compare view. Same range semantics as
+  // GIT_COMPARE_FILES — mirrors `git diff <range> -- <path>` directly,
+  // with no synthesised "all-lines-added" fallback (compare is always
+  // between two real refs, so an empty diff just means the file is the
+  // same on both sides).
+  ipcMain.handle(IPC_CHANNELS.GIT_COMPARE_FILE_DIFF, (_, cwd: string, a: string, b: string, filePath: string, threeDot?: boolean): string => {
+    if (!cwd || !a || !b || !filePath) return '';
+    const sep = threeDot ? '...' : '..';
+    const range = `${a}${sep}${b}`;
+    try {
+      return execFileSync('git', ['diff', range, '--', filePath], {
+        cwd, timeout: 30000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024,
+      });
+    } catch {
+      return '';
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.GIT_FILE_DIFF, (_, cwd: string, filePath: string, staged?: boolean): string => {
     const run = (cmd: string): string => {
       try {

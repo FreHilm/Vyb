@@ -10,6 +10,9 @@ interface BranchTreeProps {
   /** Bumped by the parent panel after Push / Pull / Fetch so the
    * branches list reloads (new remotes, updated ahead/behind, etc). */
   reloadEpoch?: number;
+  /** "Compare with…" handler injected by the panel. Maps each branch /
+   * tag context-menu invocation to a compare against current branch. */
+  onCompareWith?: (sourceRef: string, sourceLabel: string) => void;
 }
 
 // ── Tree model ─────────────────────────────────────────────────────
@@ -129,7 +132,7 @@ interface CtxMenuState {
   node: TreeNode;
 }
 
-export function BranchTree({ workingDirectory, reloadEpoch = 0 }: BranchTreeProps) {
+export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith }: BranchTreeProps) {
   const [refs, setRefs] = useState<GitRef[]>([]);
   const [stashes, setStashes] = useState<GitStash[]>([]);
   const [status, setStatus] = useState<GitStatus | null>(null);
@@ -358,6 +361,7 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0 }: BranchTreeProp
           onBranch={onBranch}
           onClose={() => setCtxMenu(null)}
           {...ops}
+          onCompareWith={onCompareWith}
         />
       )}
       {modals}
