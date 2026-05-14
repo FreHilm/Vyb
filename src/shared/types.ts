@@ -329,6 +329,12 @@ export const IPC_CHANNELS = {
   GIT_BISECT_MARK: 'git:bisectMark',
   GIT_BISECT_RESET: 'git:bisectReset',
   GIT_BISECT_STATUS: 'git:bisectStatus',
+  GIT_LFS_INFO: 'git:lfsInfo',
+  GIT_LFS_LIST_LOCKS: 'git:lfsListLocks',
+  GIT_LFS_LOCK: 'git:lfsLock',
+  GIT_LFS_UNLOCK: 'git:lfsUnlock',
+  GIT_LFS_FETCH: 'git:lfsFetch',
+  GIT_LFS_PRUNE: 'git:lfsPrune',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',
@@ -507,6 +513,29 @@ export interface GitBlameLine {
   author: string;
   authorTime: string;   // ISO 8601
   summary: string;      // first line of the commit message
+}
+
+/** T-040: presence + summary of Git LFS in the current repo. Returned
+ * by `git:lfsInfo`. When `available` is false, the LFS section in the
+ * Branches tab shows a "not installed" empty state instead of action
+ * buttons. */
+export interface GitLfsInfo {
+  /** `git lfs version` succeeded — the CLI extension is on PATH. */
+  available: boolean;
+  /** The repo's `.gitattributes` declares one or more LFS patterns. */
+  configured: boolean;
+  /** Sample of paths tracked by LFS in the working tree (first 50). */
+  trackedSample: string[];
+  /** Total tracked file count if known. */
+  trackedCount: number;
+}
+
+/** T-040: one lock returned by `git lfs locks`. */
+export interface GitLfsLock {
+  id: string;
+  path: string;
+  owner: string;
+  lockedAt?: string;
 }
 
 /** T-041: state of an in-progress `git bisect` session. `inProgress`

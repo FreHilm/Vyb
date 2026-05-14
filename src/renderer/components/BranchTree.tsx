@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { GitRef, GitRemote, GitStash, GitStatus, GitWorktree } from '../../shared/types';
+import { GitLfsInfo, GitLfsLock, GitRef, GitRemote, GitStash, GitStatus, GitWorktree } from '../../shared/types';
 import {
   LocalBranchNode, RemoteBranchNode, TagNode, StashNode, RefMenuNode,
   RefContextMenu, useGitRefOps,
@@ -158,6 +158,12 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
   const [addWorktreeOpen, setAddWorktreeOpen] = useState(false);
   const [removeWorktreeConfirm, setRemoveWorktreeConfirm] = useState<{ wt: GitWorktree; needsForce: boolean; reason: string } | null>(null);
   const [worktreeOpError, setWorktreeOpError] = useState<string | null>(null);
+  // T-040 LFS state. `lfs` is `null` until the first probe finishes;
+  // we skip the section header entirely while loading to avoid flicker.
+  const [lfs, setLfs] = useState<GitLfsInfo | null>(null);
+  const [lfsLocks, setLfsLocks] = useState<GitLfsLock[]>([]);
+  const [lfsBusy, setLfsBusy] = useState(false);
+  const [lfsError, setLfsError] = useState<string | null>(null);
 
   // Per-section open/closed state. Default: branches + stashes open,
   // remotes + tags collapsed (they tend to be larger).
@@ -177,18 +183,28 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, s, st, rm, wt] = await Promise.all([
+      const [r, s, st, rm, wt, li] = await Promise.all([
         window.api.getGitRefs(workingDirectory),
         window.api.gitListStashes(workingDirectory),
         window.api.getGitStatus(workingDirectory),
         window.api.gitListRemotes(workingDirectory),
         window.api.gitListWorktrees(workingDirectory),
+        window.api.gitLfsInfo(workingDirectory),
       ]);
       setRefs(r);
       setStashes(s);
       setStatus(st);
       setRemotes(rm);
       setWorktrees(wt);
+      setLfs(li);
+      if (li.available && li.configured) {
+        // Lazy second round-trip — locks are slower (network) so
+        // fetch them only when LFS is actually in use.
+        const locks = await window.api.gitLfsListLocks(workingDirectory);
+        setLfsLocks(locks);
+      } else {
+        setLfsLocks([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -343,6 +359,31 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
     window.addEventListener('mousedown', handler);
     return () => window.removeEventListener('mousedown', handler);
   }, [worktreeMenu]);
+
+  // ── T-040 LFS ops ──────────────────────────────────────────────
+  const runLfsOp = useCallback(async (op: () => Promise<{ ok: boolean; message?: string }>, label: string) => {
+    if (lfsBusy) return;
+    setLfsBusy(true);
+    setLfsError(null);
+    try {
+      const result = await op();
+      if (!result.ok) { setLfsError(result.message || `${label} failed`); return; }
+      // Re-fetch LFS state to pick up new locks / pruned cache / etc.
+      const [info, locks] = await Promise.all([
+        window.api.gitLfsInfo(workingDirectory),
+        window.api.gitLfsListLocks(workingDirectory),
+      ]);
+      setLfs(info);
+      setLfsLocks(locks);
+    } finally {
+      setLfsBusy(false);
+    }
+  }, [lfsBusy, workingDirectory]);
+
+  const handleLfsFetch = useCallback(() => runLfsOp(() => window.api.gitLfsFetch(workingDirectory), 'lfs fetch'), [runLfsOp, workingDirectory]);
+  const handleLfsPrune = useCallback(() => runLfsOp(() => window.api.gitLfsPrune(workingDirectory), 'lfs prune'), [runLfsOp, workingDirectory]);
+  const handleLfsUnlock = useCallback((lockPath: string) => runLfsOp(() => window.api.gitLfsUnlock(workingDirectory, lockPath, false), 'lfs unlock'), [runLfsOp, workingDirectory]);
+  const handleLfsForceUnlock = useCallback((lockPath: string) => runLfsOp(() => window.api.gitLfsUnlock(workingDirectory, lockPath, true), 'lfs unlock --force'), [runLfsOp, workingDirectory]);
 
   const toggleSection = (key: string) => {
     setOpenSections((prev) => {
@@ -593,6 +634,63 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
               }}
             />
           ))}
+        </Section>
+
+        {/* T-040: LFS section. Always present so the user can see "LFS
+            not installed" hints in repos that need it; the body
+            content adapts based on availability. */}
+        <Section
+          title={`LFS${lfs?.available && lfs?.configured ? ` (${lfs.trackedCount} file${lfs.trackedCount === 1 ? '' : 's'})` : ''}`}
+          sectionKey="lfs"
+          isOpen={openSections.has('lfs')}
+          onToggle={toggleSection}
+        >
+          {lfs === null && <div className="git-branches-empty">Loading…</div>}
+          {lfs !== null && !lfs.available && (
+            <div className="git-branches-empty" style={{ lineHeight: 1.5 }}>
+              Git LFS isn't installed.{' '}
+              <a href="#" onClick={(e) => { e.preventDefault(); window.api.openUrl('https://git-lfs.com'); }} style={{ color: 'var(--c-blue)' }}>
+                Install it
+              </a>{' '} to manage large-file storage from this panel.
+            </div>
+          )}
+          {lfs !== null && lfs.available && !lfs.configured && (
+            <div className="git-branches-empty">This repo doesn't use LFS.</div>
+          )}
+          {lfs !== null && lfs.available && lfs.configured && (
+            <>
+              <div className="git-lfs-toolbar">
+                <button className="git-tree-toolbar-btn" disabled={lfsBusy} onClick={handleLfsFetch} title="Download all LFS objects for the current commit">
+                  Fetch
+                </button>
+                <button className="git-tree-toolbar-btn" disabled={lfsBusy} onClick={handleLfsPrune} title="Delete local LFS objects not currently referenced">
+                  Prune
+                </button>
+                {lfsBusy && <span className="git-lfs-busy">Working…</span>}
+              </div>
+              {lfsError && <div className="git-tree-error" style={{ margin: '4px 12px' }}>{lfsError}</div>}
+              <div className="git-lfs-subheader">Locks ({lfsLocks.length})</div>
+              {lfsLocks.length === 0 && <div className="git-branches-empty">No active locks.</div>}
+              {lfsLocks.map((lock) => (
+                <div key={lock.id} className="git-lfs-lock-row" title={`${lock.path}\nlocked by ${lock.owner}`}>
+                  <span className="git-lfs-lock-path">{lock.path}</span>
+                  <span className="git-lfs-lock-owner">{lock.owner}</span>
+                  <button
+                    className="git-tree-toolbar-btn"
+                    disabled={lfsBusy}
+                    onClick={() => handleLfsUnlock(lock.path)}
+                    title="Release this lock"
+                  >Unlock</button>
+                  <button
+                    className="git-tree-toolbar-btn"
+                    disabled={lfsBusy}
+                    onClick={() => handleLfsForceUnlock(lock.path)}
+                    title="Force release even if you don't own the lock (requires admin on the remote)"
+                  >Force</button>
+                </div>
+              ))}
+            </>
+          )}
         </Section>
       </div>
 
