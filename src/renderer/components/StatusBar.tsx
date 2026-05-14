@@ -27,11 +27,37 @@ export function StatusBar({ profile, onToggleChanges, onBranchClick }: StatusBar
       window.api.getGitStatus(profile.workingDirectory).then(setGit);
     };
 
+    // Pause polling when the window is hidden (Cmd+H, lid closed,
+    // app in background) — no point spawning git every 10 s if no
+    // one's looking. Resume immediately on `visibilitychange` so
+    // the bar refreshes the instant the user comes back.
+    const stop = () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+    const start = () => {
+      if (timerRef.current) return;
+      timerRef.current = setInterval(fetch, POLL_INTERVAL);
+    };
+
     fetch();
-    timerRef.current = setInterval(fetch, POLL_INTERVAL);
+    if (!document.hidden) start();
+
+    const onVisibility = () => {
+      if (document.hidden) {
+        stop();
+      } else {
+        fetch();
+        start();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [profile?.id, profile?.workingDirectory]);
 
