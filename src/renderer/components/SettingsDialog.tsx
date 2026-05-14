@@ -150,6 +150,7 @@ export function SettingsDialog({
   const [darkness, setDarkness] = useState(settings.darkness);
   const [textLightness, setTextLightness] = useState(settings.textLightness);
   const [profileFontSize, setProfileFontSize] = useState(settings.profileFontSize);
+  const [editorFontSize, setEditorFontSize] = useState(settings.editorFontSize ?? 13);
   const [agentFontSize, setAgentFontSize] = useState(settings.agentFontSize);
   const [shellFontSize, setShellFontSize] = useState(settings.shellFontSize);
   const [profileFontWeight, setProfileFontWeight] = useState(settings.profileFontWeight);
@@ -213,6 +214,7 @@ export function SettingsDialog({
       darkness,
       textLightness,
       profileFontSize,
+      editorFontSize: Math.max(8, Math.min(32, editorFontSize || 13)),
       agentFontSize,
       shellFontSize,
       profileFontWeight,
@@ -571,6 +573,12 @@ export function SettingsDialog({
                       <td><input type="number" min={10} max={24} value={shellFontSize} onChange={(e) => setShellFontSize(Number(e.target.value))} /></td>
                       <td><input type="number" min={100} max={900} step={100} value={shellFontWeight} onChange={(e) => setShellFontWeight(Number(e.target.value))} /></td>
                       <td><input type="number" min={100} max={900} step={100} value={shellFontWeightBold} onChange={(e) => setShellFontWeightBold(Number(e.target.value))} /></td>
+                    </tr>
+                    <tr>
+                      <td>Editor (Cmd+= / Cmd+- / Cmd+0)</td>
+                      <td><input type="number" min={8} max={32} value={editorFontSize} onChange={(e) => setEditorFontSize(Number(e.target.value))} /></td>
+                      <td>—</td>
+                      <td>—</td>
                     </tr>
                   </tbody>
                 </table>

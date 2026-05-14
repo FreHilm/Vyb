@@ -121,6 +121,11 @@ export interface AppSettings {
    * editor + render sticky scope headers inside the viewport. */
   editorBreadcrumbs: boolean;
   editorStickyScroll: boolean;
+  /** T-047: editor font size in pixels. Cmd+= / Cmd+- / Cmd+0 in
+   * a focused CodeMirror buffer adjust this; Settings → Appearance
+   * has a manual input. Default 13 — matches the previous hard-
+   * coded value before this setting existed. */
+  editorFontSize: number;
   /** Default landing page for a Web tab that has never been navigated.
    * Once a view has a saved URL in `webUrls`, this is ignored. Free-form
    * text — non-URL input is interpreted as a DuckDuckGo search at click
@@ -247,6 +252,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   formatOnSave: false,
   editorBreadcrumbs: true,
   editorStickyScroll: true,
+  editorFontSize: 13,
   webDefaultUrl: 'https://duckduckgo.com/',
   webUrls: {},
   openFunctionTabs: {},

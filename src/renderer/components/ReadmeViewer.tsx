@@ -378,7 +378,7 @@ export function ReadmeViewer({ workingDirectory }: ReadmeViewerProps) {
           if (update.docChanged) setModified(true);
         }),
         EditorView.theme({
-          '&': { height: '100%', fontSize: '14px' },
+          '&': { height: '100%', fontSize: 'var(--cm-editor-font-size, 14px)' },
           '.cm-scroller': { overflow: 'auto' },
           '.cm-content': { fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace" },
         }),
