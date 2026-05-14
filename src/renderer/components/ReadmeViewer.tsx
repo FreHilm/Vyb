@@ -378,9 +378,21 @@ export function ReadmeViewer({ workingDirectory }: ReadmeViewerProps) {
           if (update.docChanged) setModified(true);
         }),
         EditorView.theme({
-          '&': { height: '100%', fontSize: 'var(--cm-editor-font-size, 14px)' },
-          '.cm-scroller': { overflow: 'auto' },
-          '.cm-content': { fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace" },
+          '&': {
+            height: '100%',
+            fontSize: 'var(--cm-editor-font-size, 14px)',
+            backgroundColor: 'var(--c-base)',
+            color: 'var(--c-text)',
+          },
+          '.cm-scroller': { overflow: 'auto', backgroundColor: 'var(--c-base)' },
+          '.cm-content': { fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace", caretColor: 'var(--c-rosewater)' },
+          '.cm-gutters': {
+            backgroundColor: 'var(--c-base)',
+            color: 'var(--c-overlay0)',
+            borderRight: '1px solid var(--c-surface0)',
+          },
+          '.cm-activeLine': { backgroundColor: 'var(--c-surface0)' },
+          '.cm-activeLineGutter': { backgroundColor: 'var(--c-surface0)' },
         }),
       ],
     });
