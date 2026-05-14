@@ -297,7 +297,11 @@ function parseDiff(diff: string): DiffLine[] {
  * action button. Split mode keeps the hunk button but skips the
  * drag-selection UI — two columns make the selection semantics fiddly
  * and the per-hunk affordance covers the common case there. */
-function FileDiff({
+// Exported so feature panels outside the Changes tab (file history,
+// compare view) can render the same diff with word-level highlighting
+// and per-hunk staging actions. Pass `onApplyPatch` to opt in to the
+// T-023 affordances; leave it undefined for a read-only render.
+export function FileDiff({
   diff,
   mode,
   staged,

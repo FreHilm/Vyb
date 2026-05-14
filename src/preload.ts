@@ -195,6 +195,12 @@ contextBridge.exposeInMainWorld('api', {
 
   gitApplyPatch: (cwd: string, patch: string, opts?: { reverse?: boolean }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_APPLY_PATCH, cwd, patch, opts),
+
+  gitFileLog: (cwd: string, filePath: string, limit?: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_FILE_LOG, cwd, filePath, limit),
+
+  gitFileLogDiff: (cwd: string, sha: string, filePath: string): Promise<string> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_FILE_LOG_DIFF, cwd, sha, filePath),
   gitMerge: (cwd: string, sourceRef: string): Promise<GitMergeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>

@@ -20,6 +20,7 @@ import { ResizeHandle } from './ResizeHandle';
 import { MermaidBlock } from './MermaidBlock';
 import { ExcalidrawEditor, type ExcalidrawEditorHandle } from './ExcalidrawEditor';
 import { SWORD_SHAPE } from '../file-icons';
+import { FileHistoryView } from './FileHistoryView';
 
 interface FileExplorerProps {
   workingDirectory: string;
@@ -125,9 +126,13 @@ interface ContextMenuProps {
   onNewFile: () => void;
   onNewDir: () => void;
   onOpenNewTab: (() => void) | null;
+  /** T-026: optional "Show history" callback. Only rendered for files
+   * (not directories). Skipped when undefined so dirs / new-file
+   * contexts don't see it. */
+  onShowHistory: (() => void) | null;
 }
 
-function ContextMenu({ x, y, entry, clipboard, onClose, onCopy, onPaste, onDelete, onRename, onNewFile, onNewDir, onOpenNewTab }: ContextMenuProps) {
+function ContextMenu({ x, y, entry, clipboard, onClose, onCopy, onPaste, onDelete, onRename, onNewFile, onNewDir, onOpenNewTab, onShowHistory }: ContextMenuProps) {
   useEffect(() => {
     const handleClick = () => onClose();
     window.addEventListener('click', handleClick);
@@ -144,6 +149,17 @@ function ContextMenu({ x, y, entry, clipboard, onClose, onCopy, onPaste, onDelet
             </span>
             Open in New Tab
           </button>
+          {onShowHistory && (
+            <button className="file-ctx-item" onClick={onShowHistory}>
+              <span className="file-ctx-icon">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="8" cy="8" r="6" />
+                  <path d="M8 4v4l3 2" />
+                </svg>
+              </span>
+              Show history
+            </button>
+          )}
           <div className="file-ctx-divider" />
         </>
       )}
@@ -443,6 +459,9 @@ export function FileExplorer({
   // Context menu state
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; entry: FileEntry | null } | null>(null);
   const [clipboard, setClipboard] = useState<string | null>(null);
+  // T-026: when set, render the FileHistoryView overlay for this path.
+  // Cleared by the overlay's close button or Esc keypress.
+  const [historyFile, setHistoryFile] = useState<{ path: string; name: string } | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null);
   const [creating, setCreating] = useState<{ type: 'file' | 'dir' | 'excalidraw'; dir: string } | null>(null);
@@ -1138,6 +1157,18 @@ export function FileExplorer({
     setCtxMenu(null);
   }, [ctxMenu]);
 
+  // T-026: open the file-history overlay for the right-clicked entry.
+  // Only wired for files (not directories) via the ContextMenu prop.
+  const handleShowHistory = useCallback(() => {
+    if (ctxMenu?.entry && !ctxMenu.entry.isDirectory) {
+      const relPath = ctxMenu.entry.path.startsWith(workingDirectory)
+        ? ctxMenu.entry.path.slice(workingDirectory.length).replace(/^\/+/, '')
+        : ctxMenu.entry.path;
+      setHistoryFile({ path: relPath, name: ctxMenu.entry.name });
+    }
+    setCtxMenu(null);
+  }, [ctxMenu, workingDirectory]);
+
   const handlePaste = useCallback(async () => {
     if (!clipboard) return;
     const targetDir = ctxMenu?.entry?.isDirectory
@@ -1661,6 +1692,16 @@ export function FileExplorer({
           onNewFile={handleNewFile}
           onNewDir={handleNewDir}
           onOpenNewTab={ctxMenu.entry && !ctxMenu.entry.isDirectory ? handleOpenNewTab : null}
+          onShowHistory={ctxMenu.entry && !ctxMenu.entry.isDirectory ? handleShowHistory : null}
+        />
+      )}
+
+      {historyFile && (
+        <FileHistoryView
+          workingDirectory={workingDirectory}
+          filePath={historyFile.path}
+          fileName={historyFile.name}
+          onClose={() => setHistoryFile(null)}
         />
       )}
 
