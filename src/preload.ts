@@ -177,6 +177,10 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.GIT_PUSH_FORCE_LEASE, cwd),
   gitPull: (cwd: string): Promise<GitOpResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_PULL, cwd),
+  /** Pull with --rebase. Linear history; conflicts surface via the
+   * existing rebase-in-progress banner. */
+  gitPullRebase: (cwd: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_PULL_REBASE, cwd),
   gitMerge: (cwd: string, sourceRef: string): Promise<GitMergeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>

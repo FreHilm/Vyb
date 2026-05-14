@@ -95,6 +95,12 @@ export interface AppSettings {
    * view of that kind is closed. Both default to true. */
   functionKanbanEnabled: boolean;
   functionWebEnabled: boolean;
+  /** Default Pull strategy used by the panel's primary Pull button.
+   * 'merge' = plain `git pull` (the current behaviour).
+   * 'rebase' = `git pull --rebase` (linear history).
+   * 'ask' = primary button opens the chevron menu so the user picks
+   * each time. */
+  pullStrategy: 'merge' | 'rebase' | 'ask';
   /** Default landing page for a Web tab that has never been navigated.
    * Once a view has a saved URL in `webUrls`, this is ignored. Free-form
    * text — non-URL input is interpreted as a DuckDuckGo search at click
@@ -203,6 +209,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   parallelAgentAutoRun: true,
   functionKanbanEnabled: true,
   functionWebEnabled: true,
+  pullStrategy: 'merge',
   webDefaultUrl: 'https://duckduckgo.com/',
   webUrls: {},
 };
@@ -283,6 +290,7 @@ export const IPC_CHANNELS = {
   GIT_REWORD_HEAD: 'git:rewordHead',
   GIT_HEAD_INFO: 'git:headInfo',
   GIT_PUSH_FORCE_LEASE: 'git:pushForceLease',
+  GIT_PULL_REBASE: 'git:pullRebase',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',
