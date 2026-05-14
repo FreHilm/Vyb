@@ -255,6 +255,15 @@ contextBridge.exposeInMainWorld('api', {
   gitLfsPrune: (cwd: string): Promise<GitOpResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_LFS_PRUNE, cwd),
 
+  gitSubmodulesList: (cwd: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_SUBMODULES_LIST, cwd),
+  gitSubmoduleInit: (cwd: string, subPath: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_SUBMODULE_INIT, cwd, subPath),
+  gitSubmoduleUpdate: (cwd: string, subPath: string, remote: boolean): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_SUBMODULE_UPDATE, cwd, subPath, remote),
+  gitSubmoduleSync: (cwd: string, subPath: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_SUBMODULE_SYNC, cwd, subPath),
+
   gitMerge: (cwd: string, sourceRef: string): Promise<GitMergeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>

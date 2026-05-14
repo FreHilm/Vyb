@@ -2637,6 +2637,116 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // ── Submodules (T-039) ────────────────────────────────────────
+  // `git submodule status` output: "<status><sha> <path> [(describe)]"
+  // where <status> is one of ' ', '-', '+', 'U'. We also peek into
+  // `.gitmodules` for the URL of each entry so the right-click menu
+  // can show it.
+  ipcMain.handle(IPC_CHANNELS.GIT_SUBMODULES_LIST, (_, cwd: string): import('../shared/types').GitSubmodule[] => {
+    if (!cwd) return [];
+    // Quick check — no .gitmodules means no submodules.
+    if (!fs.existsSync(path.join(cwd, '.gitmodules'))) return [];
+    let urlMap = new Map<string, string>();
+    try {
+      const out = execFileSync('git', ['config', '-f', '.gitmodules', '--get-regexp', 'submodule\\..*\\.(path|url)'], {
+        cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      // Pair up `submodule.<name>.path <p>` with `submodule.<name>.url <u>`.
+      const pathByName = new Map<string, string>();
+      const urlByName = new Map<string, string>();
+      for (const line of out.split('\n')) {
+        const m = line.match(/^submodule\.([^.]+)\.(path|url) (.+)$/);
+        if (!m) continue;
+        const [, name, key, value] = m;
+        if (key === 'path') pathByName.set(name, value);
+        else urlByName.set(name, value);
+      }
+      urlMap = new Map(Array.from(pathByName.entries()).map(([name, p]) => [p, urlByName.get(name) ?? '']));
+    } catch { /* best-effort */ }
+    try {
+      const out = execFileSync('git', ['submodule', 'status'], {
+        cwd, timeout: 10000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      const result: import('../shared/types').GitSubmodule[] = [];
+      for (const line of out.split('\n')) {
+        if (!line) continue;
+        const flag = line[0];
+        const rest = line.slice(1);
+        const m = rest.match(/^([0-9a-f]+)\s+(\S+)(?:\s+\((.+)\))?$/);
+        if (!m) continue;
+        const sha = m[1];
+        const subPath = m[2];
+        const describe = m[3];
+        let status: 'clean' | 'modified' | 'uninitialised' | 'conflict' = 'clean';
+        if (flag === '-') status = 'uninitialised';
+        else if (flag === '+') status = 'modified';
+        else if (flag === 'U') status = 'conflict';
+        result.push({
+          path: subPath,
+          sha,
+          shortSha: sha.slice(0, 7),
+          status,
+          describe,
+          url: urlMap.get(subPath),
+        });
+      }
+      return result;
+    } catch {
+      return [];
+    }
+  });
+
+  // Safety guard for submodule paths: must be a known submodule path
+  // (parsed from .gitmodules), so we never run `git submodule …` with
+  // a user-supplied path that could be flag-like.
+  const isKnownSubmodule = (cwd: string, subPath: string): boolean => {
+    try {
+      const out = execFileSync('git', ['config', '-f', '.gitmodules', '--get-regexp', 'submodule\\..*\\.path'], {
+        cwd, timeout: 3000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      for (const line of out.split('\n')) {
+        const m = line.match(/^submodule\.[^.]+\.path (.+)$/);
+        if (m && m[1] === subPath) return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
+  ipcMain.handle(IPC_CHANNELS.GIT_SUBMODULE_INIT, (_, cwd: string, subPath: string): GitOpResult => {
+    if (!isKnownSubmodule(cwd, subPath)) return { ok: false, message: 'unknown submodule path' };
+    try {
+      execFileSync('git', ['submodule', 'init', '--', subPath], { cwd, timeout: 30000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'submodule init failed') };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_SUBMODULE_UPDATE, (_, cwd: string, subPath: string, remote: boolean): GitOpResult => {
+    if (!isKnownSubmodule(cwd, subPath)) return { ok: false, message: 'unknown submodule path' };
+    try {
+      const args = ['submodule', 'update', '--init'];
+      if (remote) args.push('--remote');
+      args.push('--', subPath);
+      execFileSync('git', args, { cwd, timeout: 300000, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024 });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'submodule update failed') };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_SUBMODULE_SYNC, (_, cwd: string, subPath: string): GitOpResult => {
+    if (!isKnownSubmodule(cwd, subPath)) return { ok: false, message: 'unknown submodule path' };
+    try {
+      execFileSync('git', ['submodule', 'sync', '--', subPath], { cwd, timeout: 30000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'submodule sync failed') };
+    }
+  });
+
   // ── Pull request via gh ───────────────────────────────────────
   // Shells out to the GitHub CLI. `gh pr create --fill` reuses the
   // commit message as title/body; if the user passes an explicit

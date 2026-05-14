@@ -2392,6 +2392,53 @@
   font-size: 11px;
   flex-shrink: 0;
 }
+
+/* T-039 submodule rows */
+.git-submodule-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: default;
+}
+.git-submodule-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c-overlay0);
+  flex-shrink: 0;
+}
+.git-submodule-clean .git-submodule-status-dot { background: var(--c-green); }
+.git-submodule-modified .git-submodule-status-dot { background: var(--c-yellow); }
+.git-submodule-uninitialised .git-submodule-status-dot { background: var(--c-overlay0); }
+.git-submodule-conflict .git-submodule-status-dot { background: var(--c-red); }
+.git-submodule-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-submodule-sha {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--c-yellow);
+}
+.git-submodule-describe {
+  font-size: 10.5px;
+  color: var(--c-overlay1);
+}
+.git-submodule-status {
+  margin-left: auto;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: var(--c-surface1);
+  color: var(--c-overlay1);
+  flex-shrink: 0;
+}
+.git-submodule-status-modified { background: var(--c-yellow); color: var(--c-base); }
+.git-submodule-status-conflict { background: var(--c-red); color: var(--c-base); }
+.git-submodule-status-uninitialised { background: var(--c-surface2); color: var(--c-overlay0); }
 .git-tree-toolbar-badge {
   background: var(--c-blue);
   color: var(--c-base);

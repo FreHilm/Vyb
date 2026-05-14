@@ -14,7 +14,7 @@ import { StatusBar } from './components/StatusBar';
 import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -139,6 +139,10 @@ declare global {
       gitLfsUnlock: (cwd: string, filePath: string, force: boolean) => Promise<GitOpResult>;
       gitLfsFetch: (cwd: string) => Promise<GitOpResult>;
       gitLfsPrune: (cwd: string) => Promise<GitOpResult>;
+      gitSubmodulesList: (cwd: string) => Promise<GitSubmodule[]>;
+      gitSubmoduleInit: (cwd: string, subPath: string) => Promise<GitOpResult>;
+      gitSubmoduleUpdate: (cwd: string, subPath: string, remote: boolean) => Promise<GitOpResult>;
+      gitSubmoduleSync: (cwd: string, subPath: string) => Promise<GitOpResult>;
       getGitChangedFiles: (cwd: string) => Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>;
       getGitFileDiff: (cwd: string, filePath: string, staged?: boolean) => Promise<string>;
       getGitLog: (cwd: string, limit: number) => Promise<GitCommit[]>;
