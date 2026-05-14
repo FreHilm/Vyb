@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { FileIcon } from '../file-icons';
 import { GitTree } from './GitTree';
 import { BranchTree } from './BranchTree';
+import { SplitButton, type SplitButtonItem } from './SplitButton';
 
 interface GitChangedFile {
   path: string;
@@ -279,6 +280,23 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
       setSyncing(null);
     }
   }, [workingDirectory, syncing, loadStatus, load]);
+
+  // Force-push (with lease) confirmation. Opening sets this; the modal
+  // surfaces the branch + upstream SHA so the user can sanity-check.
+  const [forcePushConfirm, setForcePushConfirm] = useState<{ branch: string; ahead: number; behind: number } | null>(null);
+  const runForcePush = useCallback(async () => {
+    if (syncing) return;
+    setSyncing('push');
+    setSyncError(null);
+    try {
+      const result = await window.api.gitPushForceLease(workingDirectory);
+      if (!result.ok) setSyncError(result.message ?? 'force-push failed');
+      await loadStatus();
+      setReloadEpoch((n) => n + 1);
+    } finally {
+      setSyncing(null);
+    }
+  }, [workingDirectory, syncing, loadStatus]);
 
   const handleFetch = useCallback(async () => {
     if (syncing) return;
@@ -576,20 +594,47 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
               <span>Pull</span>
               {behind > 0 && <span className="git-panel-statusbar-badge">{behind}</span>}
             </button>
-            <button
-              className={`git-panel-statusbar-btn ${syncing === 'push' ? 'is-busy' : ''}`}
-              onClick={handlePush}
-              disabled={!pushEnabled || syncing !== null}
-              title={pushTip}
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
-                <line x1="3" y1="2" x2="13" y2="2" />
-                <line x1="8" y1="5" x2="8" y2="14" />
-                <polyline points="4 9 8 5 12 9" />
-              </svg>
-              <span>Push</span>
-              {ahead > 0 && <span className="git-panel-statusbar-badge">{ahead}</span>}
-            </button>
+            {(() => {
+              // Force-with-lease is only safe — and useful — when local
+              // history has actually diverged from upstream (we have
+              // commits to push AND the upstream has commits we don't).
+              // This is the classic "amended a published commit" shape.
+              const diverged = onBranch && ahead > 0 && behind > 0;
+              const forceItem: SplitButtonItem = {
+                label: 'Force push (with lease)',
+                hint: diverged
+                  ? `Replace upstream ${status?.branch ?? ''} with local (lease-guarded)`
+                  : !onBranch
+                    ? 'Detached HEAD — checkout a branch first'
+                    : 'No diverged history — plain push suffices',
+                disabled: !diverged || syncing !== null,
+                danger: true,
+                onClick: () => setForcePushConfirm({
+                  branch: status?.branch ?? '',
+                  ahead,
+                  behind,
+                }),
+              };
+              return (
+                <SplitButton
+                  className={`git-panel-statusbar-btn ${syncing === 'push' ? 'is-busy' : ''}`}
+                  label="Push"
+                  onClick={handlePush}
+                  disabled={!pushEnabled || syncing !== null}
+                  title={pushTip}
+                  busy={syncing === 'push'}
+                  icon={(
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="3" y1="2" x2="13" y2="2" />
+                      <line x1="8" y1="5" x2="8" y2="14" />
+                      <polyline points="4 9 8 5 12 9" />
+                    </svg>
+                  )}
+                  badge={ahead > 0 ? <span className="git-panel-statusbar-badge">{ahead}</span> : undefined}
+                  items={[forceItem]}
+                />
+              );
+            })()}
             <button
               className={`git-panel-statusbar-btn ${syncing === 'fetch' ? 'is-busy' : ''}`}
               onClick={handleFetch}
@@ -658,6 +703,41 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
           amendPushed={headInfo?.pushed === true}
           onToggleAmend={toggleAmendMode}
         />
+      )}
+      {forcePushConfirm && (
+        <div className="modal-overlay" onClick={() => setForcePushConfirm(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Force-push with lease?</h3></div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, lineHeight: 1.5 }}>
+                Replace <strong>origin/{forcePushConfirm.branch}</strong> with
+                your local <strong>{forcePushConfirm.branch}</strong>.
+              </p>
+              <p style={{ fontSize: 12, lineHeight: 1.5, opacity: 0.75, marginTop: 8 }}>
+                Local has {forcePushConfirm.ahead} commit{forcePushConfirm.ahead === 1 ? '' : 's'} to push,
+                upstream has {forcePushConfirm.behind} commit{forcePushConfirm.behind === 1 ? '' : 's'} you don't have —
+                they'll be replaced.
+              </p>
+              <p style={{ fontSize: 12, lineHeight: 1.5, opacity: 0.75, marginTop: 6 }}>
+                <code>--force-with-lease</code> will refuse if someone has pushed since the last fetch.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="cancel-btn" onClick={() => setForcePushConfirm(null)}>Cancel</button>
+              <div className="modal-footer-right">
+                <button
+                  className="delete-btn"
+                  onClick={async () => {
+                    setForcePushConfirm(null);
+                    await runForcePush();
+                  }}
+                >
+                  Force push
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
       {amendConfirmOpen && (
         <div className="modal-overlay" onClick={() => setAmendConfirmOpen(false)}>

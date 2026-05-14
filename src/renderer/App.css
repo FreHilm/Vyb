@@ -2094,6 +2094,94 @@
   color: #f59e0b;
   font-size: 11px;
 }
+
+/* SplitButton — primary action + chevron dropdown. Styled to blend
+   into the Git panel status bar; spacing matches .git-panel-statusbar-btn. */
+.split-button {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  height: 22px;
+  border-radius: 5px;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface0);
+  transition: background 100ms, border-color 100ms;
+}
+.split-button:hover:not(.is-busy):has(button:not(:disabled):hover) {
+  background: var(--c-surface0);
+  border-color: var(--c-surface1);
+}
+.split-button.is-busy { opacity: 0.7; }
+.split-button-primary,
+.split-button-chevron {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  border: none;
+  color: var(--c-text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 0;
+}
+.split-button-primary {
+  gap: 4px;
+  padding: 0 8px;
+  border-right: 1px solid var(--c-surface0);
+}
+.split-button-primary:disabled { opacity: 0.4; cursor: default; }
+.split-button-chevron {
+  width: 20px;
+  justify-content: center;
+  color: var(--c-overlay1);
+}
+.split-button-chevron:hover { color: var(--c-text); }
+.split-button-chevron.is-open { color: var(--c-text); background: rgba(255,255,255,0.06); }
+.split-button-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  min-width: 200px;
+  background: var(--c-mantle);
+  border: 1px solid var(--c-surface0);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.split-button-menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--c-text);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.split-button-menu-item:hover:not(:disabled) {
+  background: var(--c-surface0);
+}
+.split-button-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.split-button-menu-item.is-danger { color: #ef4444; }
+.split-button-menu-label { font-weight: 500; }
+.split-button-menu-hint {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--c-subtext0);
+  line-height: 1.3;
+}
 .git-panel-tab {
   background: none;
   border: none;
