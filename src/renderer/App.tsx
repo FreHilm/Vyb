@@ -319,8 +319,9 @@ export function App() {
   const [pendingWebNavigate, setPendingWebNavigate] = useState<{ key: string; url: string; nonce: number } | null>(null);
   // Per-view-key: when true, the Agent terminal is pinned to the left half
   // and the right half shows Files or Kanban side-by-side. Toggled via the
-  // split button next to the Kanban tab. In-memory only — survives profile
-  // switches within a session, not app restarts.
+  // split button next to the Kanban tab. Persisted across app restarts
+  // via `settings.openFunctionTabs` — parallel-agent keys are
+  // session-bound and excluded from the persisted snapshot.
   const [splitViews, setSplitViews] = useState<Set<string>>(new Set());
   const [agentSplitPercent, setAgentSplitPercent] = useState(50);
   // Parallel agents (Kanban-spawned worktree agents). Keyed by parallel agent id.
@@ -560,6 +561,38 @@ export function App() {
         length: loaded.flameLength,
         speed: loaded.flameSpeed,
       }, loaded.profileFontWeight);
+
+      // Restore per-profile function-tab + split-view layout. The
+      // matching `running` sets are seeded too so the corresponding
+      // overlay components mount on first render (they're kept
+      // mounted with display:none when hidden — losing them would
+      // discard the user's in-progress state like open file tabs).
+      const remembered = loaded.openFunctionTabs;
+      if (remembered) {
+        const files = new Set<string>();
+        const kanban = new Set<string>();
+        const web = new Set<string>();
+        const split = new Set<string>();
+        for (const [key, state] of Object.entries(remembered)) {
+          if (state?.files) files.add(key);
+          if (state?.kanban) kanban.add(key);
+          if (state?.web) web.add(key);
+          if (state?.split) split.add(key);
+        }
+        if (files.size > 0) {
+          setFilesViews(files);
+          setFilesRunning(new Set(files));
+        }
+        if (kanban.size > 0) {
+          setKanbanViews(kanban);
+          setKanbanRunning(new Set(kanban));
+        }
+        if (web.size > 0) {
+          setWebViews(web);
+          setWebRunning(new Set(web));
+        }
+        if (split.size > 0) setSplitViews(split);
+      }
     });
 
     window.api.loadLayout().then(setLayout);
@@ -1313,6 +1346,34 @@ export function App() {
     },
     [],
   );
+
+  // Persist which function tabs were open + whether split-view was
+  // on, keyed by parent-profile view (parallel-agent keys are
+  // session-bound and skipped). Stays in sync with the four overlay
+  // Sets via this effect; debounced through `savePaneSizes` so a
+  // burst of toggles only writes once.
+  useEffect(() => {
+    const profileIds = new Set(profiles.map((p) => p.id));
+    const acc: Record<string, { files?: boolean; kanban?: boolean; web?: boolean; split?: boolean }> = {};
+    const collect = (set: Set<string>, key: 'files' | 'kanban' | 'web' | 'split') => {
+      for (const k of set) {
+        // Parallel-agent view keys contain '|' — skip them so we
+        // don't persist state for views that don't exist on next
+        // launch. Also drop refs to deleted profiles.
+        if (k.includes('|')) continue;
+        if (!profileIds.has(k)) continue;
+        if (!acc[k]) acc[k] = {};
+        acc[k][key] = true;
+      }
+    };
+    collect(filesViews, 'files');
+    collect(kanbanViews, 'kanban');
+    collect(webViews, 'web');
+    collect(splitViews, 'split');
+    const current = settingsRef.current.openFunctionTabs || {};
+    if (JSON.stringify(current) === JSON.stringify(acc)) return;
+    savePaneSizes({ openFunctionTabs: acc });
+  }, [filesViews, kanbanViews, webViews, splitViews, profiles, savePaneSizes]);
 
   /** Persist a Web tab's current URL back to settings.webUrls so it
    * survives a Vyb restart. Debounced via savePaneSizes. */
