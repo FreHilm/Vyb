@@ -7,6 +7,9 @@ import {
 
 interface BranchTreeProps {
   workingDirectory: string;
+  /** Bumped by the parent panel after Push / Pull / Fetch so the
+   * branches list reloads (new remotes, updated ahead/behind, etc). */
+  reloadEpoch?: number;
 }
 
 // ── Tree model ─────────────────────────────────────────────────────
@@ -126,7 +129,7 @@ interface CtxMenuState {
   node: TreeNode;
 }
 
-export function BranchTree({ workingDirectory }: BranchTreeProps) {
+export function BranchTree({ workingDirectory, reloadEpoch = 0 }: BranchTreeProps) {
   const [refs, setRefs] = useState<GitRef[]>([]);
   const [stashes, setStashes] = useState<GitStash[]>([]);
   const [status, setStatus] = useState<GitStatus | null>(null);
@@ -165,7 +168,8 @@ export function BranchTree({ workingDirectory }: BranchTreeProps) {
 
   useEffect(() => {
     load();
-  }, [load]);
+    // Reload when the parent panel runs Push / Pull / Fetch.
+  }, [load, reloadEpoch]);
 
   // Close the context menu on outside mousedown — see the comment in the
   // matching effect in GitTree for why mousedown beats click/contextmenu.

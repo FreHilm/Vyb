@@ -184,17 +184,86 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
   const [ctxMenu, setCtxMenu] = useState<ChangesCtxMenuState | null>(null);
   const [discardTarget, setDiscardTarget] = useState<GitChangedFile | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  // Shared status (branch + ahead/behind + remoteUrl) shown in the
+  // panel-wide toolbar — drives the Pull / Push enabled state.
+  const [status, setStatus] = useState<{ branch: string; ahead: number; behind: number; remoteUrl: string | null } | null>(null);
+  // In-flight remote op label so we can dim the relevant button.
+  const [syncing, setSyncing] = useState<null | 'push' | 'pull' | 'fetch'>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  // Bumps after any remote op (push/pull/fetch) to force the active
+  // sub-tab (Tree / Branches) to reload. ChangesView reloads via its
+  // own `reloadFiles`; Tree + BranchTree pick this up as a useEffect dep.
+  const [reloadEpoch, setReloadEpoch] = useState(0);
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const s = await window.api.getGitStatus(workingDirectory);
+      setStatus(s ? {
+        branch: s.branch,
+        ahead: s.ahead ?? 0,
+        behind: s.behind ?? 0,
+        remoteUrl: s.remoteUrl ?? null,
+      } : null);
+    } catch {
+      setStatus(null);
+    }
+  }, [workingDirectory]);
 
   const load = useCallback(async () => {
     setLoading(true);
     const result = await window.api.getGitChangedFiles(workingDirectory);
     setFiles(result);
     setLoading(false);
-  }, [workingDirectory]);
+    loadStatus();
+  }, [workingDirectory, loadStatus]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // Push / Pull / Fetch — shared across all three tabs. Each bumps the
+  // reload epoch so the active sub-view re-fetches its data.
+  const handlePush = useCallback(async () => {
+    if (syncing) return;
+    setSyncing('push');
+    setSyncError(null);
+    try {
+      const result = await window.api.gitPush(workingDirectory);
+      if (!result.ok) setSyncError(result.message ?? 'push failed');
+      await loadStatus();
+      setReloadEpoch((n) => n + 1);
+    } finally {
+      setSyncing(null);
+    }
+  }, [workingDirectory, syncing, loadStatus]);
+
+  const handlePull = useCallback(async () => {
+    if (syncing) return;
+    setSyncing('pull');
+    setSyncError(null);
+    try {
+      const result = await window.api.gitPull(workingDirectory);
+      if (!result.ok) setSyncError(result.message ?? 'pull failed');
+      await loadStatus();
+      await load();
+      setReloadEpoch((n) => n + 1);
+    } finally {
+      setSyncing(null);
+    }
+  }, [workingDirectory, syncing, loadStatus, load]);
+
+  const handleFetch = useCallback(async () => {
+    if (syncing) return;
+    setSyncing('fetch');
+    setSyncError(null);
+    try {
+      await window.api.gitFetch(workingDirectory);
+      await loadStatus();
+      setReloadEpoch((n) => n + 1);
+    } finally {
+      setSyncing(null);
+    }
+  }, [workingDirectory, syncing, loadStatus]);
 
   // Files can appear once on either side (or, when partial-staging lands,
   // both). Key the expanded set + diff cache by `${staged}|${path}` so the
@@ -368,16 +437,6 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
           </button>
         </div>
         <div className="git-changes-actions">
-          {activeTab === 'changes' && (
-            <button className="git-changes-btn" onClick={load} title="Refresh">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 8a5 5 0 0 1 8.5-3.5L13 6" />
-                <polyline points="13 3 13 6 10 6" />
-                <path d="M13 8a5 5 0 0 1-8.5 3.5L3 10" />
-                <polyline points="3 13 3 10 6 10" />
-              </svg>
-            </button>
-          )}
           <button className="git-changes-btn" onClick={onClose} title="Close">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <line x1="4" y1="4" x2="12" y2="12" />
@@ -386,13 +445,116 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
           </button>
         </div>
       </div>
+
+      {/* Unified status / sync toolbar — shown across all three tabs.
+          Surfaces the current branch + ahead/behind and the remote
+          operations (Pull / Push / Fetch). Refresh reloads whichever
+          tab is active. */}
+      {(() => {
+        const onBranch = !!status?.branch && !/^[0-9a-f]{7,}$/i.test(status.branch);
+        const ahead = status?.ahead ?? 0;
+        const behind = status?.behind ?? 0;
+        const hasUpstream = ahead > 0 || behind > 0;
+        const pushEnabled = onBranch && (ahead > 0 || (!hasUpstream && !!status?.remoteUrl));
+        const pullEnabled = onBranch && behind > 0;
+        const pushTip = !onBranch
+          ? 'Detached HEAD — checkout a branch to push'
+          : ahead > 0
+            ? `Push ${ahead} commit${ahead === 1 ? '' : 's'} to origin`
+            : !hasUpstream
+              ? `Publish branch "${status?.branch}" to origin`
+              : 'Nothing to push';
+        const pullTip = !onBranch
+          ? 'Detached HEAD — checkout a branch to pull'
+          : behind > 0
+            ? `Pull ${behind} commit${behind === 1 ? '' : 's'} from origin`
+            : 'Up to date';
+        return (
+          <div className="git-panel-statusbar">
+            <span className="git-panel-statusbar-branch" title={status?.branch ?? ''}>
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="4" cy="3.5" r="1.4" />
+                <circle cx="4" cy="12.5" r="1.4" />
+                <circle cx="12" cy="6" r="1.4" />
+                <line x1="4" y1="4.9" x2="4" y2="11.1" />
+                <path d="M12 7.4v.6a3 3 0 0 1-3 3H7" />
+              </svg>
+              <span>{status?.branch ?? '—'}</span>
+            </span>
+            <span className="git-panel-statusbar-counts">
+              {ahead > 0 && <span title={`${ahead} commit${ahead === 1 ? '' : 's'} ahead of origin`}>↑{ahead}</span>}
+              {behind > 0 && <span title={`${behind} commit${behind === 1 ? '' : 's'} behind origin`}>↓{behind}</span>}
+            </span>
+            <div className="git-panel-statusbar-spacer" />
+            <button
+              className={`git-panel-statusbar-btn ${syncing === 'pull' ? 'is-busy' : ''}`}
+              onClick={handlePull}
+              disabled={!pullEnabled || syncing !== null}
+              title={pullTip}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+                <line x1="8" y1="2" x2="8" y2="11" />
+                <polyline points="4 7 8 11 12 7" />
+                <line x1="3" y1="14" x2="13" y2="14" />
+              </svg>
+              <span>Pull</span>
+              {behind > 0 && <span className="git-panel-statusbar-badge">{behind}</span>}
+            </button>
+            <button
+              className={`git-panel-statusbar-btn ${syncing === 'push' ? 'is-busy' : ''}`}
+              onClick={handlePush}
+              disabled={!pushEnabled || syncing !== null}
+              title={pushTip}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="2" x2="13" y2="2" />
+                <line x1="8" y1="5" x2="8" y2="14" />
+                <polyline points="4 9 8 5 12 9" />
+              </svg>
+              <span>Push</span>
+              {ahead > 0 && <span className="git-panel-statusbar-badge">{ahead}</span>}
+            </button>
+            <button
+              className={`git-panel-statusbar-btn ${syncing === 'fetch' ? 'is-busy' : ''}`}
+              onClick={handleFetch}
+              disabled={syncing !== null || !status?.remoteUrl}
+              title={status?.remoteUrl ? 'Fetch from origin' : 'No remote configured'}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 8a5 5 0 0 1 8.5-3.5L13 6" />
+                <polyline points="13 3 13 6 10 6" />
+                <path d="M13 8a5 5 0 0 1-8.5 3.5L3 10" />
+                <polyline points="3 13 3 10 6 10" />
+              </svg>
+              <span>Fetch</span>
+            </button>
+            <button
+              className="git-panel-statusbar-btn"
+              onClick={() => { load(); setReloadEpoch((n) => n + 1); }}
+              disabled={syncing !== null}
+              title="Refresh local view"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 4 3 8 7 8" />
+                <path d="M3 8a5 5 0 1 1 1.5 3.5" />
+              </svg>
+            </button>
+          </div>
+        );
+      })()}
+      {syncError && (
+        <div className="git-panel-statusbar-error">
+          <span>{syncError}</span>
+          <button className="git-commit-error-close" onClick={() => setSyncError(null)} aria-label="Dismiss">×</button>
+        </div>
+      )}
       {activeTab === 'tree' ? (
         <div className="git-changes-body">
-          <GitTree workingDirectory={workingDirectory} />
+          <GitTree workingDirectory={workingDirectory} reloadEpoch={reloadEpoch} />
         </div>
       ) : activeTab === 'branches' ? (
         <div className="git-changes-body">
-          <BranchTree workingDirectory={workingDirectory} />
+          <BranchTree workingDirectory={workingDirectory} reloadEpoch={reloadEpoch} />
         </div>
       ) : (
         <ChangesView

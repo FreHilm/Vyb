@@ -1984,6 +1984,87 @@
   display: flex;
   gap: 2px;
 }
+
+/* Shared status / sync toolbar shown above all three Git tabs. Branch
+   name + ahead/behind on the left, action buttons on the right. */
+.git-panel-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--c-mantle);
+  border-bottom: 1px solid var(--c-surface0);
+  font-size: 11px;
+  color: var(--c-subtext1);
+  flex-shrink: 0;
+}
+.git-panel-statusbar-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--c-text);
+  font-weight: 500;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-panel-statusbar-counts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-overlay1);
+  font-variant-numeric: tabular-nums;
+}
+.git-panel-statusbar-spacer { flex: 1; }
+.git-panel-statusbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface0);
+  border-radius: 5px;
+  color: var(--c-text);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 100ms, border-color 100ms, color 100ms, opacity 100ms;
+}
+.git-panel-statusbar-btn:hover:not(:disabled) {
+  background: var(--c-surface0);
+  border-color: var(--c-surface1);
+}
+.git-panel-statusbar-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.git-panel-statusbar-btn.is-busy {
+  opacity: 0.7;
+}
+.git-panel-statusbar-badge {
+  background: var(--c-surface1);
+  color: var(--c-text);
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0 5px;
+  min-width: 14px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.git-panel-statusbar-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: rgba(239, 68, 68, 0.12);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.4);
+  color: var(--c-text);
+  font-size: 11px;
+}
+.git-panel-statusbar-error > span { flex: 1; }
 .git-panel-tab {
   background: none;
   border: none;
