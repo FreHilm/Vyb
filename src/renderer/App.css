@@ -2770,6 +2770,19 @@
   color: var(--c-text);
 }
 
+/* Word-level diff: stronger background tint on the tokens that actually
+   differ between paired del/add lines. The surrounding line-level red
+   /green stays so unchanged tokens still read as "part of this changed
+   line", but the eye is pulled to the bits that matter. */
+.git-diff-del .git-diff-word {
+  background: color-mix(in srgb, var(--c-red) 38%, transparent);
+  border-radius: 2px;
+}
+.git-diff-add .git-diff-word {
+  background: color-mix(in srgb, var(--c-green) 38%, transparent);
+  border-radius: 2px;
+}
+
 .git-diff-ctx .git-diff-content {
   color: var(--c-subtext0);
 }

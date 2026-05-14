@@ -111,11 +111,136 @@ function fileDir(filePath: string): string {
 }
 
 // Parse a unified diff into structured hunks for GitHub-style rendering
+interface DiffSegment {
+  text: string;
+  /** True for the differing words/tokens inside an intra-line diff. */
+  changed: boolean;
+}
 interface DiffLine {
   type: 'add' | 'del' | 'ctx' | 'hunk' | 'file';
   oldLine: number | null;
   newLine: number | null;
   content: string;
+  /** Optional intra-line diff segmentation. When present, renderer
+   * uses this in place of `content` so unchanged words stay calm and
+   * only the differing words get the strong highlight. */
+  segments?: DiffSegment[];
+}
+
+// Tokenise a line into words + separators. We split on whitespace AND
+// non-alphanumeric runs so symbols are diff-aware too (e.g. swapping
+// `===` for `!==` produces three changed tokens, not one mega-token).
+function tokenize(line: string): string[] {
+  const out: string[] = [];
+  let i = 0;
+  while (i < line.length) {
+    const ch = line[i];
+    if (/[A-Za-z0-9_]/.test(ch)) {
+      let j = i + 1;
+      while (j < line.length && /[A-Za-z0-9_]/.test(line[j])) j++;
+      out.push(line.slice(i, j));
+      i = j;
+    } else if (/\s/.test(ch)) {
+      let j = i + 1;
+      while (j < line.length && /\s/.test(line[j])) j++;
+      out.push(line.slice(i, j));
+      i = j;
+    } else {
+      // Single non-word, non-space symbol — keep as its own token.
+      out.push(ch);
+      i++;
+    }
+  }
+  return out;
+}
+
+// Standard LCS table over two token arrays. Returns a flat edit script:
+// for each step, indicate whether to take from `a`, `b`, or both. Used
+// to build the intra-line `segments` arrays for paired del/add lines.
+function lcsSegments(a: string, b: string): { delSegs: DiffSegment[]; addSegs: DiffSegment[] } {
+  const ta = tokenize(a);
+  const tb = tokenize(b);
+  const m = ta.length;
+  const n = tb.length;
+  // Skip the diff for very long lines — `O(m*n)` memory adds up fast.
+  if (m * n > 200_000) {
+    return {
+      delSegs: [{ text: a, changed: true }],
+      addSegs: [{ text: b, changed: true }],
+    };
+  }
+  // Build LCS length table.
+  const dp: Uint16Array[] = new Array(m + 1);
+  for (let i = 0; i <= m; i++) dp[i] = new Uint16Array(n + 1);
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i][j] = ta[i] === tb[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  // Walk it to produce edit script.
+  const delSegs: DiffSegment[] = [];
+  const addSegs: DiffSegment[] = [];
+  const pushSeg = (arr: DiffSegment[], text: string, changed: boolean) => {
+    if (arr.length > 0 && arr[arr.length - 1].changed === changed) {
+      arr[arr.length - 1].text += text;
+    } else {
+      arr.push({ text, changed });
+    }
+  };
+  let i = 0, j = 0;
+  while (i < m && j < n) {
+    if (ta[i] === tb[j]) {
+      pushSeg(delSegs, ta[i], false);
+      pushSeg(addSegs, tb[j], false);
+      i++; j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      pushSeg(delSegs, ta[i], true);
+      i++;
+    } else {
+      pushSeg(addSegs, tb[j], true);
+      j++;
+    }
+  }
+  while (i < m) { pushSeg(delSegs, ta[i++], true); }
+  while (j < n) { pushSeg(addSegs, tb[j++], true); }
+  return { delSegs, addSegs };
+}
+
+// After parsing the unified diff, walk and pair adjacent runs of
+// `del` followed by `add` of equal length so we can fill in
+// `line.segments` for each pair. Heuristic: pair index-by-index inside
+// the matched run; unbalanced extras fall back to whole-line highlight.
+function annotateIntraLineDiffs(lines: DiffLine[]): void {
+  let k = 0;
+  while (k < lines.length) {
+    // Find a run of `del` lines.
+    let dStart = k;
+    while (dStart < lines.length && lines[dStart].type !== 'del') dStart++;
+    if (dStart >= lines.length) break;
+    let dEnd = dStart;
+    while (dEnd < lines.length && lines[dEnd].type === 'del') dEnd++;
+    // Now look for an immediately-following run of `add` lines.
+    let aStart = dEnd;
+    let aEnd = aStart;
+    while (aEnd < lines.length && lines[aEnd].type === 'add') aEnd++;
+    const dCount = dEnd - dStart;
+    const aCount = aEnd - aStart;
+    const pairs = Math.min(dCount, aCount);
+    for (let p = 0; p < pairs; p++) {
+      const del = lines[dStart + p];
+      const add = lines[aStart + p];
+      const { delSegs, addSegs } = lcsSegments(del.content, add.content);
+      // Only annotate when SOME tokens are unchanged — otherwise the
+      // intraline highlight is just "everything", no improvement over
+      // the plain line background.
+      const someUnchanged = delSegs.some((s) => !s.changed) || addSegs.some((s) => !s.changed);
+      if (someUnchanged) {
+        del.segments = delSegs;
+        add.segments = addSegs;
+      }
+    }
+    k = aEnd > k ? aEnd : k + 1;
+  }
 }
 
 function parseDiff(diff: string): DiffLine[] {
@@ -147,6 +272,10 @@ function parseDiff(diff: string): DiffLine[] {
     }
     // Ignore \ No newline at end of file etc.
   }
+  // Compute intra-line word-level diffs for paired del/add lines so the
+  // renderer can highlight just the differing tokens instead of marking
+  // whole lines as solid red/green.
+  annotateIntraLineDiffs(result);
   return result;
 }
 
@@ -172,7 +301,15 @@ function FileDiff({ diff }: { diff: string }) {
           <div key={idx} className={`git-diff-line ${cls}`}>
             <span className="git-diff-gutter">{line.oldLine ?? ''}</span>
             <span className="git-diff-gutter">{line.newLine ?? ''}</span>
-            <code className="git-diff-content">{line.content}</code>
+            <code className="git-diff-content">
+              {line.segments
+                ? line.segments.map((seg, sIdx) => (
+                    <span key={sIdx} className={seg.changed ? 'git-diff-word' : undefined}>
+                      {seg.text}
+                    </span>
+                  ))
+                : line.content}
+            </code>
           </div>
         );
       })}
