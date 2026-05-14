@@ -212,6 +212,19 @@ contextBridge.exposeInMainWorld('api', {
   gitCommitSignatures: (cwd: string, limit: number): Promise<Record<string, { sigStatus: string; sigSigner: string }>> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_COMMIT_SIGNATURES, cwd, limit),
 
+  gitListRemotes: (cwd: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_LIST_REMOTES, cwd),
+  gitAddRemote: (cwd: string, name: string, url: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_ADD_REMOTE, cwd, name, url),
+  gitRenameRemote: (cwd: string, oldName: string, newName: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_RENAME_REMOTE, cwd, oldName, newName),
+  gitSetRemoteUrl: (cwd: string, name: string, url: string, opts?: { push?: boolean }): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_SET_REMOTE_URL, cwd, name, url, opts),
+  gitRemoveRemote: (cwd: string, name: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_REMOVE_REMOTE, cwd, name),
+  gitRemoteTrackingBranches: (cwd: string, remoteName: string): Promise<string[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_REMOTE_TRACKING_BRANCHES, cwd, remoteName),
+
   gitMerge: (cwd: string, sourceRef: string): Promise<GitMergeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>

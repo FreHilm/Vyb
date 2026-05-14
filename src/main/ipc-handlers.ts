@@ -2116,6 +2116,124 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     },
   );
 
+  // ── Remote management (T-034) ─────────────────────────────────
+  //
+  // Remote NAMES are validated with a tighter ruleset than ref names
+  // because they show up in remote-tracking paths like `origin/main`
+  // and slashes inside the remote name would break our `<remote>/<branch>`
+  // grouping in BranchTree. URLs are passed through with a length cap
+  // and a `--` guard so they can't be mistaken for flags.
+  const isSafeRemoteName = (s: string): boolean =>
+    /^[A-Za-z0-9._-]+$/.test(s) && s.length > 0 && s.length < 256;
+  const isSafeRemoteUrl = (s: string): boolean =>
+    s.length > 0 && s.length < 2048 && !s.startsWith('-');
+
+  ipcMain.handle(IPC_CHANNELS.GIT_LIST_REMOTES, (_, cwd: string): import('../shared/types').GitRemote[] => {
+    if (!cwd) return [];
+    try {
+      const out = execFileSync('git', ['remote', '-v'], {
+        cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      const byName = new Map<string, import('../shared/types').GitRemote>();
+      for (const line of out.split('\n')) {
+        // Format: "<name>\t<url> (fetch)" or "<name>\t<url> (push)"
+        const m = line.match(/^(\S+)\t(.+) \((fetch|push)\)$/);
+        if (!m) continue;
+        const [, name, url, kind] = m;
+        const existing = byName.get(name) ?? { name, fetchUrl: '', pushUrl: '' };
+        if (kind === 'fetch') existing.fetchUrl = url;
+        else existing.pushUrl = url;
+        byName.set(name, existing);
+      }
+      // Fill missing side from the other so callers never see empty
+      // strings unexpectedly.
+      const result: import('../shared/types').GitRemote[] = [];
+      for (const r of byName.values()) {
+        if (!r.pushUrl) r.pushUrl = r.fetchUrl;
+        if (!r.fetchUrl) r.fetchUrl = r.pushUrl;
+        result.push(r);
+      }
+      result.sort((a, b) => a.name.localeCompare(b.name));
+      return result;
+    } catch {
+      return [];
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_ADD_REMOTE, (_, cwd: string, name: string, url: string): GitOpResult => {
+    if (!isSafeRemoteName(name)) return { ok: false, message: 'invalid remote name' };
+    if (!isSafeRemoteUrl(url)) return { ok: false, message: 'invalid remote URL' };
+    try {
+      execFileSync('git', ['remote', 'add', '--', name, url], { cwd, timeout: 10000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'add remote failed') };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_RENAME_REMOTE, (_, cwd: string, oldName: string, newName: string): GitOpResult => {
+    if (!isSafeRemoteName(oldName) || !isSafeRemoteName(newName)) {
+      return { ok: false, message: 'invalid remote name' };
+    }
+    try {
+      execFileSync('git', ['remote', 'rename', '--', oldName, newName], { cwd, timeout: 10000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'rename remote failed') };
+    }
+  });
+
+  // `opts.push === true` writes only the push URL; otherwise writes
+  // the fetch URL (which also becomes the push URL unless one was
+  // previously set separately). V1 wires only the unified path from
+  // the renderer — the `push` flag is here for the V2 split-url UI.
+  ipcMain.handle(IPC_CHANNELS.GIT_SET_REMOTE_URL, (_, cwd: string, name: string, url: string, opts?: { push?: boolean }): GitOpResult => {
+    if (!isSafeRemoteName(name)) return { ok: false, message: 'invalid remote name' };
+    if (!isSafeRemoteUrl(url)) return { ok: false, message: 'invalid remote URL' };
+    try {
+      const args = ['remote', 'set-url'];
+      if (opts?.push) args.push('--push');
+      args.push('--', name, url);
+      execFileSync('git', args, { cwd, timeout: 10000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'set remote URL failed') };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_REMOVE_REMOTE, (_, cwd: string, name: string): GitOpResult => {
+    if (!isSafeRemoteName(name)) return { ok: false, message: 'invalid remote name' };
+    try {
+      execFileSync('git', ['remote', 'remove', '--', name], { cwd, timeout: 10000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'remove remote failed') };
+    }
+  });
+
+  // Local branches tracking a given remote — used by the Remove-remote
+  // confirmation dialog to surface "X branches will lose their upstream".
+  ipcMain.handle(IPC_CHANNELS.GIT_REMOTE_TRACKING_BRANCHES, (_, cwd: string, remoteName: string): string[] => {
+    if (!isSafeRemoteName(remoteName)) return [];
+    try {
+      const out = execFileSync('git', [
+        'for-each-ref', '--format=%(refname:short) %(upstream:remotename)', 'refs/heads',
+      ], { cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+      const result: string[] = [];
+      for (const line of out.split('\n')) {
+        if (!line) continue;
+        const sep = line.lastIndexOf(' ');
+        if (sep === -1) continue;
+        const branch = line.slice(0, sep);
+        const upstreamRemote = line.slice(sep + 1);
+        if (upstreamRemote === remoteName) result.push(branch);
+      }
+      return result;
+    } catch {
+      return [];
+    }
+  });
+
   // ── Rename branch ─────────────────────────────────────────────
   ipcMain.handle(
     IPC_CHANNELS.GIT_RENAME_BRANCH,
