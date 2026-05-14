@@ -105,6 +105,10 @@ interface GitChangesPanelProps {
    * Settings) lives in AppSettings.diffViewMode. */
   diffViewMode?: 'unified' | 'split';
   onDiffViewModeChange?: (mode: 'unified' | 'split') => void;
+  /** T-038: show gravatar-resolved author avatars in the commit
+   * graph. When false, GitTree falls back to a text-only author
+   * column. Defaults to true at the App.tsx level. */
+  showAuthorAvatars?: boolean;
 }
 
 function fileName(filePath: string): string {
@@ -795,6 +799,7 @@ export function GitChangesPanel({
   pushTagsStrategy = 'off',
   diffViewMode: diffViewModeProp = 'unified',
   onDiffViewModeChange,
+  showAuthorAvatars = true,
 }: GitChangesPanelProps) {
   const [files, setFiles] = useState<GitChangedFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1466,7 +1471,7 @@ export function GitChangesPanel({
       )}
       {activeTab === 'tree' ? (
         <div className="git-changes-body">
-          <GitTree workingDirectory={workingDirectory} reloadEpoch={reloadEpoch} onCompareWith={handleCompareWith} onResolveConflictFile={setActiveConflictFile} />
+          <GitTree workingDirectory={workingDirectory} reloadEpoch={reloadEpoch} onCompareWith={handleCompareWith} onResolveConflictFile={setActiveConflictFile} showAuthorAvatars={showAuthorAvatars} />
         </div>
       ) : activeTab === 'branches' ? (
         <div className="git-changes-body">

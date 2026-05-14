@@ -204,6 +204,13 @@ contextBridge.exposeInMainWorld('api', {
 
   gitBlameFile: (cwd: string, filePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_BLAME_FILE, cwd, filePath),
+
+  // Used by the T-038 author-avatar renderer to compute the gravatar
+  // URL hash. The gravatar protocol uses lowercase trimmed email →
+  // hex MD5. We do it in the preload (Node crypto) rather than the
+  // renderer so we don't have to ship a JS MD5 implementation.
+  md5: (input: string): string =>
+    require('crypto').createHash('md5').update(input).digest('hex'),
   gitMerge: (cwd: string, sourceRef: string): Promise<GitMergeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>

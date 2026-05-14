@@ -4,6 +4,7 @@ import { buildGraph, GraphRow, maxLane } from '../git-graph';
 import {
   RefMenuNode, RefContextMenu, useGitRefOps,
 } from './git-ref-ops';
+import { AuthorAvatar } from './AuthorAvatar';
 
 interface GitTreeProps {
   workingDirectory: string;
@@ -17,6 +18,9 @@ interface GitTreeProps {
    * conflict-files banner inside `useGitRefOps` renders file names as
    * buttons that open the panel-level conflict resolver overlay. */
   onResolveConflictFile?: (path: string) => void;
+  /** T-038: render gravatar avatars in the author column. When false
+   * the row keeps the existing text-only author. */
+  showAuthorAvatars?: boolean;
 }
 
 const ROW_HEIGHT = 28;
@@ -314,7 +318,7 @@ function RowGraph({ row, laneCount }: RowGraphProps) {
   );
 }
 
-export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onResolveConflictFile }: GitTreeProps) {
+export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onResolveConflictFile, showAuthorAvatars = true }: GitTreeProps) {
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [refs, setRefs] = useState<GitRef[]>([]);
   const [status, setStatus] = useState<GitStatus | null>(null);
@@ -751,7 +755,10 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
                 </span>
               </div>
               <span className="git-tree-author" title={`${c.author} <${c.email}>`}>
-                {c.author}
+                {showAuthorAvatars && c.email && (
+                  <AuthorAvatar email={c.email} name={c.author} size={16} />
+                )}
+                <span className="git-tree-author-name">{c.author}</span>
               </span>
               <span className="git-tree-sha" title={c.sha}>{shortSha(c.sha)}</span>
               <span className="git-tree-date" title={c.date}>{relativeDate(c.date)}</span>
