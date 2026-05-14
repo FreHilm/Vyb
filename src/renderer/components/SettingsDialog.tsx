@@ -194,6 +194,7 @@ export function SettingsDialog({
   const [parallelAgentAutoRun, setParallelAgentAutoRun] = useState(settings.parallelAgentAutoRun !== false);
   const [functionKanbanEnabled, setFunctionKanbanEnabled] = useState(settings.functionKanbanEnabled !== false);
   const [functionWebEnabled, setFunctionWebEnabled] = useState(settings.functionWebEnabled !== false);
+  const [showAuthorAvatars, setShowAuthorAvatars] = useState(settings.showAuthorAvatars !== false);
   const [webDefaultUrl, setWebDefaultUrl] = useState(settings.webDefaultUrl || 'https://duckduckgo.com/');
   const [pullStrategy, setPullStrategy] = useState<'merge' | 'rebase' | 'ask'>(settings.pullStrategy ?? 'merge');
   const [pushTagsStrategy, setPushTagsStrategy] = useState<'off' | 'reachable' | 'all'>(settings.pushTagsStrategy ?? 'off');
@@ -242,6 +243,7 @@ export function SettingsDialog({
       parallelAgentAutoRun,
       functionKanbanEnabled,
       functionWebEnabled,
+      showAuthorAvatars,
       webDefaultUrl: webDefaultUrl.trim() || 'https://duckduckgo.com/',
       pullStrategy,
       pushTagsStrategy,
@@ -360,6 +362,22 @@ export function SettingsDialog({
               <span className="field-hint">
                 An in-app browser with back/forward/reload and an address bar.
                 Each profile remembers its last URL.
+              </span>
+
+              <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                <span className="field-label">Show author avatars</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={showAuthorAvatars}
+                    onChange={(e) => setShowAuthorAvatars(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+              <span className="field-hint">
+                Renders a gravatar (or coloured initials fallback) next to
+                each commit in the Tree tab. Falls back to text-only when off.
               </span>
 
               {functionWebEnabled && (

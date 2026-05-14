@@ -117,6 +117,7 @@ declare global {
       gitFileLog: (cwd: string, filePath: string, limit?: number) => Promise<GitCommit[]>;
       gitFileLogDiff: (cwd: string, sha: string, filePath: string) => Promise<string>;
       gitBlameFile: (cwd: string, filePath: string) => Promise<GitBlameLine[]>;
+      md5: (input: string) => string;
       getGitChangedFiles: (cwd: string) => Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>;
       getGitFileDiff: (cwd: string, filePath: string, staged?: boolean) => Promise<string>;
       getGitLog: (cwd: string, limit: number) => Promise<GitCommit[]>;
@@ -1968,6 +1969,7 @@ export function App() {
             pushTagsStrategy={settings.pushTagsStrategy ?? 'off'}
             diffViewMode={settings.diffViewMode ?? 'unified'}
             onDiffViewModeChange={(mode) => savePaneSizes({ diffViewMode: mode })}
+            showAuthorAvatars={settings.showAuthorAvatars ?? true}
           />
         )}
       </div>

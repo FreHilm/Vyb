@@ -2452,10 +2452,38 @@
 .git-tree-author {
   color: var(--c-overlay0);
   font-size: 11px;
-  max-width: 110px;
+  max-width: 140px;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.git-tree-author-name {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Author avatar (T-038) ─────────────────────────────────── */
+.author-avatar {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--c-surface1);
+  color: var(--c-base);
+  font-weight: 700;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  text-transform: uppercase;
+  user-select: none;
+}
+.author-avatar-fallback {
+  /* Background color is set inline (deterministic per-email hue). */
+  color: rgba(255, 255, 255, 0.92);
+  line-height: 1;
 }
 .git-tree-sha {
   color: var(--c-overlay0);
