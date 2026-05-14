@@ -4,6 +4,7 @@ import { GitTree } from './GitTree';
 import { BranchTree } from './BranchTree';
 import { SplitButton, type SplitButtonItem } from './SplitButton';
 import { ConflictResolver } from './ConflictResolver';
+import { buildPartialPatch } from '../lib/hunk-patch';
 
 interface GitChangedFile {
   path: string;
@@ -287,19 +288,181 @@ function parseDiff(diff: string): DiffLine[] {
 
 /** Render either a unified diff (default) or a side-by-side split.
  * For split mode we pair adjacent del/add lines so the per-token word
- * highlights line up across the two columns. */
-function FileDiff({ diff, mode }: { diff: string; mode: 'unified' | 'split' }) {
-  const lines = parseDiff(diff);
+ * highlights line up across the two columns.
+ *
+ * When `onApplyPatch` is provided the unified renderer additionally
+ * surfaces Fork-style partial-staging affordances (T-023): a
+ * Stage/Unstage button per hunk header, and a drag-selectable line
+ * range that pops a floating "Stage selection"/"Unstage selection"
+ * action button. Split mode keeps the hunk button but skips the
+ * drag-selection UI — two columns make the selection semantics fiddly
+ * and the per-hunk affordance covers the common case there. */
+function FileDiff({
+  diff,
+  mode,
+  staged,
+  onApplyPatch,
+}: {
+  diff: string;
+  mode: 'unified' | 'split';
+  staged?: boolean;
+  onApplyPatch?: (patch: string, reverse: boolean) => Promise<void>;
+}) {
+  const lines = useMemo(() => parseDiff(diff), [diff]);
+  // 0-based hunk index per DiffLine. -1 for hunk-header / header lines
+  // not inside a hunk, otherwise the hunk number the line belongs to.
+  const lineHunkIndex = useMemo(() => {
+    const out: number[] = [];
+    let h = -1;
+    for (const l of lines) {
+      if (l.type === 'hunk') { h++; out.push(-1); }
+      else out.push(h);
+    }
+    return out;
+  }, [lines]);
+  // 1-based ordinal for hunk headers (matches the visible "Hunk N"
+  // affordance). 0 for non-hunk lines.
+  const hunkOrdinal = useMemo(() => {
+    const out: number[] = [];
+    let n = 0;
+    for (const l of lines) {
+      if (l.type === 'hunk') { n++; out.push(n); }
+      else out.push(0);
+    }
+    return out;
+  }, [lines]);
+
+  // Selection state (unified mode only). `start`/`end` are inclusive
+  // DiffLine indices and may be in either order — we normalise when
+  // computing the rendered set.
+  const [selStart, setSelStart] = useState<number | null>(null);
+  const [selEnd, setSelEnd] = useState<number | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const selectedRange = useMemo((): { lo: number; hi: number } | null => {
+    if (selStart === null || selEnd === null) return null;
+    return selStart <= selEnd ? { lo: selStart, hi: selEnd } : { lo: selEnd, hi: selStart };
+  }, [selStart, selEnd]);
+
+  // Of the selection, which indices are stageable (+/- lines)? Used
+  // both for the floating button's enable state and to feed the patch
+  // builder.
+  const selectedChangeIdx = useMemo(() => {
+    if (!selectedRange) return new Set<number>();
+    const out = new Set<number>();
+    for (let i = selectedRange.lo; i <= selectedRange.hi; i++) {
+      if (lines[i] && (lines[i].type === 'add' || lines[i].type === 'del')) out.add(i);
+    }
+    return out;
+  }, [selectedRange, lines]);
+
+  const clearSelection = useCallback(() => {
+    setSelStart(null);
+    setSelEnd(null);
+  }, []);
+
+  // Clear selection on global escape press or click outside any diff
+  // line. Cheap to attach since it's the same handler for the lifetime
+  // of the component.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedRange) clearSelection();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedRange, clearSelection]);
+
+  const handleHunkApply = useCallback(async (hunkIdx: number) => {
+    if (!onApplyPatch || busy) return;
+    const selected = new Set<number>();
+    for (let i = 0; i < lines.length; i++) {
+      if (lineHunkIndex[i] === hunkIdx && (lines[i].type === 'add' || lines[i].type === 'del')) {
+        selected.add(i);
+      }
+    }
+    const patch = buildPartialPatch({ rawDiff: diff, selectedLineIdx: selected });
+    if (!patch) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onApplyPatch(patch, !!staged);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Apply failed');
+    } finally {
+      setBusy(false);
+    }
+  }, [onApplyPatch, busy, lines, lineHunkIndex, diff, staged]);
+
+  const handleSelectionApply = useCallback(async () => {
+    if (!onApplyPatch || busy || selectedChangeIdx.size === 0) return;
+    const patch = buildPartialPatch({ rawDiff: diff, selectedLineIdx: selectedChangeIdx });
+    if (!patch) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onApplyPatch(patch, !!staged);
+      clearSelection();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Apply failed');
+    } finally {
+      setBusy(false);
+    }
+  }, [onApplyPatch, busy, selectedChangeIdx, diff, staged, clearSelection]);
+
   if (lines.length === 0) {
-    return <div className="git-diff-empty">No diff available</div>;
+    // Either `git diff` returned nothing (rare — file's identical to
+    // the staged version) or it returned a `Binary files differ`
+    // sentinel, which `parseDiff` produces zero DiffLines from.
+    return <div className="git-diff-empty">{/Binary files /.test(diff) ? 'Binary file — partial staging unavailable.' : 'No diff available'}</div>;
   }
 
   if (mode === 'split') {
-    return <SplitFileDiff lines={lines} />;
+    return (
+      <SplitFileDiff
+        lines={lines}
+        hunkOrdinal={hunkOrdinal}
+        canStage={!!onApplyPatch}
+        staged={!!staged}
+        busy={busy}
+        onApplyHunk={handleHunkApply}
+      />
+    );
   }
 
+  const onLineMouseDown = (idx: number) => (e: React.MouseEvent) => {
+    if (!onApplyPatch) return;
+    if (e.button !== 0) return;
+    // Shift-click extends an existing range; otherwise start fresh.
+    if (e.shiftKey && selStart !== null) {
+      setSelEnd(idx);
+    } else {
+      setSelStart(idx);
+      setSelEnd(idx);
+      setDragging(true);
+    }
+    e.preventDefault();
+  };
+  const onLineMouseEnter = (idx: number) => () => {
+    if (dragging) setSelEnd(idx);
+  };
+  const onMouseUp = () => {
+    if (dragging) setDragging(false);
+  };
+
   return (
-    <div className="git-diff">
+    <div
+      className={`git-diff${onApplyPatch ? ' git-diff-selectable' : ''}`}
+      onMouseUp={onMouseUp}
+      onMouseLeave={onMouseUp}
+    >
+      {error && (
+        <div className="git-diff-error">
+          {error}
+          <button className="git-diff-error-close" onClick={() => setError(null)} aria-label="Dismiss">×</button>
+        </div>
+      )}
       {lines.map((line, idx) => {
         if (line.type === 'hunk') {
           return (
@@ -307,12 +470,28 @@ function FileDiff({ diff, mode }: { diff: string; mode: 'unified' | 'split' }) {
               <span className="git-diff-gutter" />
               <span className="git-diff-gutter" />
               <code className="git-diff-content">{line.content}</code>
+              {onApplyPatch && (
+                <button
+                  className="git-diff-hunk-action"
+                  disabled={busy}
+                  onClick={() => handleHunkApply(hunkOrdinal[idx] - 1)}
+                  title={staged ? 'Unstage this hunk' : 'Stage this hunk'}
+                >
+                  {staged ? 'Unstage hunk' : 'Stage hunk'}
+                </button>
+              )}
             </div>
           );
         }
         const cls = line.type === 'add' ? 'git-diff-add' : line.type === 'del' ? 'git-diff-del' : 'git-diff-ctx';
+        const isSelected = selectedRange !== null && idx >= selectedRange.lo && idx <= selectedRange.hi;
         return (
-          <div key={idx} className={`git-diff-line ${cls}`}>
+          <div
+            key={idx}
+            className={`git-diff-line ${cls}${isSelected ? ' git-diff-line-selected' : ''}`}
+            onMouseDown={onLineMouseDown(idx)}
+            onMouseEnter={onLineMouseEnter(idx)}
+          >
             <span className="git-diff-gutter">{line.oldLine ?? ''}</span>
             <span className="git-diff-gutter">{line.newLine ?? ''}</span>
             <code className="git-diff-content">
@@ -327,6 +506,26 @@ function FileDiff({ diff, mode }: { diff: string; mode: 'unified' | 'split' }) {
           </div>
         );
       })}
+      {onApplyPatch && selectedChangeIdx.size > 0 && !dragging && (
+        <div className="git-diff-selection-bar">
+          <span className="git-diff-selection-count">
+            {selectedChangeIdx.size} line{selectedChangeIdx.size === 1 ? '' : 's'} selected
+          </span>
+          <button
+            className="git-diff-selection-clear"
+            onClick={clearSelection}
+            title="Clear selection (Esc)"
+          >Cancel</button>
+          <button
+            className="git-diff-selection-apply"
+            disabled={busy}
+            onClick={handleSelectionApply}
+            title={staged ? 'Unstage the selected lines' : 'Stage the selected lines'}
+          >
+            {busy ? 'Applying…' : (staged ? 'Unstage selection' : 'Stage selection')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -339,6 +538,9 @@ interface SplitRow {
   left: DiffLine | null;   // null = empty placeholder on the left
   right: DiffLine | null;  // null = empty placeholder on the right
   hunkText?: string;       // for `kind === 'hunk'`
+  /** 0-based hunk index (only for `kind === 'hunk'`). Lets the row
+   * render a Stage/Unstage button that talks to the patch builder. */
+  hunkIndex?: number;
 }
 
 function pairSplitRows(lines: DiffLine[]): SplitRow[] {
@@ -357,10 +559,12 @@ function pairSplitRows(lines: DiffLine[]): SplitRow[] {
     dels = [];
     adds = [];
   };
+  let hunkIdx = -1;
   for (const line of lines) {
     if (line.type === 'hunk') {
       flush();
-      out.push({ kind: 'hunk', left: null, right: null, hunkText: line.content });
+      hunkIdx++;
+      out.push({ kind: 'hunk', left: null, right: null, hunkText: line.content, hunkIndex: hunkIdx });
       continue;
     }
     if (line.type === 'ctx') {
@@ -381,7 +585,23 @@ function pairSplitRows(lines: DiffLine[]): SplitRow[] {
   return out;
 }
 
-function SplitFileDiff({ lines }: { lines: DiffLine[] }) {
+function SplitFileDiff({
+  lines,
+  canStage = false,
+  staged = false,
+  busy = false,
+  onApplyHunk,
+}: {
+  lines: DiffLine[];
+  // hunkOrdinal is computed by the caller in unified mode; in split
+  // mode we read hunkIndex from the SplitRow itself. The parent passes
+  // it for symmetry but we don't currently consume it here.
+  hunkOrdinal?: number[];
+  canStage?: boolean;
+  staged?: boolean;
+  busy?: boolean;
+  onApplyHunk?: (hunkIdx: number) => void;
+}) {
   const rows = useMemo(() => pairSplitRows(lines), [lines]);
   const cellClass = (side: DiffLine | null, sideKind: 'left' | 'right'): string => {
     if (!side) return 'git-diff-split-cell git-diff-split-empty';
@@ -407,7 +627,19 @@ function SplitFileDiff({ lines }: { lines: DiffLine[] }) {
               <span className="git-diff-gutter" />
               <code className="git-diff-split-cell">{r.hunkText}</code>
               <span className="git-diff-gutter" />
-              <code className="git-diff-split-cell">{r.hunkText}</code>
+              <code className="git-diff-split-cell">
+                {r.hunkText}
+                {canStage && onApplyHunk && r.hunkIndex !== undefined && (
+                  <button
+                    className="git-diff-hunk-action git-diff-hunk-action-split"
+                    disabled={busy}
+                    onClick={() => onApplyHunk(r.hunkIndex!)}
+                    title={staged ? 'Unstage this hunk' : 'Stage this hunk'}
+                  >
+                    {staged ? 'Unstage hunk' : 'Stage hunk'}
+                  </button>
+                )}
+              </code>
             </div>
           );
         }
@@ -829,6 +1061,37 @@ export function GitChangesPanel({
     await reloadFiles();
   }, [workingDirectory, reloadFiles]);
 
+  // Partial-stage / partial-unstage (T-023). The diff renderer builds
+  // a unified patch covering only the chosen hunks or lines, then
+  // hands it here; we stream it through `git apply --cached` (with
+  // `--reverse` when the user is unstaging from the staged side). On
+  // success we refresh both the file list *and* the open file's diff
+  // — the diff content changes as soon as a subset is applied.
+  const applyPatch = useCallback(async (filePath: string, fromStaged: boolean, patch: string): Promise<void> => {
+    const result = await window.api.gitApplyPatch(workingDirectory, patch, { reverse: fromStaged });
+    if (!result.ok) {
+      throw new Error(result.error || 'git apply failed');
+    }
+    // Refresh the diff content for both sides of this file (staged +
+    // unstaged) since a partial apply changes both. Drop them from the
+    // cache so the next render refetches.
+    setDiffs((prev) => {
+      const next = new Map(prev);
+      next.delete(rowKey(filePath, true));
+      next.delete(rowKey(filePath, false));
+      return next;
+    });
+    await reloadFiles();
+    // Re-prime any expanded rows for this file with fresh diffs.
+    for (const staged of [true, false]) {
+      const key = rowKey(filePath, staged);
+      if (expanded.has(key)) {
+        const fresh = await window.api.getGitFileDiff(workingDirectory, filePath, staged);
+        setDiffs((prev) => new Map(prev).set(key, fresh));
+      }
+    }
+  }, [workingDirectory, reloadFiles, expanded]);
+
   // Shared commit / amend execution. `kind = 'amend'` folds staged work
   // into HEAD via `git commit --amend`; `kind = 'commit'` creates a new
   // commit as before. Both consult the local subject+description.
@@ -1241,6 +1504,7 @@ export function GitChangesPanel({
           amendPushed={headInfo?.pushed === true}
           onToggleAmend={toggleAmendMode}
           diffViewMode={diffViewMode}
+          onApplyPatch={applyPatch}
         />
       )}
       {activeConflictFile && (
@@ -1392,6 +1656,11 @@ interface ChangesViewProps {
   amendPushed: boolean;
   onToggleAmend: () => void;
   diffViewMode: 'unified' | 'split';
+  /** Partial-stage / partial-unstage callback (T-023). When set, the
+   * diff renderer offers Stage/Unstage hunk + selection buttons.
+   * `fromStaged` is true when the patch was built from the staged
+   * diff (so the handler passes `--reverse` to git apply). */
+  onApplyPatch?: (filePath: string, fromStaged: boolean, patch: string) => Promise<void>;
 }
 
 function ChangesView({
@@ -1419,6 +1688,7 @@ function ChangesView({
   amendPushed,
   onToggleAmend,
   diffViewMode,
+  onApplyPatch,
 }: ChangesViewProps) {
   const unstaged = files.filter((f) => !f.staged);
   const staged = files.filter((f) => f.staged);
@@ -1449,6 +1719,7 @@ function ChangesView({
             onContextMenu={onContextMenu}
             rowKey={rowKey}
             diffViewMode={diffViewMode}
+            onApplyPatch={onApplyPatch}
           />
         )}
 
@@ -1466,6 +1737,7 @@ function ChangesView({
             onContextMenu={onContextMenu}
             rowKey={rowKey}
             diffViewMode={diffViewMode}
+            onApplyPatch={onApplyPatch}
           />
         )}
       </div>
@@ -1556,10 +1828,12 @@ interface FileSectionProps {
   onContextMenu: (e: React.MouseEvent, file: GitChangedFile) => void;
   rowKey: (path: string, staged: boolean) => string;
   diffViewMode: 'unified' | 'split';
+  /** Forwarded from the panel for T-023 partial staging. */
+  onApplyPatch?: (filePath: string, fromStaged: boolean, patch: string) => Promise<void>;
 }
 
 function FileSection({
-  title, count, files, staged, expanded, diffs, onToggle, onMove, onMoveAll, onContextMenu, rowKey, diffViewMode,
+  title, count, files, staged, expanded, diffs, onToggle, onMove, onMoveAll, onContextMenu, rowKey, diffViewMode, onApplyPatch,
 }: FileSectionProps) {
   return (
     <div className="git-changes-section">
@@ -1633,7 +1907,12 @@ function FileSection({
                 {diff === undefined ? (
                   <div className="git-diff-empty">Loading diff...</div>
                 ) : (
-                  <FileDiff diff={diff} mode={diffViewMode} />
+                  <FileDiff
+                    diff={diff}
+                    mode={diffViewMode}
+                    staged={staged}
+                    onApplyPatch={onApplyPatch ? (patch, reverse) => onApplyPatch(file.path, reverse, patch) : undefined}
+                  />
                 )}
               </div>
             )}

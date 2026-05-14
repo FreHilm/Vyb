@@ -192,6 +192,9 @@ contextBridge.exposeInMainWorld('api', {
    * git's index. stage = 1 (base), 2 (ours = HEAD), 3 (theirs = MERGE_HEAD). */
   gitShowStage: (cwd: string, filePath: string, stage: 1 | 2 | 3): Promise<string> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_SHOW_STAGE, cwd, filePath, stage),
+
+  gitApplyPatch: (cwd: string, patch: string, opts?: { reverse?: boolean }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_APPLY_PATCH, cwd, patch, opts),
   gitMerge: (cwd: string, sourceRef: string): Promise<GitMergeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>

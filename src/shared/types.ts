@@ -304,6 +304,7 @@ export const IPC_CHANNELS = {
   GIT_COMPARE_FILES: 'git:compareFiles',
   GIT_COMPARE_FILE_DIFF: 'git:compareFileDiff',
   GIT_SHOW_STAGE: 'git:showStage',
+  GIT_APPLY_PATCH: 'git:applyPatch',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',
