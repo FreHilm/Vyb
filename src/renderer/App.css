@@ -5813,3 +5813,161 @@
 .file-tree-item.git-untracked .file-tree-git-badge { color: var(--c-green); }
 .file-tree-item.git-deleted .file-tree-git-badge { color: var(--c-red); }
 .file-tree-item.git-renamed .file-tree-git-badge { color: var(--c-blue); }
+
+/* T-044 Find in Files overlay */
+.find-in-files-panel {
+  position: fixed;
+  top: 60px;
+  right: 24px;
+  width: 480px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 120px);
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
+  border-radius: 8px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  z-index: 150;
+}
+.find-in-files-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--c-surface0);
+  background: var(--c-mantle);
+}
+.find-in-files-title {
+  font-weight: 600;
+  font-size: 12px;
+}
+.find-in-files-close {
+  background: transparent;
+  border: none;
+  color: var(--c-overlay1);
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 6px;
+  cursor: pointer;
+}
+.find-in-files-close:hover { color: var(--c-text); }
+.find-in-files-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--c-surface0);
+}
+.find-in-files-query, .find-in-files-glob {
+  background: var(--c-mantle);
+  color: var(--c-text);
+  border: 1px solid var(--c-surface1);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+  outline: none;
+  font-family: var(--font-mono);
+}
+.find-in-files-query:focus, .find-in-files-glob:focus {
+  border-color: var(--c-blue);
+}
+.find-in-files-toggles {
+  display: flex;
+  gap: 4px;
+}
+.find-in-files-toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  background: var(--c-mantle);
+  border: 1px solid var(--c-surface1);
+  border-radius: 3px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.find-in-files-toggles label:has(input:checked) {
+  background: color-mix(in srgb, var(--c-yellow) 25%, var(--c-mantle));
+  border-color: var(--c-yellow);
+  color: var(--c-yellow);
+}
+.find-in-files-toggles input { display: none; }
+.find-in-files-status {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--c-overlay1);
+  border-bottom: 1px solid var(--c-surface0);
+}
+.find-in-files-truncated { color: var(--c-yellow); }
+.find-in-files-warn { color: var(--c-yellow); }
+.find-in-files-results {
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+.find-in-files-group {
+  border-bottom: 1px solid var(--c-surface0);
+}
+.find-in-files-file-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 12px;
+  background: var(--c-mantle);
+  color: var(--c-text);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+}
+.find-in-files-file-row:hover { background: var(--c-surface0); }
+.find-in-files-filename { font-weight: 600; }
+.find-in-files-dir {
+  color: var(--c-overlay1);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.find-in-files-count {
+  margin-left: auto;
+  background: var(--c-surface1);
+  color: var(--c-overlay1);
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 8px;
+}
+.find-in-files-line-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 24px;
+  background: transparent;
+  color: var(--c-text);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.find-in-files-line-row:hover { background: var(--c-surface0); }
+.find-in-files-lineno {
+  color: var(--c-overlay0);
+  font-size: 10px;
+  min-width: 36px;
+  text-align: right;
+}
+.find-in-files-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.find-in-files-match {
+  background: color-mix(in srgb, var(--c-yellow) 40%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}

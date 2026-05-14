@@ -353,6 +353,7 @@ export const IPC_CHANNELS = {
   GIT_SUBMODULE_SYNC: 'git:submoduleSync',
   GIT_REBASE_INTERACTIVE: 'git:rebaseInteractive',
   FILE_LIST_PROJECT: 'file:listProject',
+  FILE_SEARCH_IN_FILES: 'file:searchInFiles',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',
@@ -572,6 +573,42 @@ export interface GitLfsLock {
   path: string;
   owner: string;
   lockedAt?: string;
+}
+
+/** T-044: one match from `file:searchInFiles`. Multiple matches on
+ * the same line collapse into one entry — `line` is the full source
+ * line, `matchStart`/`matchEnd` mark just the first occurrence. */
+export interface FileSearchMatch {
+  /** Path relative to the search cwd, using forward slashes. */
+  path: string;
+  /** 1-based line number. */
+  lineNumber: number;
+  /** Full text of the matched line (truncated at 500 chars). */
+  line: string;
+  matchStart: number;
+  matchEnd: number;
+}
+
+export interface FileSearchResult {
+  matches: FileSearchMatch[];
+  /** True when the result was capped (more matches existed). */
+  truncated: boolean;
+  /** True when the underlying tool (ripgrep) wasn't available;
+   * UI can show a "install ripgrep for faster search" hint. */
+  fallbackUsed: boolean;
+  error?: string;
+}
+
+export interface FileSearchOptions {
+  caseSensitive?: boolean;
+  wholeWord?: boolean;
+  regex?: boolean;
+  /** Comma- or newline-separated globs; only files matching at
+   * least one glob are searched. */
+  include?: string;
+  /** Comma- or newline-separated globs; files matching any are
+   * skipped. */
+  exclude?: string;
 }
 
 /** T-041: state of an in-progress `git bisect` session. `inProgress`
