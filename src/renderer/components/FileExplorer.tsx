@@ -1131,11 +1131,18 @@ export function FileExplorer({
           },
           '.cm-scroller': { overflow: 'auto', backgroundColor: 'var(--c-base)' },
           '.cm-content': { fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace", caretColor: 'var(--c-rosewater)' },
+          // Gutters: cover both the container and each individual
+          // gutter element because oneDark colours `.cm-gutter`
+          // separately and would otherwise show through.
           '.cm-gutters': {
             backgroundColor: 'var(--c-base)',
             color: 'var(--c-overlay0)',
             borderRight: '1px solid var(--c-surface0)',
           },
+          '.cm-gutter': { backgroundColor: 'var(--c-base)' },
+          '.cm-lineNumbers': { backgroundColor: 'var(--c-base)' },
+          '.cm-foldGutter': { backgroundColor: 'var(--c-base)' },
+          '.cm-gutterElement': { backgroundColor: 'transparent' },
           '.cm-activeLine': { backgroundColor: 'var(--c-surface0)' },
           '.cm-activeLineGutter': { backgroundColor: 'var(--c-surface0)' },
 
