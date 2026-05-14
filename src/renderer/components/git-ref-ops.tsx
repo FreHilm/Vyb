@@ -276,6 +276,11 @@ export interface UseGitRefOpsArgs {
   status: GitStatus | null;
   /** Current branch name — used in dialog labels and the rebase banner. */
   currentBranch: string;
+  /** Click handler for the conflict-file pills inside the in-progress
+   * banner (T-025). When provided, file names render as buttons that
+   * open the panel-level conflict viewer. When absent (test / shell-
+   * driven flow) they stay plain code blocks. */
+  onResolveConflictFile?: (path: string) => void;
 }
 
 export interface UseGitRefOpsResult {
@@ -291,7 +296,7 @@ interface DeleteDialogState {
 }
 
 export function useGitRefOps({
-  workingDirectory, onAfterOp, remotes, status, currentBranch,
+  workingDirectory, onAfterOp, remotes, status, currentBranch, onResolveConflictFile,
 }: UseGitRefOpsArgs): UseGitRefOpsResult {
   // Generic op-error banner (one slot — newest wins).
   const [opError, setOpError] = useState<string | null>(null);
@@ -608,6 +613,27 @@ export function useGitRefOps({
     </div>
   ) : null;
 
+  // Inline renderer for the conflict-file pills inside each banner.
+  // When a click handler is wired, files render as buttons that open
+  // the panel-level conflict viewer; otherwise they fall back to plain
+  // code blocks (for callers that haven't adopted the in-app resolver).
+  const renderConflictFiles = (files: string[]) => (
+    <>
+      {files.slice(0, 5).map((f) => (
+        onResolveConflictFile
+          ? (
+            <button key={f} className="git-tree-merge-banner-file" onClick={() => onResolveConflictFile(f)} title={`Resolve ${f}`}>
+              {f}
+            </button>
+          )
+          : <code key={f}>{f}</code>
+      ))}
+      {files.length > 5 && (
+        <span className="git-tree-merge-banner-more">+{files.length - 5} more</span>
+      )}
+    </>
+  );
+
   const banner = (
     <>
       {status?.mergeInProgress && (
@@ -621,12 +647,13 @@ export function useGitRefOps({
               <>
                 {' '}— {status.conflictedFiles.length} file{status.conflictedFiles.length === 1 ? '' : 's'} in conflict.
                 <div className="git-tree-merge-banner-files">
-                  {status.conflictedFiles.slice(0, 5).map((f) => <code key={f}>{f}</code>)}
-                  {status.conflictedFiles.length > 5 && (
-                    <span className="git-tree-merge-banner-more">+{status.conflictedFiles.length - 5} more</span>
-                  )}
+                  {renderConflictFiles(status.conflictedFiles)}
                 </div>
-                <div className="git-tree-merge-banner-hint">Resolve in your shell, then <code>git commit</code>.</div>
+                <div className="git-tree-merge-banner-hint">
+                  {onResolveConflictFile
+                    ? <>Click a file to resolve, then <code>git commit</code>.</>
+                    : <>Resolve in your shell, then <code>git commit</code>.</>}
+                </div>
               </>
             ) : (
               <> — finish with <code>git commit</code> in your shell.</>
@@ -646,12 +673,13 @@ export function useGitRefOps({
               <>
                 {' '}— {status.conflictedFiles.length} file{status.conflictedFiles.length === 1 ? '' : 's'} in conflict.
                 <div className="git-tree-merge-banner-files">
-                  {status.conflictedFiles.slice(0, 5).map((f) => <code key={f}>{f}</code>)}
-                  {status.conflictedFiles.length > 5 && (
-                    <span className="git-tree-merge-banner-more">+{status.conflictedFiles.length - 5} more</span>
-                  )}
+                  {renderConflictFiles(status.conflictedFiles)}
                 </div>
-                <div className="git-tree-merge-banner-hint">Resolve in your shell, <code>git add</code> the files, then click Continue.</div>
+                <div className="git-tree-merge-banner-hint">
+                  {onResolveConflictFile
+                    ? <>Click a file to resolve, then click Continue.</>
+                    : <>Resolve in your shell, <code>git add</code> the files, then click Continue.</>}
+                </div>
               </>
             ) : (
               <> — click Continue when ready, or Abort to roll back.</>
@@ -671,9 +699,13 @@ export function useGitRefOps({
               <>
                 {' '}— {status.conflictedFiles.length} file{status.conflictedFiles.length === 1 ? '' : 's'} in conflict.
                 <div className="git-tree-merge-banner-files">
-                  {status.conflictedFiles.slice(0, 5).map((f) => <code key={f}>{f}</code>)}
+                  {renderConflictFiles(status.conflictedFiles)}
                 </div>
-                <div className="git-tree-merge-banner-hint">Resolve in your shell, <code>git add</code>, then click Continue.</div>
+                <div className="git-tree-merge-banner-hint">
+                  {onResolveConflictFile
+                    ? <>Click a file to resolve, then click Continue.</>
+                    : <>Resolve in your shell, <code>git add</code>, then click Continue.</>}
+                </div>
               </>
             ) : (<> — click Continue when ready.</>)}
           </div>
@@ -691,9 +723,13 @@ export function useGitRefOps({
               <>
                 {' '}— {status.conflictedFiles.length} file{status.conflictedFiles.length === 1 ? '' : 's'} in conflict.
                 <div className="git-tree-merge-banner-files">
-                  {status.conflictedFiles.slice(0, 5).map((f) => <code key={f}>{f}</code>)}
+                  {renderConflictFiles(status.conflictedFiles)}
                 </div>
-                <div className="git-tree-merge-banner-hint">Resolve in your shell, <code>git add</code>, then click Continue.</div>
+                <div className="git-tree-merge-banner-hint">
+                  {onResolveConflictFile
+                    ? <>Click a file to resolve, then click Continue.</>
+                    : <>Resolve in your shell, <code>git add</code>, then click Continue.</>}
+                </div>
               </>
             ) : (<> — click Continue when ready.</>)}
           </div>

@@ -112,6 +112,7 @@ declare global {
       gitPullRebase: (cwd: string) => Promise<GitOpResult>;
       gitCompareFiles: (cwd: string, a: string, b: string, threeDot: boolean) => Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>;
       gitCompareFileDiff: (cwd: string, a: string, b: string, filePath: string, threeDot: boolean) => Promise<string>;
+      gitShowStage: (cwd: string, filePath: string, stage: 1 | 2 | 3) => Promise<string>;
       getGitChangedFiles: (cwd: string) => Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>;
       getGitFileDiff: (cwd: string, filePath: string, staged?: boolean) => Promise<string>;
       getGitLog: (cwd: string, limit: number) => Promise<GitCommit[]>;

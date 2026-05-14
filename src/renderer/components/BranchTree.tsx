@@ -13,6 +13,9 @@ interface BranchTreeProps {
   /** "Compare with…" handler injected by the panel. Maps each branch /
    * tag context-menu invocation to a compare against current branch. */
   onCompareWith?: (sourceRef: string, sourceLabel: string) => void;
+  /** Conflict-file click handler injected by the panel. Routes through
+   * the shared `useGitRefOps` banner. */
+  onResolveConflictFile?: (path: string) => void;
 }
 
 // ── Tree model ─────────────────────────────────────────────────────
@@ -132,7 +135,7 @@ interface CtxMenuState {
   node: TreeNode;
 }
 
-export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith }: BranchTreeProps) {
+export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onResolveConflictFile }: BranchTreeProps) {
   const [refs, setRefs] = useState<GitRef[]>([]);
   const [stashes, setStashes] = useState<GitStash[]>([]);
   const [status, setStatus] = useState<GitStatus | null>(null);
@@ -201,6 +204,7 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith }:
     remotes: remoteRefs,
     status,
     currentBranch,
+    onResolveConflictFile,
   });
 
   const toggleSection = (key: string) => {

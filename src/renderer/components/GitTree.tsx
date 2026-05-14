@@ -13,6 +13,10 @@ interface GitTreeProps {
   /** "Compare with…" handler injected by the panel. The hook builds
    * commit-row compares with `b = sha`, `a = currentBranch || HEAD`. */
   onCompareWith?: (sourceRef: string, sourceLabel: string) => void;
+  /** Conflict-file click handler injected by the panel. When set, the
+   * conflict-files banner inside `useGitRefOps` renders file names as
+   * buttons that open the panel-level conflict resolver overlay. */
+  onResolveConflictFile?: (path: string) => void;
 }
 
 const ROW_HEIGHT = 28;
@@ -310,7 +314,7 @@ function RowGraph({ row, laneCount }: RowGraphProps) {
   );
 }
 
-export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith }: GitTreeProps) {
+export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onResolveConflictFile }: GitTreeProps) {
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [refs, setRefs] = useState<GitRef[]>([]);
   const [status, setStatus] = useState<GitStatus | null>(null);
@@ -475,6 +479,7 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith }: Gi
     remotes: remoteRefs,
     status,
     currentBranch,
+    onResolveConflictFile,
   });
 
   // Wire the HEAD-only Reword action. The menu item is gated on
