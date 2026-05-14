@@ -1407,6 +1407,25 @@ export function App() {
     [],
   );
 
+  // T-047: editor font-size CSS variable. Drives both FileExplorer's
+  // CodeMirror theme and the README edit-mode CodeMirror via a single
+  // `--cm-editor-font-size` custom property on :root. Reads from
+  // settings; the keyboard shortcuts (Cmd+= / Cmd+- / Cmd+0) call
+  // adjustEditorFontSize below to bump and persist.
+  useEffect(() => {
+    const size = Math.max(8, Math.min(32, settings.editorFontSize ?? 13));
+    document.documentElement.style.setProperty('--cm-editor-font-size', `${size}px`);
+  }, [settings.editorFontSize]);
+
+  const adjustEditorFontSize = useCallback((delta: number) => {
+    const current = settingsRef.current.editorFontSize ?? 13;
+    // delta === 0 is the "reset to default" path. Otherwise clamp
+    // to the spec's 8/32 floor + ceiling.
+    const next = delta === 0 ? 13 : Math.max(8, Math.min(32, current + delta));
+    if (next === current) return;
+    savePaneSizes({ editorFontSize: next });
+  }, [savePaneSizes]);
+
   // Persist which function tabs were open + whether split-view was
   // on, keyed by parent-profile view (parallel-agent keys are
   // session-bound and skipped). Stays in sync with the four overlay
@@ -1980,6 +1999,7 @@ export function App() {
                   formatOnSave={settings.formatOnSave === true}
                   breadcrumbs={settings.editorBreadcrumbs !== false}
                   stickyScroll={settings.editorStickyScroll !== false}
+                  onAdjustEditorFontSize={adjustEditorFontSize}
                 />
               );
             })}

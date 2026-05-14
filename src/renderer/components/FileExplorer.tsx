@@ -46,6 +46,10 @@ interface FileExplorerProps {
   breadcrumbs?: boolean;
   /** T-046: include the sticky-scroll plugin in the editor. */
   stickyScroll?: boolean;
+  /** T-047: callback for Cmd+= / Cmd+- / Cmd+0. `delta === 0` is
+   * the reset path; otherwise the value gets added to the current
+   * setting and clamped to [8, 32] by the caller. */
+  onAdjustEditorFontSize?: (delta: number) => void;
 }
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp']);
@@ -444,6 +448,7 @@ export function FileExplorer({
   formatOnSave = false,
   breadcrumbs = true,
   stickyScroll: stickyScrollEnabled = true,
+  onAdjustEditorFontSize,
 }: FileExplorerProps) {
   const [rootEntries, setRootEntries] = useState<FileEntry[]>([]);
   const [tabs, setTabs] = useState<FileTab[]>([]);
@@ -851,6 +856,11 @@ export function FileExplorer({
   // next tab open / remount, not the live editor.
   const stickyScrollEnabledRef = useRef(stickyScrollEnabled);
   stickyScrollEnabledRef.current = stickyScrollEnabled;
+  // T-047: mountEditor closes over an empty deps array; ref-shim so
+  // the keymap can fire the latest version of the callback even if
+  // the prop changes between mounts.
+  const onAdjustEditorFontSizeRef = useRef(onAdjustEditorFontSize);
+  onAdjustEditorFontSizeRef.current = onAdjustEditorFontSize;
 
   // T-045: run Prettier against the active editor buffer.
   // Cursor is approximately preserved via line/column snap — Prettier
@@ -1031,6 +1041,13 @@ export function FileExplorer({
           { key: 'Mod-s', run: () => { handleSave(); return true; } },
           { key: 'Mod-Shift-s', run: () => { handleSaveAs(); return true; } },
           { key: 'Shift-Alt-f', run: () => { handleFormat(); return true; } },
+          // T-047 font-size shortcuts. `Mod-+` is the same physical
+          // key as `Mod-=` on a US layout; both are bound so users
+          // who hit Shift can still bump up.
+          { key: 'Mod-=', run: () => { onAdjustEditorFontSizeRef.current?.(+1); return true; } },
+          { key: 'Mod-+', run: () => { onAdjustEditorFontSizeRef.current?.(+1); return true; } },
+          { key: 'Mod--', run: () => { onAdjustEditorFontSizeRef.current?.(-1); return true; } },
+          { key: 'Mod-0', run: () => { onAdjustEditorFontSizeRef.current?.(0); return true; } },
           // Clipboard. CodeMirror 6 normally relies on the browser's native
           // copy/cut/paste events, but Electron on macOS doesn't fire those
           // for Cmd+C/V/X without an Edit-menu role accelerator (which we
@@ -1091,7 +1108,8 @@ export function FileExplorer({
           });
         }),
         EditorView.theme({
-          '&': { height: '100%', fontSize: '13px' },
+          // T-047 — driven by --cm-editor-font-size on :root.
+          '&': { height: '100%', fontSize: 'var(--cm-editor-font-size, 13px)' },
           '.cm-scroller': { overflow: 'auto' },
           '.cm-content': { fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace" },
 
