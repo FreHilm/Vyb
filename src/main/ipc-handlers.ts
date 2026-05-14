@@ -2273,6 +2273,102 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     },
   );
 
+  // List worktrees (T-035). Parses `git worktree list --porcelain`:
+  // blank-line-separated records of `worktree <path>`, `HEAD <sha>`,
+  // `branch <full-ref>` (or `detached`), `bare`, and `locked <reason>`.
+  // The first record is the main worktree. We also flag worktrees
+  // whose path lives under Vyb's parallel-agents directory so the UI
+  // can grey them out and disable Remove.
+  ipcMain.handle(IPC_CHANNELS.GIT_LIST_WORKTREES, (_, cwd: string): import('../shared/types').GitWorktree[] => {
+    if (!cwd) return [];
+    const systemPrefix = path.join(app.getPath('userData'), 'parallel-agents') + path.sep;
+    try {
+      const out = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+        cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      const records = out.split(/\n\n+/);
+      const result: import('../shared/types').GitWorktree[] = [];
+      let mainSeen = false;
+      for (const record of records) {
+        const trimmed = record.trim();
+        if (!trimmed) continue;
+        let worktreePath = '';
+        let head = '';
+        let branch: string | undefined = undefined;
+        let isDetached = false;
+        let isBare = false;
+        let isLocked = false;
+        let lockedReason: string | undefined = undefined;
+        for (const line of trimmed.split('\n')) {
+          if (line.startsWith('worktree ')) worktreePath = line.slice('worktree '.length);
+          else if (line.startsWith('HEAD ')) head = line.slice('HEAD '.length);
+          else if (line.startsWith('branch ')) branch = line.slice('branch '.length).replace(/^refs\/heads\//, '');
+          else if (line === 'detached') isDetached = true;
+          else if (line === 'bare') isBare = true;
+          else if (line === 'locked' || line.startsWith('locked ')) {
+            isLocked = true;
+            lockedReason = line === 'locked' ? '' : line.slice('locked '.length);
+          }
+        }
+        if (!worktreePath) continue;
+        const isMain = !mainSeen;
+        mainSeen = true;
+        result.push({
+          path: worktreePath,
+          branch,
+          head,
+          isMain,
+          isDetached,
+          isBare,
+          isLocked,
+          lockedReason,
+          isSystemManaged: worktreePath.startsWith(systemPrefix),
+        });
+      }
+      return result;
+    } catch {
+      return [];
+    }
+  });
+
+  // Remove worktree (T-035). Refuses to touch the main worktree or a
+  // Vyb-managed parallel-agent worktree as a belt-and-suspenders
+  // against UI misclicks; the renderer also disables those rows.
+  ipcMain.handle(IPC_CHANNELS.GIT_REMOVE_WORKTREE, (_, cwd: string, worktreePath: string, force: boolean): GitOpResult => {
+    if (!cwd || !worktreePath) return { ok: false, message: 'invalid worktree path' };
+    const systemPrefix = path.join(app.getPath('userData'), 'parallel-agents') + path.sep;
+    if (worktreePath.startsWith(systemPrefix)) {
+      return { ok: false, message: 'Refusing to remove a parallel-agent worktree from this UI.' };
+    }
+    // Compare against the main worktree's top-level path. `git
+    // rev-parse --show-toplevel` returns the current worktree's top;
+    // for the main worktree the user is likely operating from there
+    // anyway, but they could also be in a linked worktree. Use
+    // --git-common-dir as the cross-reference.
+    try {
+      const commonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+        cwd, timeout: 3000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+      // commonDir points at .git for the main worktree; its parent is
+      // the main worktree path.
+      const mainPath = path.resolve(cwd, commonDir, '..');
+      if (path.resolve(worktreePath) === mainPath) {
+        return { ok: false, message: 'Cannot remove the main worktree. Delete the repo instead.' };
+      }
+    } catch {
+      // best-effort; if rev-parse fails we still let git refuse.
+    }
+    try {
+      const args = ['worktree', 'remove'];
+      if (force) args.push('--force');
+      args.push('--', worktreePath);
+      execFileSync('git', args, { cwd, timeout: 30000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'worktree remove failed') };
+    }
+  });
+
   // ── Pull request via gh ───────────────────────────────────────
   // Shells out to the GitHub CLI. `gh pr create --fill` reuses the
   // commit message as title/body; if the user passes an explicit

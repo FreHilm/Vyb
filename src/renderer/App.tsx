@@ -14,7 +14,7 @@ import { StatusBar } from './components/StatusBar';
 import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -126,6 +126,8 @@ declare global {
       gitSetRemoteUrl: (cwd: string, name: string, url: string, opts?: { push?: boolean }) => Promise<GitOpResult>;
       gitRemoveRemote: (cwd: string, name: string) => Promise<GitOpResult>;
       gitRemoteTrackingBranches: (cwd: string, remoteName: string) => Promise<string[]>;
+      gitListWorktrees: (cwd: string) => Promise<GitWorktree[]>;
+      gitRemoveWorktree: (cwd: string, worktreePath: string, force: boolean) => Promise<GitOpResult>;
       getGitChangedFiles: (cwd: string) => Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>;
       getGitFileDiff: (cwd: string, filePath: string, staged?: boolean) => Promise<string>;
       getGitLog: (cwd: string, limit: number) => Promise<GitCommit[]>;
