@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AppSettings, ExternalApp, AgentConfig, DEFAULT_AGENTS } from '../../shared/types';
 
 // Built-in agent IDs that cannot be deleted
@@ -41,7 +41,7 @@ const AGENT_ICONS: Record<string, { viewBox: string; paths: string[]; color: str
     ],
   },
 };
-import { hueToPreviewColor } from '../theme';
+import { hueToPreviewColor, applyTheme } from '../theme';
 import { APP_ICONS, APP_ICON_LABELS } from '../icons';
 
 interface SettingsDialogProps {
@@ -206,7 +206,57 @@ export function SettingsDialog({
     window.api.getOrdnaHookInfo().then(setOrdnaHookInfo).catch((): void => undefined);
   }, []);
 
+  // ── Live-preview theme changes ─────────────────────────────────
+  // Re-applies the theme on every tweak so the user sees colour /
+  // darkness / text lightness / typography / flame settings update
+  // in the app behind the dialog as they drag the sliders. If they
+  // close the dialog without saving, the cleanup effect snaps the
+  // theme back to what it was on mount (the `originalRef` snapshot).
+  // `savedRef` is flipped in the Save handler so the cleanup knows
+  // not to revert when the user actually committed.
+  const originalRef = useRef({
+    baseHue: settings.baseHue,
+    darkness: settings.darkness,
+    textLightness: settings.textLightness,
+    profileFontSize: settings.profileFontSize,
+    profileFontWeight: settings.profileFontWeight,
+    flameIntensity: settings.flameIntensity,
+    flameSpread: settings.flameSpread,
+    flameLength: settings.flameLength,
+    flameSpeed: settings.flameSpeed,
+  });
+  const savedRef = useRef(false);
+
+  useEffect(() => {
+    applyTheme(baseHue, darkness, textLightness, profileFontSize, {
+      intensity: flameIntensity,
+      spread: flameSpread,
+      length: flameLength,
+      speed: flameSpeed,
+    }, profileFontWeight);
+  }, [
+    baseHue, darkness, textLightness, profileFontSize, profileFontWeight,
+    flameIntensity, flameSpread, flameLength, flameSpeed,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (savedRef.current) return;
+      const o = originalRef.current;
+      applyTheme(o.baseHue, o.darkness, o.textLightness, o.profileFontSize, {
+        intensity: o.flameIntensity,
+        spread: o.flameSpread,
+        length: o.flameLength,
+        speed: o.flameSpeed,
+      }, o.profileFontWeight);
+    };
+  }, []);
+
   const handleSave = () => {
+    // Flag the cleanup effect that the user actually committed —
+    // otherwise on unmount the theme would snap back to the pre-
+    // dialog snapshot, undoing what was just saved.
+    savedRef.current = true;
     onSave({
       ...settings,
       baseHue,
