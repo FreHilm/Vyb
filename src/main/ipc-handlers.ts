@@ -2322,15 +2322,18 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   // Format uses NUL separators between fields and a record terminator so we
   // never have to worry about commit subjects containing tabs or newlines
   // breaking the parse.
+  //
+  // NOTE: T-042's signature fields (%G? / %GS) used to live here but were
+  // moved out — those placeholders force git to shell out to gpg per
+  // commit, which on a thousand-commit log freezes the Electron main
+  // process well past the 15 s execSync timeout. Signatures are now
+  // fetched lazily via `git:commitSignatures` after the tree renders.
   ipcMain.handle(
     IPC_CHANNELS.GIT_LOG,
     (_, cwd: string, limit: number): GitCommit[] => {
       const cap = Math.max(1, Math.min(10000, limit | 0 || 1000));
       try {
-        // %G? is the signature-status field (T-042): one of G/B/U/X/Y/R/E/N.
-        // We expose it on every commit; the renderer decides whether to
-        // render the indicator pill. %GS is the signer's name.
-        const fmt = '%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%G?%x00%GS%x00%x1e';
+        const fmt = '%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%x1e';
         const out = execSync(
           `git log --all --topo-order --max-count=${cap} --pretty=format:${fmt}`,
           { cwd, timeout: 15000, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024 },
@@ -2341,7 +2344,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
           if (!trimmed) continue;
           const fields = trimmed.split('\x00');
           if (fields.length < 6) continue;
-          const [sha, parents, author, email, date, subject, sigStatus, sigSigner] = fields;
+          const [sha, parents, author, email, date, subject] = fields;
           commits.push({
             sha,
             parents: parents ? parents.split(' ').filter(Boolean) : [],
@@ -2349,13 +2352,53 @@ export function setupIpcHandlers(window: BrowserWindow): void {
             email,
             date,
             subject,
-            ...(sigStatus && sigStatus !== 'N' ? { sigStatus, sigSigner: sigSigner || '' } : {}),
           });
         }
         return commits;
       } catch {
         return [];
       }
+    },
+  );
+
+  // Lazy signature lookup (T-042 follow-up). Spawns `git log --pretty`
+  // with %G? / %GS in a child process so the Electron main loop stays
+  // responsive while gpg verification runs. The renderer calls this
+  // after the main tree loads; results are merged into commits whose
+  // SHAs match. Returns a sparse map — entries with sigStatus 'N' (no
+  // signature) are dropped so the payload stays small.
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_COMMIT_SIGNATURES,
+    async (_, cwd: string, limit: number): Promise<Record<string, { sigStatus: string; sigSigner: string }>> => {
+      const cap = Math.max(1, Math.min(10000, limit | 0 || 1000));
+      return await new Promise((resolve) => {
+        const fmt = '%H%x00%G?%x00%GS%x00%x1e';
+        const child = spawn('git', ['log', '--all', '--topo-order', `--max-count=${cap}`, `--pretty=format:${fmt}`], { cwd });
+        let out = '';
+        let timedOut = false;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          try { child.kill('SIGTERM'); } catch { /* ignore */ }
+        }, 60_000); // 60 s — gpg verification of large repos can be slow
+        child.stdout.on('data', (chunk) => { out += chunk.toString('utf-8'); });
+        child.on('error', () => { clearTimeout(timer); resolve({}); });
+        child.on('close', () => {
+          clearTimeout(timer);
+          if (timedOut) { resolve({}); return; }
+          const map: Record<string, { sigStatus: string; sigSigner: string }> = {};
+          for (const record of out.split('\x1e')) {
+            const trimmed = record.replace(/^\n+/, '');
+            if (!trimmed) continue;
+            const fields = trimmed.split('\x00');
+            if (fields.length < 3) continue;
+            const [sha, sigStatus, sigSigner] = fields;
+            if (sigStatus && sigStatus !== 'N') {
+              map[sha] = { sigStatus, sigSigner: sigSigner || '' };
+            }
+          }
+          resolve(map);
+        });
+      });
     },
   );
 

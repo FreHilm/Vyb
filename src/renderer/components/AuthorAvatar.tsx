@@ -85,6 +85,11 @@ export function AuthorAvatar({ email, name, size = 18, enableNetwork = true }: A
       height={size}
       alt=""
       title={name}
+      // `loading="lazy"` keeps the browser from firing 1000+ HTTPS
+      // requests when a long commit graph mounts — only the visible
+      // rows hit gravatar; the rest load as the user scrolls.
+      loading="lazy"
+      decoding="async"
       style={{ width: size, height: size, borderRadius: size / 2 }}
       onError={() => {
         failedHashes.add(hash);

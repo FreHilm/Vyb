@@ -209,6 +209,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_SIGN_COMMITS, cwd),
   gitSetSignCommits: (cwd: string, enabled: boolean): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_SET_SIGN_COMMITS, cwd, enabled),
+  gitCommitSignatures: (cwd: string, limit: number): Promise<Record<string, { sigStatus: string; sigSigner: string }>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_COMMIT_SIGNATURES, cwd, limit),
 
   // Used by the T-038 author-avatar renderer to compute the gravatar
   // URL hash. The gravatar protocol uses lowercase trimmed email →
