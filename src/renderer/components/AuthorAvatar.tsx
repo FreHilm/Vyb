@@ -10,12 +10,14 @@ import { md5 } from '../lib/md5';
 // MD5 is computed in the renderer via a tiny pure-JS implementation
 // (`lib/md5.ts`) — earlier attempts to route it through the preload
 // crashed vite's bundling, so we keep the algorithm in-renderer.
-// Hashes + permanent-failure SHAs are cached in module-level Maps so
-// scrolling a long commit list doesn't re-hash or re-attempt failed
-// fetches.
+// We cache the hash itself (deterministic, cheap), but deliberately
+// do NOT persist a "this URL 404'd" cache across remounts — that
+// previously stuck on the fallback path forever after the first
+// load, so registering a new gravatar wouldn't surface without a
+// full app restart. The browser's HTTP cache (gravatar 404s carry
+// Cache-Control headers) handles re-attempt cost.
 
 const hashCache = new Map<string, string>();
-const failedHashes = new Set<string>();
 
 function hashFor(email: string): string {
   const key = email.trim().toLowerCase();
@@ -65,10 +67,11 @@ export interface AuthorAvatarProps {
 
 export function AuthorAvatar({ email, name, size = 18, enableNetwork = true }: AuthorAvatarProps) {
   const hash = useMemo(() => hashFor(email), [email]);
-  // `failed` flips when the gravatar fetch 404s for this hash. The
-  // shared `failedHashes` set keeps the decision sticky across
-  // remounts so a long commit graph doesn't retry forever.
-  const [failed, setFailed] = useState(() => failedHashes.has(hash));
+  // `failed` flips when the gravatar fetch 404s for this hash. Kept
+  // local to this mount so a permanent across-the-app cache doesn't
+  // strand the user on the fallback after they register a real
+  // gravatar — the next remount (scroll, panel toggle) retries.
+  const [failed, setFailed] = useState(false);
 
   if (!enableNetwork || failed || !hash) {
     return (
@@ -105,10 +108,7 @@ export function AuthorAvatar({ email, name, size = 18, enableNetwork = true }: A
       loading="lazy"
       decoding="async"
       style={{ width: size, height: size, borderRadius: size / 2 }}
-      onError={() => {
-        failedHashes.add(hash);
-        setFailed(true);
-      }}
+      onError={() => setFailed(true)}
     />
   );
 }
