@@ -2278,6 +2278,65 @@
   opacity: 0.7;
   pointer-events: none;
 }
+.git-tree-toolbar-btn.is-active {
+  background: color-mix(in srgb, var(--c-yellow) 25%, transparent);
+  border-color: var(--c-yellow);
+  color: var(--c-yellow);
+}
+
+/* T-036 reflog browser */
+.git-reflog-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+.git-reflog-loading {
+  padding: 24px;
+  color: var(--c-overlay0);
+  font-size: 12px;
+  text-align: center;
+}
+.git-reflog-row {
+  display: grid;
+  grid-template-columns: 80px 64px 1fr 2fr 64px;
+  gap: 10px;
+  align-items: center;
+  padding: 5px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--c-surface0);
+  cursor: default;
+}
+.git-reflog-row:hover {
+  background: var(--c-surface0);
+}
+.git-reflog-selector {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--c-blue);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-reflog-sha {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--c-yellow);
+}
+.git-reflog-action {
+  color: var(--c-overlay1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-reflog-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-reflog-time {
+  color: var(--c-overlay0);
+  font-size: 10.5px;
+  text-align: right;
+}
 .git-tree-toolbar-badge {
   background: var(--c-blue);
   color: var(--c-base);
