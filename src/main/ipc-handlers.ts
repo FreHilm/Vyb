@@ -2081,6 +2081,113 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // Interactive rebase (T-033). Writes the user's prepared todo list
+  // to a temp file, writes a tiny shim script that copies it into
+  // the path git passes to GIT_SEQUENCE_EDITOR, then runs
+  // `git rebase -i <base>`. GIT_EDITOR=true keeps reword/squash
+  // message edits non-interactive (V1: accept git's defaults).
+  ipcMain.handle(IPC_CHANNELS.GIT_REBASE_INTERACTIVE, (_, cwd: string, base: string, todoLines: string[]): GitRebaseResult => {
+    if (!isSafeRefName(base) && !/^[0-9a-f]{7,40}$/.test(base)) {
+      return { ok: false, error: 'invalid' };
+    }
+    if (!Array.isArray(todoLines) || todoLines.length === 0) {
+      return { ok: false, error: 'invalid' };
+    }
+    // Validate every line — refuse anything we don't expect git to
+    // accept. Prevents a user-supplied string from sneaking shell
+    // syntax in through the todo file (git itself wouldn't run it,
+    // but rejecting upfront makes the failure mode obvious).
+    const todoRe = /^(pick|reword|edit|squash|fixup|drop) [0-9a-f]{7,40}( .*)?$/;
+    for (const line of todoLines) {
+      if (!todoRe.test(line)) return { ok: false, error: 'failed', message: `bad todo line: ${line}` };
+    }
+
+    const isGit = (() => {
+      try { return execSync('git rev-parse --is-inside-work-tree', { cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim() === 'true'; }
+      catch { return false; }
+    })();
+    if (!isGit) return { ok: false, error: 'not-git' };
+
+    try {
+      const dirty = execSync('git status --porcelain', { cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+      if (dirty) return { ok: false, error: 'dirty' };
+    } catch { /* fall through */ }
+
+    let currentBranch = '';
+    try {
+      currentBranch = execSync('git symbolic-ref --quiet --short HEAD', {
+        cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+    } catch { /* detached */ }
+    if (!currentBranch) return { ok: false, error: 'detached' };
+
+    // Determine the rebase base: prefer <base>^ (so `base` itself is
+    // included in the editable range). Fall back to `--root` when
+    // base has no parent.
+    let baseArg = '';
+    let useRoot = false;
+    try {
+      execFileSync('git', ['rev-parse', '--verify', `${base}^`], {
+        cwd, timeout: 3000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      baseArg = `${base}^`;
+    } catch {
+      useRoot = true;
+    }
+
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vyb-rebase-'));
+    try {
+      const todoPath = path.join(tmp, 'todo');
+      fs.writeFileSync(todoPath, todoLines.join('\n') + '\n', 'utf-8');
+      // Write the platform-specific sequence-editor shim. The shim
+      // copies our prepared todo over the file git passes as its
+      // first arg, then exits 0 — git reads the result and proceeds.
+      let shimPath: string;
+      if (process.platform === 'win32') {
+        shimPath = path.join(tmp, 'seq-editor.cmd');
+        fs.writeFileSync(shimPath, '@copy /Y "%VYB_TODO%" %1 >NUL\r\n', 'utf-8');
+      } else {
+        shimPath = path.join(tmp, 'seq-editor.sh');
+        fs.writeFileSync(shimPath, '#!/bin/sh\ncat "$VYB_TODO" > "$1"\n', 'utf-8');
+        fs.chmodSync(shimPath, 0o755);
+      }
+      const env = {
+        ...process.env,
+        GIT_SEQUENCE_EDITOR: shimPath,
+        GIT_EDITOR: 'true',
+        VYB_TODO: todoPath,
+      };
+      const args = ['rebase', '-i'];
+      if (useRoot) args.push('--root');
+      else args.push(baseArg);
+      execFileSync('git', args, {
+        cwd, timeout: 300000, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024, env,
+      });
+      return { ok: true };
+    } catch (err) {
+      const conflictedFiles = collectConflicts(cwd);
+      if (conflictedFiles.length > 0) {
+        return { ok: false, error: 'conflict', conflictedFiles };
+      }
+      // Detect the "stopped for edit/break" case: git's rebase state
+      // exists in `.git/rebase-merge/` after a stop. Surface as
+      // conflict-shape (no actual conflict, but the banner stays so
+      // the user can Continue or Abort).
+      try {
+        const gitDir = execFileSync('git', ['rev-parse', '--git-dir'], {
+          cwd, timeout: 3000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+        }).trim();
+        const gitDirAbs = path.isAbsolute(gitDir) ? gitDir : path.resolve(cwd, gitDir);
+        if (fs.existsSync(path.join(gitDirAbs, 'rebase-merge'))) {
+          return { ok: false, error: 'conflict', conflictedFiles: [] };
+        }
+      } catch { /* fall through */ }
+      return { ok: false, error: 'failed', message: stderrMsg(err, 'rebase -i failed') };
+    } finally {
+      try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  });
+
   // ── Tracking ──────────────────────────────────────────────────
   // Set / unset the upstream of a local branch. `upstream` is the full
   // remote-tracking name like "origin/main". When `branch` is empty we

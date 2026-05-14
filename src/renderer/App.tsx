@@ -143,6 +143,7 @@ declare global {
       gitSubmoduleInit: (cwd: string, subPath: string) => Promise<GitOpResult>;
       gitSubmoduleUpdate: (cwd: string, subPath: string, remote: boolean) => Promise<GitOpResult>;
       gitSubmoduleSync: (cwd: string, subPath: string) => Promise<GitOpResult>;
+      gitRebaseInteractive: (cwd: string, base: string, todoLines: string[]) => Promise<GitRebaseResult>;
       getGitChangedFiles: (cwd: string) => Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>;
       getGitFileDiff: (cwd: string, filePath: string, staged?: boolean) => Promise<string>;
       getGitLog: (cwd: string, limit: number) => Promise<GitCommit[]>;

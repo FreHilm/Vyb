@@ -264,6 +264,9 @@ contextBridge.exposeInMainWorld('api', {
   gitSubmoduleSync: (cwd: string, subPath: string): Promise<GitOpResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_SUBMODULE_SYNC, cwd, subPath),
 
+  gitRebaseInteractive: (cwd: string, base: string, todoLines: string[]): Promise<GitRebaseResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_REBASE_INTERACTIVE, cwd, base, todoLines),
+
   gitMerge: (cwd: string, sourceRef: string): Promise<GitMergeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>
