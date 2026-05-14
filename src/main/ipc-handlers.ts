@@ -756,7 +756,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     };
     const run = (cmd: string): string => {
       try {
-        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8' }).trim();
+        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
       } catch {
         return '';
       }
@@ -766,7 +766,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     // unstaged-only changes, and shifts the whole line by one).
     const runRaw = (cmd: string): string => {
       try {
-        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8' });
+        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
       } catch {
         return '';
       }
@@ -905,7 +905,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.GIT_CHANGED_FILES, (_, cwd: string): { path: string; added: number; deleted: number; status: string; staged: boolean }[] => {
     const run = (cmd: string): string => {
       try {
-        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }).trim();
+        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
       } catch {
         return '';
       }
@@ -918,7 +918,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     // a separate non-trimming runner just for this command.
     const runRaw = (cmd: string): string => {
       try {
-        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 });
+        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
       } catch {
         return '';
       }
@@ -1363,7 +1363,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.GIT_FILE_DIFF, (_, cwd: string, filePath: string, staged?: boolean): string => {
     const run = (cmd: string): string => {
       try {
-        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 });
+        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
       } catch {
         return '';
       }
@@ -1774,7 +1774,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       }
 
       const run = (cmd: string): string => {
-        try { return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8' }).trim(); }
+        try { return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim(); }
         catch { return ''; }
       };
 
@@ -2410,7 +2410,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     (_, cwd: string): GitRef[] => {
       const run = (cmd: string): string => {
         try {
-          return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8' }).trim();
+          return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
         } catch {
           return '';
         }
