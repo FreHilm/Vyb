@@ -352,6 +352,7 @@ export const IPC_CHANNELS = {
   GIT_SUBMODULE_UPDATE: 'git:submoduleUpdate',
   GIT_SUBMODULE_SYNC: 'git:submoduleSync',
   GIT_REBASE_INTERACTIVE: 'git:rebaseInteractive',
+  FILE_LIST_PROJECT: 'file:listProject',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',

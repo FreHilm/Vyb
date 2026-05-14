@@ -271,6 +271,7 @@ function FileTreeNode({
   onDragOverItem,
   onDropItem,
   onDragEndItem,
+  gitDecorations,
 }: {
   entry: FileEntry;
   depth: number;
@@ -287,6 +288,7 @@ function FileTreeNode({
   onDragOverItem: (e: React.DragEvent, entry: FileEntry) => void;
   onDropItem: (e: React.DragEvent, entry: FileEntry) => void;
   onDragEndItem: () => void;
+  gitDecorations: Map<string, string>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileEntry[]>([]);
@@ -351,11 +353,24 @@ function FileTreeNode({
   const dropTargetDir = entry.isDirectory ? entry.path : parentDir(entry.path);
   const isDropTarget = dragHover === dropTargetDir;
 
+  // T-043: git decoration for this row. Map keys are absolute paths
+  // (same shape as entry.path), so the lookup is a single get.
+  const gitStatus = !entry.isDirectory ? gitDecorations.get(entry.path) : undefined;
+  const gitClass = gitStatus ? ` git-${gitStatus}` : '';
+  const gitBadge = gitStatus
+    ? (gitStatus === 'modified' ? 'M'
+      : gitStatus === 'added' ? 'A'
+      : gitStatus === 'deleted' ? 'D'
+      : gitStatus === 'untracked' ? '?'
+      : gitStatus === 'renamed' ? 'R'
+      : '')
+    : '';
+
   return (
     <>
       <div
         ref={rowRef}
-        className={`file-tree-item${isSelected ? ' file-tree-selected' : ''}${isDropTarget ? ' file-tree-drop-target' : ''}`}
+        className={`file-tree-item${isSelected ? ' file-tree-selected' : ''}${isDropTarget ? ' file-tree-drop-target' : ''}${gitClass}`}
         style={{ paddingLeft: 12 + depth * 16 }}
         onClick={handleToggle}
         onContextMenu={handleCtxMenu}
@@ -382,6 +397,7 @@ function FileTreeNode({
         ) : (
           <span className="file-tree-name">{entry.name}</span>
         )}
+        {gitBadge && <span className="file-tree-git-badge" title={`git: ${gitStatus}`}>{gitBadge}</span>}
       </div>
       {expanded &&
         children.map((child) => (
@@ -402,6 +418,7 @@ function FileTreeNode({
             onDragOverItem={onDragOverItem}
             onDropItem={onDropItem}
             onDragEndItem={onDragEndItem}
+            gitDecorations={gitDecorations}
           />
         ))}
     </>
@@ -461,6 +478,12 @@ export function FileExplorer({
   // Context menu state
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; entry: FileEntry | null } | null>(null);
   const [clipboard, setClipboard] = useState<string | null>(null);
+  // T-043 tab right-click menu state.
+  const [tabCtxMenu, setTabCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  // T-043 git decorations for the file tree — map of absolute path
+  // to short status code (M/A/D/?/R). Refreshed periodically and
+  // whenever the user invokes a tree refresh.
+  const [gitDecorations, setGitDecorations] = useState<Map<string, string>>(new Map());
   // T-026: when set, render the FileHistoryView overlay for this path.
   // Cleared by the overlay's close button or Esc keypress.
   const [historyFile, setHistoryFile] = useState<{ path: string; name: string; initialSha?: string }| null>(null);
@@ -566,6 +589,87 @@ export function FileExplorer({
   }, []);
 
   // Subscribe to filesystem changes under workingDirectory. Tree refresh
+  // T-043: poll git status periodically to drive tree decorations.
+  // Cheap — `getGitChangedFiles` is the same call the Git panel
+  // makes. Skipped when the FileExplorer is hidden so we don't spin
+  // on background profiles. 10s cadence matches the StatusBar's
+  // own poll.
+  useEffect(() => {
+    if (hidden) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const changed = await window.api.getGitChangedFiles(workingDirectory);
+        if (cancelled) return;
+        const map = new Map<string, string>();
+        const base = workingDirectory.replace(/\/+$/, '');
+        for (const f of changed) {
+          // git returns paths relative to repo root; we key by the
+          // absolute path so tree entries (which carry absolute
+          // paths) can look up without conversion.
+          const abs = `${base}/${f.path}`;
+          map.set(abs, f.status);
+        }
+        setGitDecorations(map);
+      } catch { /* not a repo, etc. */ }
+    };
+    refresh();
+    const timer = setInterval(refresh, 10_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [hidden, workingDirectory, refreshKey]);
+
+  // T-043 reveal-in-tree handler. Bumps the existing revealRequest
+  // ref with the current active tab's path so the tree expands its
+  // ancestors and scrolls the leaf into view. Wired to a toolbar
+  // button and to Cmd+Shift+E.
+  const revealActiveInTree = useCallback(() => {
+    if (!activeTabPath) return;
+    setRevealRequest({ path: activeTabPath, nonce: Date.now() });
+  }, [activeTabPath]);
+
+  // Close the tab context menu on outside click.
+  useEffect(() => {
+    if (!tabCtxMenu) return;
+    const handler = () => setTabCtxMenu(null);
+    window.addEventListener('mousedown', handler);
+    return () => window.removeEventListener('mousedown', handler);
+  }, [tabCtxMenu]);
+
+  // T-043: Find & Replace button. Opens CodeMirror's standard
+  // search panel, then dispatches the panel's own Mod-Alt-f keymap
+  // entry to flip on replace mode. `@codemirror/search` exports
+  // `openSearchPanel` but not the "show replace" command, so we
+  // synthesise the keystroke against the editor DOM — basicSetup's
+  // searchKeymap is what binds Mod-Alt-f to that internal toggle.
+  const openFindReplace = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    openSearchPanel(view);
+    view.dom.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'f',
+      code: 'KeyF',
+      altKey: true,
+      metaKey: true,
+      ctrlKey: false,
+      bubbles: true,
+      cancelable: true,
+    }));
+  }, []);
+
+  useEffect(() => {
+    if (hidden) return;
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || !e.shiftKey || e.altKey) return;
+      if (e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        revealActiveInTree();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [hidden, revealActiveInTree]);
+
   // happens on every event; open-tab content gets the silent-reload /
   // conflict-banner treatment via handleExternalFileChange.
   useEffect(() => {
@@ -1110,6 +1214,25 @@ export function FileExplorer({
     doCloseTab(filePath);
   }, [modifiedSet]);
 
+  // T-043 tab right-click ops. Close-others / close-to-right operate
+  // on the snapshot of `tabs` taken when the menu was opened so
+  // mid-iteration mutations don't drop the wrong ones.
+  const closeOthers = useCallback((keepPath: string) => {
+    const targets = tabs.map((t) => t.path).filter((p) => p !== keepPath);
+    for (const p of targets) closeTab(p);
+  }, [tabs, closeTab]);
+
+  const closeToRight = useCallback((pivotPath: string) => {
+    const idx = tabs.findIndex((t) => t.path === pivotPath);
+    if (idx < 0) return;
+    const targets = tabs.slice(idx + 1).map((t) => t.path);
+    for (const p of targets) closeTab(p);
+  }, [tabs, closeTab]);
+
+  const closeAllTabs = useCallback(() => {
+    for (const t of tabs.slice()) closeTab(t.path);
+  }, [tabs, closeTab]);
+
   const doCloseTab = useCallback((filePath: string) => {
     docCacheRef.current.delete(filePath);
     savedContentRef.current.delete(filePath);
@@ -1535,6 +1658,10 @@ export function FileExplorer({
                   key={tab.path}
                   className={`file-tab ${isActive ? 'file-tab-active' : ''}`}
                   onClick={() => switchTab(tab.path)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setTabCtxMenu({ x: e.clientX, y: e.clientY, path: tab.path });
+                  }}
                   title={tab.path}
                 >
                   <FileIcon filename={tab.name} isDirectory={false} />
@@ -1576,6 +1703,22 @@ export function FileExplorer({
                 title={blameEnabled.has(activeTabPath) ? 'Hide blame gutter' : 'Show blame gutter (git blame)'}
               >
                 Blame
+              </button>
+              <button
+                className="file-tab-action-btn"
+                onClick={openFindReplace}
+                title="Find and Replace (Cmd+Alt+F)"
+                disabled={!activeTabPath || activeIsImage}
+              >
+                Find/Replace
+              </button>
+              <button
+                className="file-tab-action-btn"
+                onClick={revealActiveInTree}
+                title="Reveal this file in the tree (Cmd+Shift+E)"
+                disabled={!activeTabPath}
+              >
+                Reveal
               </button>
               {activeIsMd && (
                 <button
@@ -1788,6 +1931,7 @@ export function FileExplorer({
               onDragOverItem={handleDragOverItem}
               onDropItem={handleDropItem}
               onDragEndItem={handleDragEndItem}
+              gitDecorations={gitDecorations}
             />
           ))}
         </div>
@@ -1811,6 +1955,35 @@ export function FileExplorer({
           onShowHistory={ctxMenu.entry && !ctxMenu.entry.isDirectory ? handleShowHistory : null}
         />
       )}
+
+      {/* T-043 tab right-click menu */}
+      {tabCtxMenu && (() => {
+        const target = tabs.find((t) => t.path === tabCtxMenu.path);
+        if (!target) return null;
+        const base = workingDirectory.replace(/\/+$/, '');
+        const rel = target.path.startsWith(base) ? target.path.slice(base.length + 1) : target.path;
+        const idx = tabs.findIndex((t) => t.path === tabCtxMenu.path);
+        const canCloseRight = idx >= 0 && idx < tabs.length - 1;
+        const canCloseOthers = tabs.length > 1;
+        const close = () => setTabCtxMenu(null);
+        return (
+          <div
+            className="file-context-menu file-tab-ctx-menu"
+            style={{ left: tabCtxMenu.x, top: tabCtxMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button className="file-ctx-item" onClick={() => { closeTab(target.path); close(); }}>Close</button>
+            <button className="file-ctx-item" disabled={!canCloseOthers} onClick={() => { closeOthers(target.path); close(); }}>Close Others</button>
+            <button className="file-ctx-item" disabled={!canCloseRight} onClick={() => { closeToRight(target.path); close(); }}>Close to the Right</button>
+            <button className="file-ctx-item" onClick={() => { closeAllTabs(); close(); }}>Close All</button>
+            <div className="file-ctx-divider" />
+            <button className="file-ctx-item" onClick={() => { window.api.openInFinder(target.path); close(); }}>Reveal in Finder</button>
+            <div className="file-ctx-divider" />
+            <button className="file-ctx-item" onClick={() => { navigator.clipboard.writeText(target.path).catch((): void => undefined); close(); }}>Copy Path</button>
+            <button className="file-ctx-item" onClick={() => { navigator.clipboard.writeText(rel).catch((): void => undefined); close(); }}>Copy Relative Path</button>
+          </div>
+        );
+      })()}
 
       {historyFile && (
         <FileHistoryView
