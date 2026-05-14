@@ -2220,6 +2220,33 @@
 .git-tree-count {
   font-size: 11px;
   color: var(--c-overlay0);
+  white-space: nowrap;
+}
+
+/* Commit-graph search box. Sits on the right side of the toolbar.
+   Enter / Shift+Enter cycle matches; Esc clears + blurs. Non-matching
+   rows dim via .git-tree-row-dim below. */
+.git-tree-search {
+  margin-left: 12px;
+  flex: 1;
+  max-width: 320px;
+  height: 22px;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface0);
+  border-radius: 5px;
+  padding: 0 8px;
+  color: var(--c-text);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+}
+.git-tree-search:focus { border-color: var(--c-blue); }
+.git-tree-row-dim {
+  opacity: 0.3;
+}
+.git-tree-row-dim.git-tree-row-selected {
+  /* Selected always stays full opacity so Enter-jumping is obvious. */
+  opacity: 1;
 }
 .git-tree-toolbar-actions {
   display: flex;
