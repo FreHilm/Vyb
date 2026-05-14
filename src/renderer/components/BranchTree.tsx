@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { GitRef, GitStash, GitStatus } from '../../shared/types';
+import { GitRef, GitRemote, GitStash, GitStatus } from '../../shared/types';
 import {
   LocalBranchNode, RemoteBranchNode, TagNode, StashNode, RefMenuNode,
   RefContextMenu, useGitRefOps,
@@ -140,6 +140,18 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
   const [stashes, setStashes] = useState<GitStash[]>([]);
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  // T-034: configured remotes (separate from remote-tracking refs in
+  // `refs`). A remote can exist in `.git/config` without any fetched
+  // branches yet — those still render as empty folders here.
+  const [remotes, setRemotes] = useState<GitRemote[]>([]);
+  // Remote ops UI state. Right-click on a remote folder opens this
+  // menu; the modals below drive the actual add/rename/edit/remove
+  // dialogs. Kept separate from `ctxMenu` (which is for ref pills).
+  const [remoteMenu, setRemoteMenu] = useState<{ x: number; y: number; name: string } | null>(null);
+  const [addRemoteOpen, setAddRemoteOpen] = useState(false);
+  const [editRemote, setEditRemote] = useState<{ mode: 'rename' | 'url'; current: GitRemote } | null>(null);
+  const [removeRemote, setRemoveRemote] = useState<{ name: string; trackingBranches: string[] } | null>(null);
+  const [remoteOpError, setRemoteOpError] = useState<string | null>(null);
 
   // Per-section open/closed state. Default: branches + stashes open,
   // remotes + tags collapsed (they tend to be larger).
@@ -159,14 +171,16 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, s, st] = await Promise.all([
+      const [r, s, st, rm] = await Promise.all([
         window.api.getGitRefs(workingDirectory),
         window.api.gitListStashes(workingDirectory),
         window.api.getGitStatus(workingDirectory),
+        window.api.gitListRemotes(workingDirectory),
       ]);
       setRefs(r);
       setStashes(s);
       setStatus(st);
+      setRemotes(rm);
     } finally {
       setLoading(false);
     }
@@ -206,6 +220,76 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
     currentBranch,
     onResolveConflictFile,
   });
+
+  // ── T-034 remote ops handlers ────────────────────────────────
+  // All four ops follow the same shape: call git via IPC, on success
+  // reload + clear the modal, on failure surface the error inline in
+  // the active modal. The error banner shows next to the field rather
+  // than blocking the modal so the user can retry without losing
+  // their input.
+  const handleAddRemote = useCallback(async (name: string, url: string): Promise<boolean> => {
+    setRemoteOpError(null);
+    const trimmedName = name.trim();
+    const trimmedUrl = url.trim();
+    if (!/^[A-Za-z0-9._-]+$/.test(trimmedName)) { setRemoteOpError('Invalid name. Use letters, digits, dots, dashes, or underscores.'); return false; }
+    if (remotes.some((r) => r.name === trimmedName)) { setRemoteOpError(`A remote named "${trimmedName}" already exists.`); return false; }
+    if (!trimmedUrl) { setRemoteOpError('URL is required.'); return false; }
+    const result = await window.api.gitAddRemote(workingDirectory, trimmedName, trimmedUrl);
+    if (!result.ok) { setRemoteOpError(result.message || 'Failed to add remote'); return false; }
+    await load();
+    return true;
+  }, [workingDirectory, remotes, load]);
+
+  const handleRenameRemote = useCallback(async (oldName: string, newName: string): Promise<boolean> => {
+    setRemoteOpError(null);
+    const trimmed = newName.trim();
+    if (!/^[A-Za-z0-9._-]+$/.test(trimmed)) { setRemoteOpError('Invalid name. Use letters, digits, dots, dashes, or underscores.'); return false; }
+    if (trimmed === oldName) { setRemoteOpError('New name is the same as the old name.'); return false; }
+    if (remotes.some((r) => r.name === trimmed)) { setRemoteOpError(`A remote named "${trimmed}" already exists.`); return false; }
+    const result = await window.api.gitRenameRemote(workingDirectory, oldName, trimmed);
+    if (!result.ok) { setRemoteOpError(result.message || 'Failed to rename remote'); return false; }
+    await load();
+    return true;
+  }, [workingDirectory, remotes, load]);
+
+  const handleSetRemoteUrl = useCallback(async (name: string, url: string): Promise<boolean> => {
+    setRemoteOpError(null);
+    const trimmed = url.trim();
+    if (!trimmed) { setRemoteOpError('URL is required.'); return false; }
+    const result = await window.api.gitSetRemoteUrl(workingDirectory, name, trimmed);
+    if (!result.ok) { setRemoteOpError(result.message || 'Failed to update URL'); return false; }
+    await load();
+    return true;
+  }, [workingDirectory, load]);
+
+  const handleRemoveRemote = useCallback(async (name: string): Promise<boolean> => {
+    setRemoteOpError(null);
+    const result = await window.api.gitRemoveRemote(workingDirectory, name);
+    if (!result.ok) { setRemoteOpError(result.message || 'Failed to remove remote'); return false; }
+    await load();
+    return true;
+  }, [workingDirectory, load]);
+
+  // Open the Remove confirmation, prefetching the count of local
+  // branches that track this remote so the warning text is accurate.
+  const openRemoveConfirm = useCallback(async (name: string) => {
+    const branches = await window.api.gitRemoteTrackingBranches(workingDirectory, name);
+    setRemoteOpError(null);
+    setRemoveRemote({ name, trackingBranches: branches });
+  }, [workingDirectory]);
+
+  // Close the remote ops context menu on outside mousedown — same
+  // pattern as the ref context menu above.
+  useEffect(() => {
+    if (!remoteMenu) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target;
+      if (target instanceof Element && target.closest('.file-context-menu')) return;
+      setRemoteMenu(null);
+    };
+    window.addEventListener('mousedown', handler);
+    return () => window.removeEventListener('mousedown', handler);
+  }, [remoteMenu]);
 
   const toggleSection = (key: string) => {
     setOpenSections((prev) => {
@@ -277,28 +361,72 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
         </Section>
 
         <Section
-          title={`Remotes${remoteTree.length === 0 ? '' : ` (${refs.filter((r) => r.type === 'remote').length})`}`}
+          title={`Remotes${remotes.length === 0 ? '' : ` (${remotes.length})`}`}
           sectionKey="remotes"
           isOpen={openSections.has('remotes')}
           onToggle={toggleSection}
+          headerAction={(
+            <button
+              className="git-branches-add-remote"
+              onClick={() => { setRemoteOpError(null); setAddRemoteOpen(true); }}
+              title="Add a new remote"
+              aria-label="Add remote"
+            >+</button>
+          )}
         >
-          {remoteTree.length === 0 && <div className="git-branches-empty">No remote branches</div>}
-          {remoteTree.map((n) => (
-            <NodeRow
-              key={'remotes:' + nodeKey(n)}
-              node={n}
-              section="remotes"
-              depth={0}
-              currentBranch={currentBranch}
-              openFolders={openFolders}
-              onToggleFolder={toggleFolder}
-              onActivate={(target) => ops.onCheckout(target)}
-              onContextMenu={(e, node) => {
-                if (node.kind === 'folder') return; // path-prefix folders aren't actionable
-                setCtxMenu({ x: e.clientX, y: e.clientY, node });
-              }}
-            />
-          ))}
+          {remotes.length === 0 && <div className="git-branches-empty">No remotes configured</div>}
+          {remotes.map((rem) => {
+            // Look up the tree node for this remote (if any branches
+            // are fetched) so we can render its sub-tree below the
+            // folder header. Remotes that exist in config but have no
+            // fetched branches yet render as empty folders.
+            const treeNode = remoteTree.find((n) => n.kind === 'folder' && (n as FolderNode).name === rem.name) as FolderNode | undefined;
+            const folderKey = `remotes:${rem.name}`;
+            const isOpen = openFolders.has(folderKey);
+            return (
+              <div key={`remote:${rem.name}`}>
+                <div
+                  className="file-tree-item git-branches-remote-row"
+                  style={{ paddingLeft: 12 }}
+                  onClick={() => toggleFolder(folderKey)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setRemoteOpError(null);
+                    setRemoteMenu({ x: e.clientX, y: e.clientY, name: rem.name });
+                  }}
+                  title={rem.fetchUrl === rem.pushUrl ? rem.fetchUrl : `fetch: ${rem.fetchUrl}\npush: ${rem.pushUrl}`}
+                >
+                  <span className="file-tree-arrow" style={{ transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                    <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="6 3 11 8 6 13" />
+                    </svg>
+                  </span>
+                  <FolderIcon isOpen={isOpen} />
+                  <span className="file-tree-name">{rem.name}</span>
+                  <span className="git-branches-remote-url">{rem.fetchUrl}</span>
+                </div>
+                {isOpen && treeNode && treeNode.children.map((child) => (
+                  <NodeRow
+                    key={'remotes:' + nodeKey(child)}
+                    node={child}
+                    section="remotes"
+                    depth={1}
+                    currentBranch={currentBranch}
+                    openFolders={openFolders}
+                    onToggleFolder={toggleFolder}
+                    onActivate={(target) => ops.onCheckout(target)}
+                    onContextMenu={(e, node) => {
+                      if (node.kind === 'folder') return;
+                      setCtxMenu({ x: e.clientX, y: e.clientY, node });
+                    }}
+                  />
+                ))}
+                {isOpen && !treeNode && (
+                  <div className="git-branches-empty" style={{ paddingLeft: 36 }}>No branches fetched — run Fetch to populate</div>
+                )}
+              </div>
+            );
+          })}
         </Section>
 
         <Section
@@ -370,6 +498,177 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
       )}
       {modals}
 
+      {/* T-034 remote ops: menu + modals */}
+      {remoteMenu && (() => {
+        const target = remotes.find((r) => r.name === remoteMenu.name);
+        if (!target) return null;
+        return (
+          <div className="file-context-menu" style={{ left: remoteMenu.x, top: remoteMenu.y }} onClick={(e) => e.stopPropagation()}>
+            <button className="file-ctx-item" onClick={() => { setEditRemote({ mode: 'rename', current: target }); setRemoteMenu(null); }}>
+              Rename remote…
+            </button>
+            <button className="file-ctx-item" onClick={() => { setEditRemote({ mode: 'url', current: target }); setRemoteMenu(null); }}>
+              Edit URL…
+            </button>
+            <div className="file-ctx-divider" />
+            <button className="file-ctx-item file-ctx-danger" onClick={() => { setRemoteMenu(null); openRemoveConfirm(target.name); }}>
+              Remove remote
+            </button>
+          </div>
+        );
+      })()}
+
+      {addRemoteOpen && (
+        <RemoteFormModal
+          title="Add remote"
+          initialName=""
+          initialUrl=""
+          mode="add"
+          error={remoteOpError}
+          onCancel={() => { setAddRemoteOpen(false); setRemoteOpError(null); }}
+          onSubmit={async (name, url) => {
+            const ok = await handleAddRemote(name, url);
+            if (ok) setAddRemoteOpen(false);
+          }}
+        />
+      )}
+
+      {editRemote && editRemote.mode === 'rename' && (
+        <RemoteFormModal
+          title={`Rename "${editRemote.current.name}"`}
+          initialName={editRemote.current.name}
+          initialUrl={editRemote.current.fetchUrl}
+          mode="rename"
+          error={remoteOpError}
+          onCancel={() => { setEditRemote(null); setRemoteOpError(null); }}
+          onSubmit={async (name) => {
+            const ok = await handleRenameRemote(editRemote.current.name, name);
+            if (ok) setEditRemote(null);
+          }}
+        />
+      )}
+
+      {editRemote && editRemote.mode === 'url' && (
+        <RemoteFormModal
+          title={`Edit URL for "${editRemote.current.name}"`}
+          initialName={editRemote.current.name}
+          initialUrl={editRemote.current.fetchUrl}
+          mode="url"
+          error={remoteOpError}
+          onCancel={() => { setEditRemote(null); setRemoteOpError(null); }}
+          onSubmit={async (_name, url) => {
+            const ok = await handleSetRemoteUrl(editRemote.current.name, url);
+            if (ok) setEditRemote(null);
+          }}
+        />
+      )}
+
+      {removeRemote && (
+        <div className="modal-overlay" onClick={() => { setRemoveRemote(null); setRemoteOpError(null); }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Remove remote "{removeRemote.name}"?</h3></div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, lineHeight: 1.5 }}>
+                This drops the remote from <code>.git/config</code>.
+                Remote-tracking branches for it will also be removed.
+              </p>
+              {removeRemote.trackingBranches.length > 0 && (
+                <p style={{ fontSize: 12, lineHeight: 1.5, marginTop: 8, color: 'var(--c-yellow)' }}>
+                  ⚠ {removeRemote.trackingBranches.length} local branch{removeRemote.trackingBranches.length === 1 ? '' : 'es'} ({removeRemote.trackingBranches.slice(0, 3).join(', ')}{removeRemote.trackingBranches.length > 3 ? `, +${removeRemote.trackingBranches.length - 3} more` : ''}) will lose their upstream.
+                </p>
+              )}
+              {remoteOpError && (
+                <p style={{ fontSize: 12, color: 'var(--c-red)', marginTop: 8 }}>{remoteOpError}</p>
+              )}
+            </div>
+            <div className="modal-footer">
+              <div className="modal-footer-right">
+                <button className="cancel-btn" onClick={() => { setRemoveRemote(null); setRemoteOpError(null); }}>Cancel</button>
+                <button className="delete-btn" onClick={async () => {
+                  const ok = await handleRemoveRemote(removeRemote.name);
+                  if (ok) setRemoveRemote(null);
+                }}>Remove</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+// ── T-034 remote add/edit modal ────────────────────────────────────
+// Shared between Add Remote, Rename Remote, and Edit URL. The fields
+// shown depend on `mode`: 'add' shows both name + URL, 'rename' shows
+// only name, 'url' shows only URL. Validation happens in the parent;
+// this component just collects input and surfaces the parent's error.
+function RemoteFormModal({
+  title, initialName, initialUrl, mode, error, onCancel, onSubmit,
+}: {
+  title: string;
+  initialName: string;
+  initialUrl: string;
+  mode: 'add' | 'rename' | 'url';
+  error: string | null;
+  onCancel: () => void;
+  onSubmit: (name: string, url: string) => void | Promise<void>;
+}) {
+  const [name, setName] = useState(initialName);
+  const [url, setUrl] = useState(initialUrl);
+  const [busy, setBusy] = useState(false);
+  const handleSubmit = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await onSubmit(name, url); } finally { setBusy(false); }
+  }, [busy, name, url, onSubmit]);
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header"><h3>{title}</h3></div>
+        <div className="modal-body">
+          {(mode === 'add' || mode === 'rename') && (
+            <label className="field">
+              <span className="field-label">Name</span>
+              <input
+                type="text"
+                value={name}
+                autoFocus={mode === 'add' || mode === 'rename'}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); }}
+                placeholder="origin"
+                spellCheck={false}
+              />
+            </label>
+          )}
+          {(mode === 'add' || mode === 'url') && (
+            <label className="field" style={{ marginTop: 12 }}>
+              <span className="field-label">URL</span>
+              <input
+                type="text"
+                value={url}
+                autoFocus={mode === 'url'}
+                onChange={(e) => setUrl(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); }}
+                placeholder="git@github.com:user/repo.git"
+                spellCheck={false}
+              />
+              <span className="field-hint">
+                Accepts any URL git understands — HTTPS, SSH, local paths.
+              </span>
+            </label>
+          )}
+          {error && <p style={{ fontSize: 12, color: 'var(--c-red)', marginTop: 8 }}>{error}</p>}
+        </div>
+        <div className="modal-footer">
+          <div className="modal-footer-right">
+            <button className="cancel-btn" onClick={onCancel}>Cancel</button>
+            <button className="save-btn" onClick={handleSubmit} disabled={busy}>
+              {busy ? 'Working…' : (mode === 'add' ? 'Add' : 'Save')}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -378,7 +677,7 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
 // ── Section header ─────────────────────────────────────────────────
 
 function Section({
-  title, sectionKey, isOpen, onToggle, children, onContextMenu,
+  title, sectionKey, isOpen, onToggle, children, onContextMenu, headerAction,
 }: {
   title: string;
   sectionKey: string;
@@ -386,6 +685,10 @@ function Section({
   onToggle: (key: string) => void;
   children: React.ReactNode;
   onContextMenu?: (e: React.MouseEvent) => void;
+  /** Optional control rendered on the right edge of the section
+   * header (e.g. T-034's "+ Add remote" button). Stops click
+   * propagation so it doesn't toggle the section. */
+  headerAction?: React.ReactNode;
 }) {
   return (
     <div className="git-branches-section">
@@ -400,6 +703,11 @@ function Section({
           </svg>
         </span>
         <span className="git-branches-section-title">{title}</span>
+        {headerAction && (
+          <span className="git-branches-section-action" onClick={(e) => e.stopPropagation()}>
+            {headerAction}
+          </span>
+        )}
       </div>
       {isOpen && <div className="git-branches-section-body">{children}</div>}
     </div>

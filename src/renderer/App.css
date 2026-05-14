@@ -4080,6 +4080,42 @@
   font-size: 11.5px;
 }
 
+/* T-034 remote section affordances */
+.git-branches-section-action {
+  margin-left: auto;
+  display: inline-flex;
+}
+.git-branches-add-remote {
+  background: transparent;
+  border: 1px solid var(--c-surface2);
+  color: var(--c-overlay1);
+  border-radius: 3px;
+  width: 18px;
+  height: 18px;
+  line-height: 1;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+}
+.git-branches-add-remote:hover {
+  background: var(--c-surface1);
+  color: var(--c-green);
+  border-color: var(--c-green);
+}
+.git-branches-remote-row {
+  /* Inherit base file-tree-item styles; just add room for the URL. */
+}
+.git-branches-remote-url {
+  margin-left: 8px;
+  font-size: 10.5px;
+  color: var(--c-overlay0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
 /* Highlight the current branch row in the local-branches section. */
 .git-branches-current {
   font-weight: 600;

@@ -316,6 +316,12 @@ export const IPC_CHANNELS = {
   GIT_GET_SIGN_COMMITS: 'git:getSignCommits',
   GIT_SET_SIGN_COMMITS: 'git:setSignCommits',
   GIT_COMMIT_SIGNATURES: 'git:commitSignatures',
+  GIT_LIST_REMOTES: 'git:listRemotes',
+  GIT_ADD_REMOTE: 'git:addRemote',
+  GIT_RENAME_REMOTE: 'git:renameRemote',
+  GIT_SET_REMOTE_URL: 'git:setRemoteUrl',
+  GIT_REMOVE_REMOTE: 'git:removeRemote',
+  GIT_REMOTE_TRACKING_BRANCHES: 'git:remoteTrackingBranches',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',
@@ -494,6 +500,17 @@ export interface GitBlameLine {
   author: string;
   authorTime: string;   // ISO 8601
   summary: string;      // first line of the commit message
+}
+
+/** T-034: configured remote in `.git/config`. Distinct from a
+ * remote-tracking ref (those are GitRef entries with type='remote').
+ * A remote can exist without any fetched branches yet, in which case
+ * the Branches tab still renders an empty folder for it. */
+export interface GitRemote {
+  name: string;
+  fetchUrl: string;
+  /** May equal `fetchUrl` when there's no separate push URL set. */
+  pushUrl: string;
 }
 
 export interface GitRef {
