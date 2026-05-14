@@ -39,6 +39,9 @@ interface ProfileItemProps {
   iconRevision: number;
   isRunning: boolean;
   showAgentBadge: boolean;
+  /** True while the AI icon generator is running for this profile. Shows
+   * a small overlay spinner so the sidebar reflects in-flight work. */
+  iconGenerating?: boolean;
   onClick: () => void;
   onEdit: () => void;
   onStop: () => void;
@@ -67,6 +70,7 @@ export function ProfileItem({
   iconRevision,
   isRunning,
   showAgentBadge,
+  iconGenerating = false,
   onClick,
   onEdit,
   onStop,
@@ -156,6 +160,20 @@ export function ProfileItem({
               <path d="M9.1.9a1.5 1.5 0 012.1 2.1L4 10.2 0 12l1.8-4L9.1.9z" />
             </svg>
           </button>
+          {iconGenerating && (
+            <div className="profile-icon-spinner" title="Generating icon…">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <circle cx="10" cy="10" r="7" stroke="rgba(255,255,255,0.25)" strokeWidth="2" />
+                <path
+                  d="M10 3 a7 7 0 0 1 7 7"
+                  stroke="#fff"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  fill="none"
+                />
+              </svg>
+            </div>
+          )}
         </div>
         {/* Agent badge lives OUTSIDE .profile-icon's overflow:hidden +
             border-radius — otherwise the rounded corner crops it. */}

@@ -239,6 +239,18 @@ contextBridge.exposeInMainWorld('api', {
   resolveFilePath: (workingDir: string, token: string): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_RESOLVE_PATH, workingDir, token),
 
+  watchDir: (cwd: string): Promise<string | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_WATCH_START, cwd),
+  unwatchDir: (watchId: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_WATCH_STOP, watchId),
+  onFileWatchChange: (
+    callback: (payload: { watchId: string; eventType: string; absPath: string; relPath: string }) => void,
+  ): (() => void) => {
+    const handler = (_: unknown, p: { watchId: string; eventType: string; absPath: string; relPath: string }) => callback(p);
+    ipcRenderer.on(IPC_CHANNELS.FILE_WATCH_CHANGE, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.FILE_WATCH_CHANGE, handler);
+  },
+
   exportBackup: (): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.BACKUP_EXPORT),
 

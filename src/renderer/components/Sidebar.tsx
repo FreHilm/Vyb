@@ -30,6 +30,9 @@ interface SidebarProps {
   onSelectParallel: (parallelId: string | null) => void;
   onRunParallel: (parallelId: string) => void;
   onStopParallel: (parallelId: string) => void;
+  /** Profile IDs whose icon is currently being AI-generated. Each
+   * matching ProfileItem shows a small spinner over its icon. */
+  pendingIconGenerations?: Set<string>;
 }
 
 const PARALLEL_PHASE_COLORS: Record<string, string> = {
@@ -192,6 +195,7 @@ export function Sidebar({
   onSelectParallel,
   onRunParallel,
   onStopParallel,
+  pendingIconGenerations,
 }: SidebarProps) {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [folderNameInput, setFolderNameInput] = useState('');
@@ -435,6 +439,7 @@ export function Sidebar({
             iconRevision={iconRevision}
             isRunning={initialized.has(profile.id)}
             showAgentBadge={showAgentBadge}
+            iconGenerating={pendingIconGenerations?.has(profile.id) === true}
             onClick={() => {
               onSelectProfile(profile.id);
               onSelectParallel(null);

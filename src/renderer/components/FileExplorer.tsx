@@ -30,8 +30,9 @@ interface FileExplorerProps {
   hidden?: boolean;
   /** External request to open a file in a tab — typically from a click on
    * a file link in the agent terminal. The `nonce` discriminates re-opens
-   * of the same path so the effect re-runs. */
-  pendingOpenPath?: { path: string; nonce: number } | null;
+   * of the same path so the effect re-runs. Optional `line` jumps the
+   * CodeMirror caret to that 1-based line once the editor is mounted. */
+  pendingOpenPath?: { path: string; nonce: number; line?: number } | null;
   onPendingOpenHandled?: () => void;
 }
 
@@ -401,6 +402,13 @@ export function FileExplorer({
   const [tabs, setTabs] = useState<FileTab[]>([]);
   const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
   const [modifiedSet, setModifiedSet] = useState<Set<string>>(new Set());
+  // Mirror tabs + modifiedSet into refs so the once-attached fs.watch
+  // listener (registered in a useEffect with stable deps) can read the
+  // latest tab list / dirty flags without re-subscribing on every render.
+  const tabsRef = useRef<FileTab[]>([]);
+  tabsRef.current = tabs;
+  const modifiedSetRef = useRef<Set<string>>(new Set());
+  modifiedSetRef.current = modifiedSet;
   const [saving, setSaving] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   // Per-tab view/edit mode for .md files. Default is 'view' on first open
@@ -447,6 +455,12 @@ export function FileExplorer({
   // Close-tab dialog
   const [closingTabPath, setClosingTabPath] = useState<string | null>(null);
 
+  // Files whose on-disk content differs from what's in the editor AND
+  // the editor has unsaved local edits — surfaces a "this file changed
+  // outside Vyb" banner so the user can pick: reload (lose local edits)
+  // or keep editing (will overwrite the disk version on save).
+  const [conflictPaths, setConflictPaths] = useState<Set<string>>(new Set());
+
   const handleTreeResize = useCallback((delta: number) => {
     setTreeWidth((w) => Math.max(140, Math.min(500, w - delta)));
   }, []);
@@ -455,6 +469,99 @@ export function FileExplorer({
     window.api.listDir(workingDirectory).then(setRootEntries);
     setRefreshKey((k) => k + 1);
   }, [workingDirectory]);
+
+  /** A file the user has open changed underneath us. If their working
+   * copy is clean, reload the buffer silently so they always see the
+   * latest disk contents. If they have unsaved edits, flag the tab as
+   * conflicted — a banner appears in the editor area letting them
+   * choose between "Reload from disk" (drops local edits) and "Keep
+   * mine" (ignores the change; the next Save overwrites). */
+  const handleExternalFileChange = useCallback(async (absPath: string) => {
+    const tab = tabsRef.current.find((t) => t.path === absPath);
+    if (!tab) return;
+    let diskContent: string | null = null;
+    try {
+      diskContent = await window.api.readFile(absPath);
+    } catch {
+      diskContent = null;
+    }
+    if (diskContent === null) {
+      // File was deleted underneath the editor. Best-effort: leave the
+      // buffer alone but mark conflict so the user knows the next save
+      // will recreate it.
+      setConflictPaths((prev) => {
+        if (prev.has(absPath)) return prev;
+        const next = new Set(prev);
+        next.add(absPath);
+        return next;
+      });
+      return;
+    }
+    const isDirty = modifiedSetRef.current.has(absPath);
+    const baseline = savedContentRef.current.get(absPath);
+    if (diskContent === baseline) {
+      // Spurious watch event (e.g. atime touch on the same content) —
+      // nothing to do.
+      return;
+    }
+    if (isDirty) {
+      setConflictPaths((prev) => {
+        if (prev.has(absPath)) return prev;
+        const next = new Set(prev);
+        next.add(absPath);
+        return next;
+      });
+      return;
+    }
+    // Clean — apply the new content silently. Update both the saved
+    // baseline (so the dirty detector keeps tracking against the new
+    // disk content) and the in-editor doc if this is the active tab.
+    docCacheRef.current.set(absPath, diskContent);
+    savedContentRef.current.set(absPath, diskContent);
+    if (isMdFile(fileName(absPath))) {
+      setMdContent((m) => { const n = new Map(m); n.set(absPath, diskContent); return n; });
+    }
+    if (isExcalidrawFile(fileName(absPath))) {
+      setExcalidrawContent((m) => { const n = new Map(m); n.set(absPath, diskContent); return n; });
+    }
+    if (activePathRef.current === absPath && viewRef.current) {
+      const view = viewRef.current;
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: diskContent },
+      });
+    }
+  }, []);
+
+  // Subscribe to filesystem changes under workingDirectory. Tree refresh
+  // happens on every event; open-tab content gets the silent-reload /
+  // conflict-banner treatment via handleExternalFileChange.
+  useEffect(() => {
+    let cancelled = false;
+    let watchId: string | null = null;
+    let unsub: (() => void) | null = null;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+    window.api.watchDir(workingDirectory).then((id) => {
+      if (cancelled || !id) return;
+      watchId = id;
+      unsub = window.api.onFileWatchChange((p) => {
+        if (p.watchId !== watchId) return;
+        // Debounce tree refresh — fs.watch can fire several events for a
+        // single save (rename + write + chmod).
+        if (refreshTimer) clearTimeout(refreshTimer);
+        refreshTimer = setTimeout(() => { refresh(); }, 80);
+        // For an open tab whose path matches, reconcile content.
+        if (p.absPath) handleExternalFileChange(p.absPath);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      if (refreshTimer) clearTimeout(refreshTimer);
+      if (unsub) unsub();
+      if (watchId) window.api.unwatchDir(watchId).catch((): void => undefined);
+    };
+  }, [workingDirectory, refresh, handleExternalFileChange]);
 
   // ── DnD move (drag a tree item into another folder) ─────────────
   // We use the same conventions as ReadmeViewer's tree: posix-style `/`
@@ -598,6 +705,14 @@ export function FileExplorer({
     docCacheRef.current.set(path, content);
     savedContentRef.current.set(path, content);
     setModifiedSet((s) => { const n = new Set(s); n.delete(path); return n; });
+    // Save overwrites the disk content with the buffer, so any
+    // outstanding conflict warning for this path is now resolved.
+    setConflictPaths((prev) => {
+      if (!prev.has(path)) return prev;
+      const n = new Set(prev);
+      n.delete(path);
+      return n;
+    });
     // Keep the markdown preview in sync so switching to view mode after a
     // save shows the just-saved content.
     if (isMdFile(fileName(path))) {
@@ -632,7 +747,7 @@ export function FileExplorer({
     }
   }, [refresh]);
 
-  const mountEditor = useCallback(async (filePath: string) => {
+  const mountEditor = useCallback(async (filePath: string, gotoLine?: number) => {
     if (viewRef.current) {
       viewRef.current.destroy();
       viewRef.current = null;
@@ -865,11 +980,31 @@ export function FileExplorer({
     });
 
     viewRef.current = new EditorView({ state, parent: editorRef.current });
+
+    // Jump to the requested line (1-based, clamped to the doc range)
+    // when the caller asked for a specific row — e.g. a click on
+    // `file.py:254-273` in the agent terminal.
+    if (gotoLine && gotoLine > 0) {
+      try {
+        const view = viewRef.current;
+        const clamped = Math.min(view.state.doc.lines, Math.max(1, gotoLine));
+        const lineInfo = view.state.doc.line(clamped);
+        view.dispatch({
+          selection: EditorSelection.cursor(lineInfo.from),
+          scrollIntoView: true,
+        });
+        // Give scrollIntoView a frame to settle, then focus so the user
+        // can start typing/navigating from the target row.
+        requestAnimationFrame(() => view.focus());
+      } catch {
+        // best-effort — corrupt doc state shouldn't break the open.
+      }
+    }
   }, [handleSave, handleSaveAs]);
 
   // ── Tab management ───────────────────────────────────────────
 
-  const openInTab = useCallback((filePath: string, forceNew: boolean) => {
+  const openInTab = useCallback((filePath: string, forceNew: boolean, gotoLine?: number) => {
     if (isImageFile(fileName(filePath))) {
       // Images: always open directly, no tab reuse logic for modified check
     }
@@ -878,7 +1013,7 @@ export function FileExplorer({
     if (existingIdx >= 0) {
       // Tab already open — switch to it
       saveCurrentDoc();
-      mountEditor(filePath);
+      mountEditor(filePath, gotoLine);
       return;
     }
 
@@ -888,11 +1023,11 @@ export function FileExplorer({
       // Open in new tab (keep current modified tab)
       saveCurrentDoc();
       setTabs((t) => [...t, newTab]);
-      mountEditor(filePath);
+      mountEditor(filePath, gotoLine);
     } else if (tabs.length === 0) {
       // No tabs yet
       setTabs([newTab]);
-      mountEditor(filePath);
+      mountEditor(filePath, gotoLine);
     } else {
       // Reuse active tab (no modifications)
       saveCurrentDoc();
@@ -900,7 +1035,7 @@ export function FileExplorer({
       docCacheRef.current.delete(activePath || '');
       savedContentRef.current.delete(activePath || '');
       setTabs((t) => t.map((tab) => tab.path === activePath ? newTab : tab));
-      mountEditor(filePath);
+      mountEditor(filePath, gotoLine);
     }
   }, [tabs, modifiedSet, saveCurrentDoc, mountEditor]);
 
@@ -917,7 +1052,7 @@ export function FileExplorer({
   useEffect(() => {
     if (hidden) return;
     if (!pendingOpenPath) return;
-    openInTab(pendingOpenPath.path, true);
+    openInTab(pendingOpenPath.path, true, pendingOpenPath.line);
     setRevealRequest({ path: pendingOpenPath.path, nonce: pendingOpenPath.nonce });
     onPendingOpenHandled?.();
   }, [hidden, pendingOpenPath, openInTab, onPendingOpenHandled]);
@@ -1318,6 +1453,51 @@ export function FileExplorer({
             </div>
           )}
         </div>
+
+        {/* External-change conflict banner — visible when this tab's
+            disk content changed while the user had unsaved edits. */}
+        {activeTabPath && conflictPaths.has(activeTabPath) && (
+          <div className="file-conflict-banner">
+            <span className="file-conflict-msg">
+              This file changed outside Vyb and your edits are unsaved.
+            </span>
+            <button
+              className="file-conflict-btn"
+              onClick={async () => {
+                const path = activeTabPath;
+                const diskContent = await window.api.readFile(path);
+                if (diskContent === null) return;
+                docCacheRef.current.set(path, diskContent);
+                savedContentRef.current.set(path, diskContent);
+                setModifiedSet((s) => { const n = new Set(s); n.delete(path); return n; });
+                if (isMdFile(fileName(path))) {
+                  setMdContent((m) => { const n = new Map(m); n.set(path, diskContent); return n; });
+                }
+                if (isExcalidrawFile(fileName(path))) {
+                  setExcalidrawContent((m) => { const n = new Map(m); n.set(path, diskContent); return n; });
+                }
+                if (viewRef.current) {
+                  const view = viewRef.current;
+                  view.dispatch({
+                    changes: { from: 0, to: view.state.doc.length, insert: diskContent },
+                  });
+                }
+                setConflictPaths((prev) => { const n = new Set(prev); n.delete(path); return n; });
+              }}
+            >
+              Reload from disk
+            </button>
+            <button
+              className="file-conflict-btn file-conflict-btn-secondary"
+              onClick={() => {
+                if (!activeTabPath) return;
+                setConflictPaths((prev) => { const n = new Set(prev); n.delete(activeTabPath); return n; });
+              }}
+            >
+              Keep mine
+            </button>
+          </div>
+        )}
 
         {/* Editor area */}
         {activeTabPath && activeIsImage && (

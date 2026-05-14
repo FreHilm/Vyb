@@ -561,6 +561,26 @@
   object-fit: cover;
 }
 
+/* Overlay spinner shown on a profile icon while its AI icon is being
+   generated in the background. Sits inside .profile-icon so it's clipped
+   by the rounded corners; semi-transparent backdrop dims the (possibly
+   stale) icon underneath. */
+.profile-icon-spinner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 2;
+}
+.profile-icon-spinner svg {
+  animation: profileIconSpin 0.9s linear infinite;
+}
+@keyframes profileIconSpin {
+  to { transform: rotate(360deg); }
+}
+
 .profile-icon-placeholder {
   width: 42px;
   height: 42px;
@@ -2758,6 +2778,46 @@
   object-fit: contain;
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* External-change conflict banner — sits between the tab bar and the
+   editor area when an open dirty file changes on disk underneath us. */
+.file-conflict-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(234, 179, 8, 0.12);
+  border-bottom: 1px solid rgba(234, 179, 8, 0.45);
+  color: var(--c-text);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.file-conflict-msg {
+  flex: 1;
+}
+.file-conflict-btn {
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  border-radius: 5px;
+  color: var(--c-text);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: background 100ms, border-color 100ms;
+}
+.file-conflict-btn:hover {
+  background: var(--c-surface1);
+}
+.file-conflict-btn-secondary {
+  background: transparent;
+  border-color: transparent;
+  color: var(--c-overlay0);
+}
+.file-conflict-btn-secondary:hover {
+  background: var(--c-surface0);
+  color: var(--c-text);
 }
 
 /* Markdown view mode inside the file editor — pulls the same readability
