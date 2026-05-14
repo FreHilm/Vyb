@@ -124,6 +124,17 @@ export interface AppSettings {
    * restart. Combined with the webview's `persist:` partition this also
    * means cookies / logins survive. */
   webUrls: Record<string, string>;
+  /** Per-profile snapshot of which function tabs (Files / Kanban /
+   * Web) were open and whether split view was enabled when Vyb last
+   * quit. Restored on launch so the user lands back in the same
+   * layout. Parallel-agent views are session-bound and not persisted
+   * here — only parent profile IDs appear as keys. */
+  openFunctionTabs: Record<string, {
+    files?: boolean;
+    kanban?: boolean;
+    web?: boolean;
+    split?: boolean;
+  }>;
 }
 
 export interface AgentConfig {
@@ -227,6 +238,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showAuthorAvatars: true,
   webDefaultUrl: 'https://duckduckgo.com/',
   webUrls: {},
+  openFunctionTabs: {},
 };
 
 /** Resolve the command and args for a profile, looking up the agent config if set */
