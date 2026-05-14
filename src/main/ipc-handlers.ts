@@ -3412,6 +3412,37 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     },
   );
 
+  // Format a buffer through Prettier (T-045). Prettier infers the
+  // parser from `filepath`; we pass the file path so it works for
+  // .ts vs .tsx vs .json. Project config (.prettierrc, etc.) is
+  // resolved relative to the file's path so a repo's local prefs
+  // override Prettier's defaults. Returns the formatted content or
+  // `{ error }` for the renderer to surface in a toast.
+  ipcMain.handle(IPC_CHANNELS.FILE_FORMAT, async (_, filePath: string, content: string): Promise<{ content?: string; error?: string }> => {
+    if (!filePath) return { error: 'missing path' };
+    // Lazy-require so the renderer never tries to pull Prettier
+    // into its bundle (it's externalized in vite.main.config.ts,
+    // but require() also stays out of any code path the renderer
+    // could reach).
+    let prettier: typeof import('prettier');
+    try {
+      prettier = await import('prettier');
+    } catch {
+      return { error: 'Prettier is not available in this build.' };
+    }
+    try {
+      const config = await prettier.resolveConfig(filePath).catch((): null => null);
+      const formatted = await prettier.format(content, {
+        ...(config ?? {}),
+        filepath: filePath,
+      });
+      return { content: formatted };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'format failed';
+      return { error: msg };
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.FILE_READ, (_, filePath: string): string | null => {
     try {
       return fs.readFileSync(filePath, 'utf-8');

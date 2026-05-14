@@ -337,6 +337,9 @@ contextBridge.exposeInMainWorld('api', {
   searchInFiles: (cwd: string, query: string, opts?: import('./shared/types').FileSearchOptions) =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_SEARCH_IN_FILES, cwd, query, opts),
 
+  formatDocument: (filePath: string, content: string): Promise<{ content?: string; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_FORMAT, filePath, content),
+
   readFile: (filePath: string): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_READ, filePath),
 

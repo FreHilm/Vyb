@@ -30,6 +30,7 @@ with the MIT license of this project.
 | [@frehilm/ordna-core](https://github.com/FreHilm/ordna) | MIT | Git-native task data layer for Kanban integration |
 | [@frehilm/ordna-web](https://github.com/FreHilm/ordna) | MIT | Embedded Hono+React Kanban server (web mode) |
 | [@frehilm/ordna-cli](https://github.com/FreHilm/ordna) | MIT | Embedded Ordna TUI — installed into an isolated `vendor/ordna-cli/` tree so its Ink + React 18 stay separate from the app's React 19 |
+| [Prettier](https://github.com/prettier/prettier) | MIT | Code formatter behind the editor's Format Document action |
 
 ## Dev Dependencies
 

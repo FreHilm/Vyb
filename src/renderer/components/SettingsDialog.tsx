@@ -195,6 +195,7 @@ export function SettingsDialog({
   const [functionKanbanEnabled, setFunctionKanbanEnabled] = useState(settings.functionKanbanEnabled !== false);
   const [functionWebEnabled, setFunctionWebEnabled] = useState(settings.functionWebEnabled !== false);
   const [showAuthorAvatars, setShowAuthorAvatars] = useState(settings.showAuthorAvatars !== false);
+  const [formatOnSave, setFormatOnSave] = useState(settings.formatOnSave === true);
   const [webDefaultUrl, setWebDefaultUrl] = useState(settings.webDefaultUrl || 'https://duckduckgo.com/');
   const [pullStrategy, setPullStrategy] = useState<'merge' | 'rebase' | 'ask'>(settings.pullStrategy ?? 'merge');
   const [pushTagsStrategy, setPushTagsStrategy] = useState<'off' | 'reachable' | 'all'>(settings.pushTagsStrategy ?? 'off');
@@ -244,6 +245,7 @@ export function SettingsDialog({
       functionKanbanEnabled,
       functionWebEnabled,
       showAuthorAvatars,
+      formatOnSave,
       webDefaultUrl: webDefaultUrl.trim() || 'https://duckduckgo.com/',
       pullStrategy,
       pushTagsStrategy,
@@ -378,6 +380,22 @@ export function SettingsDialog({
               <span className="field-hint">
                 Renders a gravatar (or coloured initials fallback) next to
                 each commit in the Tree tab. Falls back to text-only when off.
+              </span>
+
+              <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                <span className="field-label">Format on save</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={formatOnSave}
+                    onChange={(e) => setFormatOnSave(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+              <span className="field-hint">
+                Runs Prettier on every Cmd+S save. Picks up the repo's
+                local Prettier config when one exists.
               </span>
 
               {functionWebEnabled && (

@@ -70,6 +70,7 @@
     "electron-squirrel-startup": "^1.0.1",
     "mermaid": "^11.14.0",
     "node-pty": "^1.1.0",
+    "prettier": "^3.8.3",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-markdown": "^10.1.0",

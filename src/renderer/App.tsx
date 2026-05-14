@@ -198,6 +198,7 @@ declare global {
       listDir: (dirPath: string) => Promise<FileEntry[]>;
       listProjectFiles: (cwd: string) => Promise<string[]>;
       searchInFiles: (cwd: string, query: string, opts?: FileSearchOptions) => Promise<FileSearchResult>;
+      formatDocument: (filePath: string, content: string) => Promise<{ content?: string; error?: string }>;
       readFile: (filePath: string) => Promise<string | null>;
       saveFile: (filePath: string, content: string) => Promise<boolean>;
       deleteFile: (targetPath: string) => Promise<boolean>;
@@ -1976,6 +1977,7 @@ export function App() {
                   hidden={!visible}
                   pendingOpenPath={visible ? pendingFileOpen : null}
                   onPendingOpenHandled={() => setPendingFileOpen(null)}
+                  formatOnSave={settings.formatOnSave === true}
                 />
               );
             })}

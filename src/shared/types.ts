@@ -113,6 +113,10 @@ export interface AppSettings {
    * When off, the graph falls back to plain text-only author columns.
    * Default on; off-line / blocked-egress users can disable it. */
   showAuthorAvatars: boolean;
+  /** T-045: run Prettier on every file save. Default off so save
+   * stays a pure flush-to-disk for users who don't want their
+   * formatting touched. */
+  formatOnSave: boolean;
   /** Default landing page for a Web tab that has never been navigated.
    * Once a view has a saved URL in `webUrls`, this is ignored. Free-form
    * text — non-URL input is interpreted as a DuckDuckGo search at click
@@ -236,6 +240,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   pushTagsStrategy: 'off',
   diffViewMode: 'unified',
   showAuthorAvatars: true,
+  formatOnSave: false,
   webDefaultUrl: 'https://duckduckgo.com/',
   webUrls: {},
   openFunctionTabs: {},
@@ -354,6 +359,7 @@ export const IPC_CHANNELS = {
   GIT_REBASE_INTERACTIVE: 'git:rebaseInteractive',
   FILE_LIST_PROJECT: 'file:listProject',
   FILE_SEARCH_IN_FILES: 'file:searchInFiles',
+  FILE_FORMAT: 'file:format',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',

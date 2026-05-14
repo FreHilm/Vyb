@@ -5971,3 +5971,44 @@
   border-radius: 2px;
   padding: 0 1px;
 }
+
+/* T-045 format-error toast */
+.file-format-toast {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--c-red) 18%, var(--c-base));
+  border: 1px solid var(--c-red);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--c-red);
+  max-width: 60%;
+  z-index: 80;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+.file-format-toast-label { font-weight: 600; }
+.file-format-toast-msg {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--c-text);
+  background: var(--c-mantle);
+  padding: 1px 5px;
+  border-radius: 3px;
+  max-width: 600px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-format-toast-close {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
