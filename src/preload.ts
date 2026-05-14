@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { createHash } from 'crypto';
 import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitRebaseResult, GitCreatePrResult, GitStash, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
@@ -213,19 +212,6 @@ contextBridge.exposeInMainWorld('api', {
   gitCommitSignatures: (cwd: string, limit: number): Promise<Record<string, { sigStatus: string; sigSigner: string }>> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_COMMIT_SIGNATURES, cwd, limit),
 
-  // Used by the T-038 author-avatar renderer to compute the gravatar
-  // URL hash. The gravatar protocol uses lowercase trimmed email →
-  // hex MD5. We do it in the preload (Node crypto, ESM-imported at
-  // the top) rather than the renderer so we don't have to ship a JS
-  // MD5 implementation. Wrapped in try/catch so any future bundling
-  // hiccup falls back gracefully instead of crashing the renderer.
-  md5: (input: string): string => {
-    try {
-      return createHash('md5').update(input).digest('hex');
-    } catch {
-      return '';
-    }
-  },
   gitMerge: (cwd: string, sourceRef: string): Promise<GitMergeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>

@@ -120,7 +120,6 @@ declare global {
       gitGetSignCommits: (cwd: string) => Promise<boolean>;
       gitSetSignCommits: (cwd: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
       gitCommitSignatures: (cwd: string, limit: number) => Promise<Record<string, { sigStatus: string; sigSigner: string }>>;
-      md5: (input: string) => string;
       getGitChangedFiles: (cwd: string) => Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>;
       getGitFileDiff: (cwd: string, filePath: string, staged?: boolean) => Promise<string>;
       getGitLog: (cwd: string, limit: number) => Promise<GitCommit[]>;
