@@ -397,6 +397,11 @@ export function App() {
       // Skip CodeMirror (contentEditable). CodeMirror has its own keymap that
       // owns Cmd+C/V/X — we must NOT preventDefault on it.
       if (el.closest('.cm-editor')) return false;
+      // Skip Excalidraw — it routes clipboard through native 'copy' /
+      // 'paste' / 'cut' DOM events on its hidden helper textarea, not
+      // through the input/textarea value path. The dedicated Excalidraw
+      // branch below uses `execCommand` to fire those events instead.
+      if (el.closest('.excalidraw-host')) return false;
       const tag = el.tagName;
       if (tag === 'INPUT') {
         const type = (el as HTMLInputElement).type;
@@ -433,6 +438,23 @@ export function App() {
       const key = e.key.toLowerCase();
       if (!['c', 'v', 'x', 'a', 'z'].includes(key)) return;
       const target = e.target;
+
+      // Excalidraw: route Cmd+C / V / X through `document.execCommand`,
+      // which synthesises a real native ClipboardEvent that Excalidraw's
+      // own document-level 'copy' / 'paste' / 'cut' listeners catch.
+      // Without this, Excalidraw never gets the chance to populate
+      // clipboardData because no Cocoa-role accelerator fires the
+      // ClipboardEvent in the first place. Cmd+A / Cmd+Z fall through
+      // to Excalidraw's own keydown listeners untouched.
+      if (target instanceof HTMLElement && target.closest('.excalidraw-host')) {
+        if (key === 'c' || key === 'v' || key === 'x') {
+          e.preventDefault();
+          try {
+            document.execCommand(key === 'c' ? 'copy' : key === 'v' ? 'paste' : 'cut');
+          } catch { /* best-effort */ }
+        }
+        return;
+      }
 
       // Cmd+C anywhere outside text fields, xterm and CodeMirror — copy
       // the current window selection if any. Without this, selecting text
