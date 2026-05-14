@@ -130,7 +130,7 @@ declare global {
         branch?: string;
         message?: string;
       }>;
-      gitPush: (cwd: string) => Promise<GitOpResult>;
+      gitPush: (cwd: string, tagMode?: 'off' | 'reachable' | 'all') => Promise<GitOpResult>;
       gitPull: (cwd: string) => Promise<GitOpResult>;
       gitMerge: (cwd: string, sourceRef: string) => Promise<GitMergeResult>;
       gitMergeAbort: (cwd: string) => Promise<GitOpResult>;
@@ -1958,6 +1958,7 @@ export function App() {
             activeTab={gitPanelTab}
             onTabChange={setGitPanelTab}
             pullStrategy={settings.pullStrategy ?? 'merge'}
+            pushTagsStrategy={settings.pushTagsStrategy ?? 'off'}
           />
         )}
       </div>

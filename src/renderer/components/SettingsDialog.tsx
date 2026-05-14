@@ -196,6 +196,7 @@ export function SettingsDialog({
   const [functionWebEnabled, setFunctionWebEnabled] = useState(settings.functionWebEnabled !== false);
   const [webDefaultUrl, setWebDefaultUrl] = useState(settings.webDefaultUrl || 'https://duckduckgo.com/');
   const [pullStrategy, setPullStrategy] = useState<'merge' | 'rebase' | 'ask'>(settings.pullStrategy ?? 'merge');
+  const [pushTagsStrategy, setPushTagsStrategy] = useState<'off' | 'reachable' | 'all'>(settings.pushTagsStrategy ?? 'off');
 
   useEffect(() => {
     window.api.getOrdnaHookInfo().then(setOrdnaHookInfo).catch((): void => undefined);
@@ -243,6 +244,7 @@ export function SettingsDialog({
       functionWebEnabled,
       webDefaultUrl: webDefaultUrl.trim() || 'https://duckduckgo.com/',
       pullStrategy,
+      pushTagsStrategy,
     });
   };
 
@@ -392,6 +394,22 @@ export function SettingsDialog({
                   Controls what the panel's primary Pull button does. The
                   chevron dropdown always offers both. "Ask" leaves the
                   primary disabled so you pick on every click.
+                </span>
+              </label>
+
+              <label className="field" style={{ marginTop: 12 }}>
+                <span className="field-label">Push tags by default</span>
+                <select
+                  value={pushTagsStrategy}
+                  onChange={(e) => setPushTagsStrategy(e.target.value as 'off' | 'reachable' | 'all')}
+                >
+                  <option value="off">Off — push commits only</option>
+                  <option value="reachable">Reachable — --follow-tags</option>
+                  <option value="all">All — --tags</option>
+                </select>
+                <span className="field-hint">
+                  Controls what plain Push does about tags. The chevron
+                  dropdown always exposes both explicit options regardless.
                 </span>
               </label>
             </>

@@ -94,6 +94,10 @@ interface GitChangesPanelProps {
   /** Default behaviour for the primary Pull button. 'ask' means primary
    * opens the chevron menu so the user picks each time. */
   pullStrategy?: 'merge' | 'rebase' | 'ask';
+  /** What plain Push does about tags by default. The explicit
+   * "Push with tags" / "Push reachable tags" dropdown items always
+   * use their literal mode, ignoring this. */
+  pushTagsStrategy?: 'off' | 'reachable' | 'all';
 }
 
 function fileName(filePath: string): string {
@@ -176,7 +180,7 @@ function FileDiff({ diff }: { diff: string }) {
   );
 }
 
-export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWidthChange, activeTab, onTabChange, pullStrategy = 'merge' }: GitChangesPanelProps) {
+export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWidthChange, activeTab, onTabChange, pullStrategy = 'merge', pushTagsStrategy = 'off' }: GitChangesPanelProps) {
   const [files, setFiles] = useState<GitChangedFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -255,12 +259,12 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
 
   // Push / Pull / Fetch — shared across all three tabs. Each bumps the
   // reload epoch so the active sub-view re-fetches its data.
-  const handlePush = useCallback(async () => {
+  const runPushVariant = useCallback(async (tagMode: 'off' | 'reachable' | 'all') => {
     if (syncing) return;
     setSyncing('push');
     setSyncError(null);
     try {
-      const result = await window.api.gitPush(workingDirectory);
+      const result = await window.api.gitPush(workingDirectory, tagMode);
       if (!result.ok) setSyncError(result.message ?? 'push failed');
       await loadStatus();
       setReloadEpoch((n) => n + 1);
@@ -268,6 +272,8 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
       setSyncing(null);
     }
   }, [workingDirectory, syncing, loadStatus]);
+
+  const handlePush = useCallback(() => runPushVariant(pushTagsStrategy), [runPushVariant, pushTagsStrategy]);
 
   const runPullVariant = useCallback(async (kind: 'merge' | 'rebase') => {
     if (syncing) return;
@@ -649,6 +655,18 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
                   behind,
                 }),
               };
+              const reachableTagsItem: SplitButtonItem = {
+                label: 'Push (with reachable tags)',
+                hint: 'git push --follow-tags — annotated tags reachable from the pushed commits',
+                disabled: !pushEnabled || syncing !== null,
+                onClick: () => runPushVariant('reachable'),
+              };
+              const allTagsItem: SplitButtonItem = {
+                label: 'Push (with all tags)',
+                hint: 'git push --tags — every local tag (may fail on existing remote tags)',
+                disabled: !pushEnabled || syncing !== null,
+                onClick: () => runPushVariant('all'),
+              };
               return (
                 <SplitButton
                   className={`git-panel-statusbar-btn ${syncing === 'push' ? 'is-busy' : ''}`}
@@ -665,7 +683,7 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
                     </svg>
                   )}
                   badge={ahead > 0 ? <span className="git-panel-statusbar-badge">{ahead}</span> : undefined}
-                  items={[forceItem]}
+                  items={[reachableTagsItem, allTagsItem, forceItem]}
                 />
               );
             })()}
