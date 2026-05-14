@@ -117,9 +117,10 @@ export interface AppSettings {
    * stays a pure flush-to-disk for users who don't want their
    * formatting touched. */
   formatOnSave: boolean;
-  /** T-046: show a clickable path-segment breadcrumb above the
-   * editor + render sticky scope headers inside the viewport. */
-  editorBreadcrumbs: boolean;
+  /** T-046: render sticky scope headers inside the editor viewport.
+   * (The breadcrumbs row that originally lived alongside this was
+   * removed — the file tab already shows the filename and the
+   * "Reveal in tree" button covers the path-jump use case.) */
   editorStickyScroll: boolean;
   /** T-047: editor font size in pixels. Cmd+= / Cmd+- / Cmd+0 in
    * a focused CodeMirror buffer adjust this; Settings → Appearance
@@ -250,7 +251,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   diffViewMode: 'unified',
   showAuthorAvatars: true,
   formatOnSave: false,
-  editorBreadcrumbs: true,
   editorStickyScroll: true,
   editorFontSize: 13,
   webDefaultUrl: 'https://duckduckgo.com/',
