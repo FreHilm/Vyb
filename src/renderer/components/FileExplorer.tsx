@@ -22,6 +22,7 @@ import { ExcalidrawEditor, type ExcalidrawEditorHandle } from './ExcalidrawEdito
 import { SWORD_SHAPE } from '../file-icons';
 import { FileHistoryView } from './FileHistoryView';
 import { blameGutter } from '../lib/blame-gutter';
+import { stickyScroll } from '../lib/sticky-scroll';
 import type { GitBlameLine } from '../../shared/types';
 
 interface FileExplorerProps {
@@ -41,6 +42,10 @@ interface FileExplorerProps {
    * Format Document action (toolbar / Shift+Alt+F) always works
    * regardless of this flag. */
   formatOnSave?: boolean;
+  /** T-046: render the path breadcrumb row above the tab bar. */
+  breadcrumbs?: boolean;
+  /** T-046: include the sticky-scroll plugin in the editor. */
+  stickyScroll?: boolean;
 }
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp']);
@@ -437,6 +442,8 @@ export function FileExplorer({
   pendingOpenPath,
   onPendingOpenHandled,
   formatOnSave = false,
+  breadcrumbs = true,
+  stickyScroll: stickyScrollEnabled = true,
 }: FileExplorerProps) {
   const [rootEntries, setRootEntries] = useState<FileEntry[]>([]);
   const [tabs, setTabs] = useState<FileTab[]>([]);
@@ -839,6 +846,11 @@ export function FileExplorer({
   // reads the latest value without rebinding when the setting changes.
   const formatOnSaveRef = useRef(formatOnSave);
   formatOnSaveRef.current = formatOnSave;
+  // T-046: sticky-scroll toggle. Read by mountEditor at editor
+  // construction time — toggling the setting takes effect on the
+  // next tab open / remount, not the live editor.
+  const stickyScrollEnabledRef = useRef(stickyScrollEnabled);
+  stickyScrollEnabledRef.current = stickyScrollEnabled;
 
   // T-045: run Prettier against the active editor buffer.
   // Cursor is approximately preserved via line/column snap — Prettier
@@ -1010,6 +1022,10 @@ export function FileExplorer({
             setHistoryFile({ path: relPath, name, initialSha: sha });
           })]
           : []),
+        // T-046 sticky scroll. Plugin no-ops when the open file's
+        // language doesn't expose scope nodes (plain text, JSON, etc.),
+        // so it's safe to include for every buffer.
+        ...(stickyScrollEnabledRef.current ? [stickyScroll()] : []),
         ...(Array.isArray(lang) ? lang : [lang]),
         keymap.of([
           { key: 'Mod-s', run: () => { handleSave(); return true; } },
@@ -1700,6 +1716,35 @@ export function FileExplorer({
       style={hidden ? { display: 'none' } : undefined}
     >
       <div className="file-editor-pane">
+        {/* T-046 breadcrumbs — clickable path segments above the tab
+            bar. Each segment opens the corresponding tree path via
+            the same revealRequest pipeline tabs use. */}
+        {breadcrumbs && activeTabPath && (() => {
+          const base = workingDirectory.replace(/\/+$/, '');
+          const rel = activeTabPath.startsWith(base) ? activeTabPath.slice(base.length + 1) : activeTabPath;
+          const segments = rel.split('/');
+          const crumbs: { label: string; target: string }[] = [];
+          let acc = base;
+          for (let i = 0; i < segments.length; i++) {
+            acc = `${acc}/${segments[i]}`;
+            crumbs.push({ label: segments[i], target: acc });
+          }
+          return (
+            <div className="file-breadcrumbs" title={activeTabPath}>
+              {crumbs.map((c, i) => (
+                <span key={c.target} className="file-breadcrumbs-segment">
+                  {i > 0 && <span className="file-breadcrumbs-sep">›</span>}
+                  <button
+                    className={`file-breadcrumbs-link${i === crumbs.length - 1 ? ' is-current' : ''}`}
+                    onClick={() => setRevealRequest({ path: c.target, nonce: Date.now() })}
+                  >
+                    {c.label}
+                  </button>
+                </span>
+              ))}
+            </div>
+          );
+        })()}
         {/* Tab bar */}
         <div className="file-tab-bar">
           <div className="file-tabs-scroll">

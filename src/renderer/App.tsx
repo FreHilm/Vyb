@@ -1978,6 +1978,8 @@ export function App() {
                   pendingOpenPath={visible ? pendingFileOpen : null}
                   onPendingOpenHandled={() => setPendingFileOpen(null)}
                   formatOnSave={settings.formatOnSave === true}
+                  breadcrumbs={settings.editorBreadcrumbs !== false}
+                  stickyScroll={settings.editorStickyScroll !== false}
                 />
               );
             })}

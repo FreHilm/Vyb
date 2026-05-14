@@ -6012,3 +6012,72 @@
   cursor: pointer;
   padding: 0 4px;
 }
+
+/* T-046 breadcrumbs */
+.file-breadcrumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 4px 12px;
+  background: var(--c-mantle);
+  border-bottom: 1px solid var(--c-surface0);
+  font-size: 11px;
+  color: var(--c-overlay1);
+  user-select: none;
+  flex-shrink: 0;
+}
+.file-breadcrumbs-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.file-breadcrumbs-sep {
+  color: var(--c-overlay0);
+  margin: 0 2px;
+}
+.file-breadcrumbs-link {
+  background: transparent;
+  border: none;
+  color: var(--c-overlay1);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+.file-breadcrumbs-link:hover {
+  color: var(--c-text);
+  background: var(--c-surface0);
+}
+.file-breadcrumbs-link.is-current {
+  color: var(--c-text);
+  font-weight: 500;
+}
+
+/* T-046 sticky scroll overlay */
+.cm-sticky-scroll {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: color-mix(in srgb, var(--c-mantle) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--c-surface0);
+  z-index: 3;
+  pointer-events: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.cm-sticky-scroll-row {
+  padding: 1px 12px;
+  color: var(--c-overlay1);
+  cursor: pointer;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-left: 2px solid transparent;
+}
+.cm-sticky-scroll-row:hover {
+  background: var(--c-surface0);
+  color: var(--c-text);
+  border-left-color: var(--c-yellow);
+}
