@@ -1475,26 +1475,55 @@
   font-weight: 500;
 }
 
-.field-select {
-  background: var(--c-surface0);
-  border: 1px solid var(--c-surface1);
-  border-radius: 6px;
-  padding: 8px 12px;
+/* Themed native <select>. Every <select> in the app inherits this
+   so we don't have to remember to tag each one. Custom chevron
+   inlined as a data-URL SVG so the right edge has a visible
+   indicator without relying on the browser's default arrow (which
+   looks out of place against the Catppuccin surfaces). */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--c-mantle);
   color: var(--c-text);
-  font-size: 13px;
+  border: 1px solid var(--c-surface1);
+  border-radius: 4px;
+  padding: 5px 26px 5px 8px;
+  font-size: 12px;
   font-family: inherit;
   outline: none;
-  width: 100%;
   cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 16 16' fill='none' stroke='%23a6adc8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><polyline points='4 6 8 10 12 6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px 12px;
+  transition: border-color 0.12s, background-color 0.12s;
 }
-
-.field-select:focus {
+select:hover:not(:disabled) {
+  border-color: var(--c-surface2);
+}
+select:focus {
   border-color: var(--c-blue);
 }
-
-.field-select option {
-  background: var(--c-base);
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* Browser-drawn dropdown popup. Chromium honours these on most
+   platforms; Safari's native popup is harder to tame but at least
+   the colours land. */
+select option {
+  background-color: var(--c-mantle);
   color: var(--c-text);
+}
+
+.field-select {
+  /* Settings → Appearance + a couple of other places use this
+     class for a roomier select. Stays compatible with the base
+     `select` rule above — these props just override padding/font
+     so the dialog form rows read consistently. */
+  padding: 8px 32px 8px 12px;
+  font-size: 13px;
+  width: 100%;
 }
 
 .field-textarea {
@@ -2087,8 +2116,48 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
-.git-commit-amend-toggle input[type="checkbox"] {
+.git-commit-amend-toggle input[type="checkbox"],
+.git-commit-sign-toggle input[type="checkbox"] {
+  /* Custom-themed checkbox to match Catppuccin surfaces. Native
+     checkboxes render as a system gray box that clashes with the
+     panel's `--c-mantle` background. */
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
   margin: 0;
+  border: 1px solid var(--c-surface2);
+  border-radius: 3px;
+  background: var(--c-mantle);
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  transition: background-color 0.12s, border-color 0.12s;
+  flex-shrink: 0;
+}
+.git-commit-amend-toggle input[type="checkbox"]:hover:not(:disabled),
+.git-commit-sign-toggle input[type="checkbox"]:hover:not(:disabled) {
+  border-color: var(--c-overlay0);
+}
+.git-commit-amend-toggle input[type="checkbox"]:checked,
+.git-commit-sign-toggle input[type="checkbox"]:checked {
+  background: var(--c-green);
+  border-color: var(--c-green);
+}
+.git-commit-amend-toggle input[type="checkbox"]:checked::after,
+.git-commit-sign-toggle input[type="checkbox"]:checked::after {
+  /* Checkmark drawn via two CSS borders rotated into a tick. */
+  content: '';
+  width: 4px;
+  height: 8px;
+  border: solid var(--c-base);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+.git-commit-amend-toggle input[type="checkbox"]:disabled,
+.git-commit-sign-toggle input[type="checkbox"]:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 .git-commit-amend-warning {
   color: #f59e0b;
@@ -2745,9 +2814,8 @@
   cursor: pointer;
   user-select: none;
 }
-.git-commit-sign-toggle input {
-  accent-color: var(--c-green);
-}
+/* (input styling now lives with .git-commit-amend-toggle's rules
+   above — both checkboxes share the custom-themed checkbox look.) */
 .git-commit-sign-toggle .git-commit-sign-active {
   color: var(--c-green);
 }
