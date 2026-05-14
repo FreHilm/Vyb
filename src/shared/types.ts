@@ -313,6 +313,8 @@ export const IPC_CHANNELS = {
   GIT_FILE_LOG: 'git:fileLog',
   GIT_FILE_LOG_DIFF: 'git:fileLogDiff',
   GIT_BLAME_FILE: 'git:blameFile',
+  GIT_GET_SIGN_COMMITS: 'git:getSignCommits',
+  GIT_SET_SIGN_COMMITS: 'git:setSignCommits',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',
@@ -469,6 +471,15 @@ export interface GitCommit {
   email: string;        // author email
   date: string;         // ISO 8601 author date
   subject: string;      // first line of commit message
+  /** T-042 GPG signature status. Single-character code from git's
+   * `%G?` placeholder. Absent / 'N' = unsigned (omitted from the
+   * object to keep memory low on large repos). 'G' = good, 'B' = bad,
+   * 'U' = good but unknown validity, 'X' = good but expired,
+   * 'Y' = good but expired key, 'R' = good but revoked key,
+   * 'E' = signature can't be checked. */
+  sigStatus?: string;
+  /** Signer name from `%GS` when a signature was present. */
+  sigSigner?: string;
 }
 
 /** Per-line blame record returned by `git:blameFile` (T-027). One

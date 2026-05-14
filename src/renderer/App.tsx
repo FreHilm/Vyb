@@ -117,6 +117,8 @@ declare global {
       gitFileLog: (cwd: string, filePath: string, limit?: number) => Promise<GitCommit[]>;
       gitFileLogDiff: (cwd: string, sha: string, filePath: string) => Promise<string>;
       gitBlameFile: (cwd: string, filePath: string) => Promise<GitBlameLine[]>;
+      gitGetSignCommits: (cwd: string) => Promise<boolean>;
+      gitSetSignCommits: (cwd: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
       md5: (input: string) => string;
       getGitChangedFiles: (cwd: string) => Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>;
       getGitFileDiff: (cwd: string, filePath: string, staged?: boolean) => Promise<string>;

@@ -205,6 +205,11 @@ contextBridge.exposeInMainWorld('api', {
   gitBlameFile: (cwd: string, filePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_BLAME_FILE, cwd, filePath),
 
+  gitGetSignCommits: (cwd: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_SIGN_COMMITS, cwd),
+  gitSetSignCommits: (cwd: string, enabled: boolean): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_SET_SIGN_COMMITS, cwd, enabled),
+
   // Used by the T-038 author-avatar renderer to compute the gravatar
   // URL hash. The gravatar protocol uses lowercase trimmed email →
   // hex MD5. We do it in the preload (Node crypto) rather than the

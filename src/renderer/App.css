@@ -2485,6 +2485,35 @@
   color: rgba(255, 255, 255, 0.92);
   line-height: 1;
 }
+
+/* ── Signature badge (T-042) ───────────────────────────────── */
+.git-tree-sig {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.git-tree-sig-verified { color: var(--c-green); }
+.git-tree-sig-bad { color: var(--c-red); }
+.git-tree-sig-unknown { color: var(--c-yellow); }
+
+/* Sign-commits indicator + toggle next to the commit button. */
+.git-commit-sign-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--c-overlay1);
+  margin: 6px 0 0;
+  cursor: pointer;
+  user-select: none;
+}
+.git-commit-sign-toggle input {
+  accent-color: var(--c-green);
+}
+.git-commit-sign-toggle .git-commit-sign-active {
+  color: var(--c-green);
+}
 .git-tree-sha {
   color: var(--c-overlay0);
   font-family: 'Menlo', 'Monaco', 'Courier New', monospace;

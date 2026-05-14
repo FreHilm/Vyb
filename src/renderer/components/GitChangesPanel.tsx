@@ -867,6 +867,29 @@ export function GitChangesPanel({
   // resolve clears.
   const [activeConflictFile, setActiveConflictFile] = useState<string | null>(null);
 
+  // T-042: commit.gpgsign state for this repo, surfaced as a toggle
+  // under the commit button. Refreshed on cwd change.
+  const [signCommits, setSignCommits] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const enabled = await window.api.gitGetSignCommits(workingDirectory);
+      if (!cancelled) setSignCommits(enabled);
+    })();
+    return () => { cancelled = true; };
+  }, [workingDirectory]);
+  const handleToggleSignCommits = useCallback(async () => {
+    const next = !signCommits;
+    setSignCommits(next);
+    const result = await window.api.gitSetSignCommits(workingDirectory, next);
+    if (!result.ok) {
+      // Revert on failure and surface the git error in the existing
+      // commit-error banner so the user sees what happened.
+      setSignCommits(!next);
+      setCommitError(result.error || 'Failed to update commit.gpgsign');
+    }
+  }, [signCommits, workingDirectory]);
+
   const closeCompare = useCallback(() => {
     setCompareSpec(null);
     onTabChange('changes');
@@ -1514,6 +1537,8 @@ export function GitChangesPanel({
           onToggleAmend={toggleAmendMode}
           diffViewMode={diffViewMode}
           onApplyPatch={applyPatch}
+          signCommits={signCommits}
+          onToggleSignCommits={handleToggleSignCommits}
         />
       )}
       {activeConflictFile && (
@@ -1670,6 +1695,11 @@ interface ChangesViewProps {
    * `fromStaged` is true when the patch was built from the staged
    * diff (so the handler passes `--reverse` to git apply). */
   onApplyPatch?: (filePath: string, fromStaged: boolean, patch: string) => Promise<void>;
+  /** T-042: current commit.gpgsign state and toggle handler. When
+   * the handler is undefined the toggle row stays hidden — the
+   * indicator is read-only for read-only contexts. */
+  signCommits?: boolean;
+  onToggleSignCommits?: () => void;
 }
 
 function ChangesView({
@@ -1698,6 +1728,8 @@ function ChangesView({
   onToggleAmend,
   diffViewMode,
   onApplyPatch,
+  signCommits = false,
+  onToggleSignCommits,
 }: ChangesViewProps) {
   const unstaged = files.filter((f) => !f.staged);
   const staged = files.filter((f) => f.staged);
@@ -1797,6 +1829,19 @@ function ChangesView({
             </span>
           )}
         </div>
+        {onToggleSignCommits && (
+          <label
+            className="git-commit-sign-toggle"
+            title="Adds commit.gpgsign=true to this repo's local git config. Requires a working GPG/SSH signing setup."
+          >
+            <input
+              type="checkbox"
+              checked={signCommits}
+              onChange={onToggleSignCommits}
+            />
+            <span className={signCommits ? 'git-commit-sign-active' : undefined}>Sign commits</span>
+          </label>
+        )}
         <button
           className="git-commit-btn"
           disabled={!canCommit}
