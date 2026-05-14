@@ -630,9 +630,22 @@ export function FileExplorer({
         setGitDecorations(map);
       } catch { /* not a repo, etc. */ }
     };
+    // Initial refresh runs right away; the recurring poll starts on
+    // a 5 s offset so it doesn't fire in the same tick as the
+    // StatusBar's git status poll (both used to align on mount,
+    // doubling main-process load every 10 s). With the offset they
+    // alternate every 5 s instead of pile-up every 10 s.
     refresh();
-    const timer = setInterval(refresh, 10_000);
-    return () => { cancelled = true; clearInterval(timer); };
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const start = setTimeout(() => {
+      if (cancelled) return;
+      interval = setInterval(refresh, 10_000);
+    }, 5_000);
+    return () => {
+      cancelled = true;
+      clearTimeout(start);
+      if (interval) clearInterval(interval);
+    };
   }, [hidden, workingDirectory, refreshKey]);
 
   // T-043 reveal-in-tree handler. Bumps the existing revealRequest

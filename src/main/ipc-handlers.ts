@@ -1,5 +1,6 @@
 import { app, ipcMain, shell, dialog, BrowserWindow, Notification } from 'electron';
-import { exec, execSync, execFileSync, spawn } from 'child_process';
+import { exec, execSync, execFile, execFileSync, spawn } from 'child_process';
+import { promisify } from 'util';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -110,6 +111,58 @@ function safeSend(channel: string, payload: unknown): void {
   } catch {
     // Window already destroyed during shutdown
   }
+}
+
+// ── Async git command runner + dedupe / cache (perf) ───────────────
+//
+// Replaces the per-handler execSync chains. Each git call now goes
+// through `execFile` (async), so the main process event loop can keep
+// processing PTY data + IPC while git is running. Sequential chains
+// in the same handler get the additional benefit of running in
+// parallel via Promise.all where dependencies allow.
+//
+// In-flight dedup: a second call to GIT_STATUS / GIT_CHANGED_FILES
+// for the same cwd while a previous one is in flight reuses that
+// promise instead of starting a fresh one. StatusBar + the file-tree
+// decorations poll fire close together; before this they'd both
+// spawn the full chain.
+//
+// Short TTL cache: GIT_STATUS results stay valid for 1.5 s so two
+// nearby polls share a single git invocation. GIT_CHANGED_FILES is
+// mutation-sensitive (commit / stage / unstage etc.) — those don't
+// get TTL caching, only dedup, so an explicit reload after a write
+// still hits git.
+const execFileAsync = promisify(execFile);
+
+async function runGitAsync(
+  cwd: string,
+  args: string[],
+  opts: { timeout?: number; maxBuffer?: number; raw?: boolean } = {},
+): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync('git', args, {
+      cwd,
+      timeout: opts.timeout ?? 5000,
+      encoding: 'utf-8',
+      maxBuffer: opts.maxBuffer ?? 10 * 1024 * 1024,
+    });
+    return opts.raw ? stdout : stdout.trim();
+  } catch {
+    return '';
+  }
+}
+
+const GIT_STATUS_TTL_MS = 800;
+const gitStatusCache = new Map<string, { result: GitStatus; ts: number }>();
+const gitStatusInFlight = new Map<string, Promise<GitStatus>>();
+const gitChangedFilesInFlight = new Map<string, Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>>();
+
+// Called by every IPC handler that mutates git state (stage / commit
+// / push / merge / rebase / …). Drops the cached GitStatus so the
+// next poll runs fresh — otherwise a save → commit → glance-at-bar
+// flow could show 800 ms of pre-commit numbers.
+function bustGitCache(cwd: string): void {
+  gitStatusCache.delete(cwd);
 }
 
 export function setupIpcHandlers(window: BrowserWindow): void {
@@ -745,7 +798,24 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     saveScrollback(profileId, data);
   });
 
-  ipcMain.handle(IPC_CHANNELS.GIT_STATUS, (_, cwd: string): GitStatus => {
+  ipcMain.handle(IPC_CHANNELS.GIT_STATUS, async (_, cwd: string): Promise<GitStatus> => {
+    // Cache + dedupe wrapper. A second call for the same cwd within
+    // GIT_STATUS_TTL_MS reuses the previous result; a call while one
+    // is in flight awaits the same promise.
+    const cached = gitStatusCache.get(cwd);
+    if (cached && Date.now() - cached.ts < GIT_STATUS_TTL_MS) return cached.result;
+    const inFlight = gitStatusInFlight.get(cwd);
+    if (inFlight) return inFlight;
+    const promise = computeGitStatus(cwd).finally(() => {
+      gitStatusInFlight.delete(cwd);
+    });
+    gitStatusInFlight.set(cwd, promise);
+    const result = await promise;
+    gitStatusCache.set(cwd, { result, ts: Date.now() });
+    return result;
+  });
+
+  async function computeGitStatus(cwd: string): Promise<GitStatus> {
     const empty: GitStatus = {
       isGit: false, branch: '', modified: 0, staged: 0, untracked: 0,
       ahead: 0, behind: 0, stashes: 0, lastCommit: '', remoteUrl: '',
@@ -754,33 +824,39 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       cherryPickInProgress: false, revertInProgress: false,
       conflictedFiles: [],
     };
-    const run = (cmd: string): string => {
-      try {
-        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-      } catch {
-        return '';
-      }
-    };
-    // Status porcelain MUST NOT be trimmed — see GIT_CHANGED_FILES for
-    // the gory detail (trim eats the leading space when X is space, i.e.
-    // unstaged-only changes, and shifts the whole line by one).
-    const runRaw = (cmd: string): string => {
-      try {
-        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-      } catch {
-        return '';
-      }
-    };
 
-    // Check if git repo
-    const isGit = run('git rev-parse --is-inside-work-tree') === 'true';
-    if (!isGit) return empty;
+    // Gate: only continue if we're inside a git work tree. This is
+    // the one command that must come before everything else (no
+    // point spawning seven more if it returns false).
+    const isGitOut = await runGitAsync(cwd, ['rev-parse', '--is-inside-work-tree']);
+    if (isGitOut !== 'true') return empty;
 
-    const branch = run('git branch --show-current') || run('git rev-parse --short HEAD');
+    // Everything below is independent — fan out in parallel. Each
+    // command's failure path returns '' so a single missing piece
+    // (e.g. no upstream → no ahead/behind) doesn't poison the rest.
+    const [
+      branchPrimary, branchFallback,
+      rawStatus,
+      abStr,
+      stashList,
+      lastCommit,
+      remoteUrlRaw,
+      gitDir,
+    ] = await Promise.all([
+      runGitAsync(cwd, ['branch', '--show-current']),
+      runGitAsync(cwd, ['rev-parse', '--short', 'HEAD']),
+      runGitAsync(cwd, ['status', '--porcelain', '-z'], { raw: true }),
+      runGitAsync(cwd, ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}']),
+      runGitAsync(cwd, ['stash', 'list']),
+      runGitAsync(cwd, ['log', '-1', '--pretty=format:%s']),
+      runGitAsync(cwd, ['remote', 'get-url', 'origin']),
+      runGitAsync(cwd, ['rev-parse', '--git-dir']),
+    ]);
 
-    // Porcelain status for counts + conflict detection. Use NUL-separated
-    // mode so we don't have to worry about leading-space chopping.
-    const rawStatus = runRaw('git status --porcelain -z');
+    const branch = branchPrimary || branchFallback;
+
+    // Status porcelain parsing — same logic as before, just operating
+    // on the awaited string.
     const statusLines = rawStatus.split('\0').filter((l) => l.length > 0);
     let modified = 0;
     let staged = 0;
@@ -792,9 +868,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       const x = line[0];
       const y = line[1];
       const filePath = line.slice(3);
-      // Rename's orig-path follows as its own NUL-record — skip it.
       if (x === 'R' || y === 'R') li++;
-      // Conflict states per gitstatus(7): UU, AA, DD, AU, UA, DU, UD.
       if (x === 'U' || y === 'U' || (x === 'A' && y === 'A') || (x === 'D' && y === 'D')) {
         conflictedFiles.push(filePath);
       }
@@ -806,7 +880,6 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     // Ahead/behind
     let ahead = 0;
     let behind = 0;
-    const abStr = run('git rev-list --left-right --count HEAD...@{upstream}');
     if (abStr) {
       const parts = abStr.split(/\s+/);
       ahead = parseInt(parts[0], 10) || 0;
@@ -814,20 +887,14 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
 
     // Stash count
-    const stashList = run('git stash list');
     const stashes = stashList ? stashList.split('\n').filter(Boolean).length : 0;
 
-    // Last commit
-    const lastCommit = run('git log -1 --pretty=format:%s');
-
     // Remote URL — convert SSH to HTTPS
-    let remoteUrl = run('git remote get-url origin');
+    let remoteUrl = remoteUrlRaw;
     if (remoteUrl) {
-      // git@github.com:user/repo.git → https://github.com/user/repo
       remoteUrl = remoteUrl
         .replace(/^git@([^:]+):/, 'https://$1/')
         .replace(/\.git$/, '');
-      // Ensure it starts with https
       if (!remoteUrl.startsWith('http')) {
         remoteUrl = '';
       }
@@ -847,7 +914,6 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     let cherryPickInProgress = false;
     let revertInProgress = false;
     try {
-      const gitDir = run('git rev-parse --git-dir');
       if (gitDir) {
         const absGitDir = path.isAbsolute(gitDir) ? gitDir : path.join(cwd, gitDir);
 
@@ -871,8 +937,11 @@ export function setupIpcHandlers(window: BrowserWindow): void {
             try {
               const ontoSha = fs.readFileSync(path.join(rebaseDir, 'onto'), 'utf-8').trim();
               // Resolve to a friendlier name if possible (e.g. "main"),
-              // otherwise short SHA.
-              const named = run(`git name-rev --name-only --no-undefined ${ontoSha}`);
+              // otherwise short SHA. This is the one sequential git
+              // call we couldn't fan out earlier — it depends on the
+              // onto SHA. Awaiting here adds maybe 20ms only when an
+              // actual rebase is in progress.
+              const named = await runGitAsync(cwd, ['name-rev', '--name-only', '--no-undefined', ontoSha]);
               rebaseOnto = named || ontoSha.slice(0, 8);
             } catch { /* leave empty */ }
             break;
@@ -885,13 +954,14 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     } catch { /* not a real concern, leave defaults */ }
 
     return {
-      isGit, branch, modified, staged, untracked, ahead, behind, stashes, lastCommit, remoteUrl,
+      isGit: true,
+      branch, modified, staged, untracked, ahead, behind, stashes, lastCommit, remoteUrl,
       mergeInProgress, mergeFromBranch,
       rebaseInProgress, rebaseHeadName, rebaseOnto,
       cherryPickInProgress, revertInProgress,
       conflictedFiles,
     };
-  });
+  }
 
   ipcMain.handle(IPC_CHANNELS.GIT_FETCH, (_, cwd: string): boolean => {
     try {
@@ -902,33 +972,31 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.GIT_CHANGED_FILES, (_, cwd: string): { path: string; added: number; deleted: number; status: string; staged: boolean }[] => {
-    const run = (cmd: string): string => {
-      try {
-        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-      } catch {
-        return '';
-      }
-    };
-    // Status porcelain MUST NOT be trimmed — git's first column (X) is a
-    // single character that is space when the change isn't staged
-    // (e.g. ` M file.txt`). `.trim()` strips that leading space and
-    // shifts the whole line by one, classifying unstaged changes as
-    // staged AND chopping the first character off the filename. We use
-    // a separate non-trimming runner just for this command.
-    const runRaw = (cmd: string): string => {
-      try {
-        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
-      } catch {
-        return '';
-      }
-    };
+  ipcMain.handle(IPC_CHANNELS.GIT_CHANGED_FILES, async (_, cwd: string): Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]> => {
+    // In-flight dedupe only — no TTL cache here. Stage / unstage /
+    // commit IPCs invalidate the working state, and the renderer
+    // calls this handler immediately after each, expecting fresh
+    // data. A TTL would risk staleness for those flows.
+    const existing = gitChangedFilesInFlight.get(cwd);
+    if (existing) return existing;
+    const promise = computeChangedFiles(cwd).finally(() => {
+      gitChangedFilesInFlight.delete(cwd);
+    });
+    gitChangedFilesInFlight.set(cwd, promise);
+    return promise;
+  });
 
-    // Parse status porcelain. We try `-z` (NUL-separated, unquoted paths,
-    // renames emitted as two records) first because it's unambiguous.
-    // If that produces nothing despite the LF-mode output having content
-    // (some weird env where `-z` falls through), we fall back to the
-    // LF-split path so we never regress to "no files shown".
+  async function computeChangedFiles(cwd: string): Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]> {
+    // The three git commands we need are independent — fan out.
+    // `git status --porcelain=v1 -z` is RAW (no trim) because the
+    // first column is significant whitespace (a leading space
+    // means "not staged"); trimming would mis-classify entries.
+    const [rawZ, unstagedNumstat, stagedNumstat] = await Promise.all([
+      runGitAsync(cwd, ['status', '--porcelain=v1', '-z'], { raw: true }),
+      runGitAsync(cwd, ['diff', '--numstat']),
+      runGitAsync(cwd, ['diff', '--cached', '--numstat']),
+    ]);
+
     const fileMap = new Map<string, { status: string; staged: boolean }>();
     const setFromStatus = (x: string, y: string, filePath: string) => {
       if (!filePath) return;
@@ -945,30 +1013,25 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       }
     };
 
-    const rawZ = runRaw('git status --porcelain=v1 -z');
     const zRecords = rawZ.split('\0');
     for (let i = 0; i < zRecords.length; i++) {
       const rec = zRecords[i];
       if (!rec || rec.length < 3) continue;
       const x = rec[0];
       const y = rec[1];
-      // Spec says exactly one space at position 2; be defensive and skip
-      // any extra whitespace before the path.
       let pathStart = 2;
       while (pathStart < rec.length && rec[pathStart] === ' ') pathStart++;
       const filePath = rec.slice(pathStart);
-      // Rename's orig-path follows as its own record — consume so it
-      // doesn't get treated as a separate file row.
       if (x === 'R' || y === 'R') i++;
       setFromStatus(x, y, filePath);
     }
 
     if (fileMap.size === 0) {
-      // Fallback to LF-mode if -z gave us nothing. Same no-trim rule —
-      // we strip only the trailing newline so leading spaces in the
-      // first line survive.
-      const lfRaw = runRaw('git status --porcelain=v1').replace(/\r?\n$/, '');
-      const lfLines = lfRaw.split('\n').filter((l) => l.length > 0);
+      // Fallback: -z gave us nothing despite a possibly-populated LF
+      // output. Make the extra call here (only when needed) so the
+      // hot path stays at 3 parallel commands instead of 4.
+      const lfRaw = await runGitAsync(cwd, ['status', '--porcelain=v1'], { raw: true });
+      const lfLines = lfRaw.replace(/\r?\n$/, '').split('\n').filter((l) => l.length > 0);
       for (const line of lfLines) {
         if (line.length < 3) continue;
         const x = line[0];
@@ -980,7 +1043,6 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       }
     }
 
-    // Get line counts: staged (cached) + unstaged
     const counts = new Map<string, { added: number; deleted: number }>();
     const parseNumstat = (output: string) => {
       for (const line of output.split('\n').filter(Boolean)) {
@@ -996,8 +1058,8 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         });
       }
     };
-    parseNumstat(run('git diff --numstat'));          // unstaged changes
-    parseNumstat(run('git diff --cached --numstat')); // staged changes
+    parseNumstat(unstagedNumstat);
+    parseNumstat(stagedNumstat);
 
     // Expand untracked directories (git status reports them as a single
      // entry with trailing slash) into their individual files so each shows
@@ -1055,7 +1117,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       return a.path.localeCompare(b.path);
     });
     return result;
-  });
+  }
 
   // Compare two refs: surface every file that changed between them, plus
   // per-file diffs on demand. Powers the "Compare with…" panel (T-028).
@@ -1447,6 +1509,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     if (!filePath) return false;
     try {
       execFileSync('git', ['add', '--', filePath], { cwd, timeout: 10000, encoding: 'utf-8' });
+      bustGitCache(cwd);
       return true;
     } catch {
       return false;
@@ -1464,6 +1527,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       } catch {
         execFileSync('git', ['reset', 'HEAD', '--', filePath], { cwd, timeout: 10000, encoding: 'utf-8' });
       }
+      bustGitCache(cwd);
       return true;
     } catch {
       return false;
@@ -1524,6 +1588,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       if (body) args.push('-m', body);
       try {
         execFileSync('git', args, { cwd, timeout: 30000, encoding: 'utf-8' });
+        bustGitCache(cwd);
         return { ok: true };
       } catch (err) {
         // execFileSync's error carries stdout/stderr on some platforms —
