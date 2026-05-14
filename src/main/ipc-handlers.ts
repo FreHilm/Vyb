@@ -1234,6 +1234,101 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     },
   );
 
+  // HEAD inspection — surfaces the most recent commit's subject + body so
+  // the Reword / Amend dialogs can pre-fill, and reports whether HEAD has
+  // been pushed to an upstream (drives the "rewrites public history?"
+  // warning).
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_HEAD_INFO,
+    (_, cwd: string): {
+      ok: boolean;
+      sha?: string;
+      subject?: string;
+      body?: string;
+      pushed?: boolean;
+      branch?: string;
+      message?: string;
+    } => {
+      try {
+        const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, timeout: 10000, encoding: 'utf-8' }).trim();
+        const subject = execFileSync('git', ['log', '-1', '--pretty=%s'], { cwd, timeout: 10000, encoding: 'utf-8' }).trim();
+        const body = execFileSync('git', ['log', '-1', '--pretty=%b'], { cwd, timeout: 10000, encoding: 'utf-8' }).trim();
+        // Branch name (or empty on detached HEAD)
+        let branch = '';
+        try {
+          branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd, timeout: 10000, encoding: 'utf-8' }).trim();
+          if (branch === 'HEAD') branch = '';
+        } catch { /* detached */ }
+        // Has HEAD been pushed anywhere? Check if any remote-tracking ref
+        // contains this commit. Avoids the "rewrites public history" trap.
+        let pushed = false;
+        try {
+          const out = execFileSync('git', ['branch', '-r', '--contains', sha], { cwd, timeout: 10000, encoding: 'utf-8' });
+          pushed = out.trim().length > 0;
+        } catch { /* no remote / detached / unknown — assume not pushed */ }
+        return { ok: true, sha, subject, body, pushed, branch };
+      } catch (err) {
+        const e = err as { message?: string; stderr?: string | Buffer };
+        const stderr = e.stderr ? e.stderr.toString().trim() : '';
+        return { ok: false, message: stderr || e.message || 'head info failed' };
+      }
+    },
+  );
+
+  // Amend the last commit — folds anything currently staged into HEAD and
+  // (optionally) replaces the message. When `keepMessage` is true we use
+  // `--no-edit` so the existing message survives even if nothing is
+  // staged (rare; mostly users will stage first).
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_AMEND_COMMIT,
+    (_, cwd: string, subject: string | null, description: string | null): GitCommitResult => {
+      const args = ['commit', '--amend'];
+      const subj = subject == null ? null : subject.trim();
+      const body = description == null ? null : description.trim();
+      if (subj === null) {
+        // Keep the existing message verbatim.
+        args.push('--no-edit');
+      } else {
+        if (!subj) return { ok: false, message: 'Commit subject is required.' };
+        args.push('-m', subj);
+        if (body) args.push('-m', body);
+      }
+      try {
+        execFileSync('git', args, { cwd, timeout: 30000, encoding: 'utf-8' });
+        return { ok: true };
+      } catch (err) {
+        const e = err as { message?: string; stderr?: string | Buffer; stdout?: string | Buffer };
+        const stderr = e.stderr ? e.stderr.toString().trim() : '';
+        const stdout = e.stdout ? e.stdout.toString().trim() : '';
+        return { ok: false, message: stderr || stdout || e.message || 'amend failed' };
+      }
+    },
+  );
+
+  // Reword HEAD — same as amend with no staged changes, but stages
+  // nothing implicitly. Same plumbing, separate channel for clarity at
+  // the call site (and so we can refuse to reword merge commits later
+  // without affecting the amend path).
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_REWORD_HEAD,
+    (_, cwd: string, subject: string, description: string): GitCommitResult => {
+      const subj = (subject ?? '').trim();
+      if (!subj) return { ok: false, message: 'Commit subject is required.' };
+      const body = (description ?? '').trim();
+      const args = ['commit', '--amend', '--only', '-m', subj];
+      if (body) args.push('-m', body);
+      try {
+        execFileSync('git', args, { cwd, timeout: 30000, encoding: 'utf-8' });
+        return { ok: true };
+      } catch (err) {
+        const e = err as { message?: string; stderr?: string | Buffer; stdout?: string | Buffer };
+        const stderr = e.stderr ? e.stderr.toString().trim() : '';
+        const stdout = e.stdout ? e.stdout.toString().trim() : '';
+        return { ok: false, message: stderr || stdout || e.message || 'reword failed' };
+      }
+    },
+  );
+
   // Push the current branch to its upstream. If the branch has no upstream
   // configured yet (a fresh local branch), retry with `-u origin <branch>`
   // to publish it — same convenience git itself prints in its hint, just

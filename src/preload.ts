@@ -151,6 +151,22 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.GIT_UNSTAGE, cwd, filePath),
   gitCommit: (cwd: string, subject: string, description: string): Promise<GitCommitResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_COMMIT, cwd, subject, description),
+  /** Amend HEAD. Pass `subject = null` to preserve the existing message
+   * (`--no-edit`); pass a new subject + description to replace it. */
+  gitAmendCommit: (cwd: string, subject: string | null, description: string | null): Promise<GitCommitResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_AMEND_COMMIT, cwd, subject, description),
+  gitRewordHead: (cwd: string, subject: string, description: string): Promise<GitCommitResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_REWORD_HEAD, cwd, subject, description),
+  gitHeadInfo: (cwd: string): Promise<{
+    ok: boolean;
+    sha?: string;
+    subject?: string;
+    body?: string;
+    pushed?: boolean;
+    branch?: string;
+    message?: string;
+  }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_HEAD_INFO, cwd),
   gitPush: (cwd: string): Promise<GitOpResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_PUSH, cwd),
   gitPull: (cwd: string): Promise<GitOpResult> =>

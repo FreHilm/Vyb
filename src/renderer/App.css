@@ -2065,6 +2065,35 @@
   font-size: 11px;
 }
 .git-panel-statusbar-error > span { flex: 1; }
+
+/* "Amend last commit" toggle in the commit area. Pulled inline so the
+   checkbox + label sits flush with the commit button. */
+.git-commit-amend-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 6px;
+  font-size: 11px;
+  color: var(--c-subtext1);
+}
+.git-commit-amend-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.git-commit-amend-toggle.is-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.git-commit-amend-toggle input[type="checkbox"] {
+  margin: 0;
+}
+.git-commit-amend-warning {
+  color: #f59e0b;
+  font-size: 11px;
+}
 .git-panel-tab {
   background: none;
   border: none;
