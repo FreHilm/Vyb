@@ -1333,15 +1333,24 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   // configured yet (a fresh local branch), retry with `-u origin <branch>`
   // to publish it — same convenience git itself prints in its hint, just
   // applied automatically.
-  ipcMain.handle(IPC_CHANNELS.GIT_PUSH, (_, cwd: string): GitOpResult => {
+  ipcMain.handle(IPC_CHANNELS.GIT_PUSH, (_, cwd: string, tagMode?: 'off' | 'reachable' | 'all'): GitOpResult => {
     const errMsg = (err: unknown, fallback: string): string => {
       const e = err as { message?: string; stderr?: string | Buffer; stdout?: string | Buffer };
       const stderr = e.stderr ? e.stderr.toString().trim() : '';
       const stdout = e.stdout ? e.stdout.toString().trim() : '';
       return stderr || stdout || e.message || fallback;
     };
+    // Tag mode: 'reachable' = annotated tags reachable from pushed
+    // commits (`--follow-tags`); 'all' = every local tag (`--tags`);
+    // off / undefined = no tags. Note that `--tags` + a branch push
+    // implies refspec-based "push only what's requested" — the order
+    // below appends after `push` itself so it applies to both the
+    // default push and the auto-publish retry below.
+    const tagFlag = tagMode === 'all' ? ['--tags']
+      : tagMode === 'reachable' ? ['--follow-tags']
+      : [];
     try {
-      execFileSync('git', ['push'], { cwd, timeout: 60000, encoding: 'utf-8' });
+      execFileSync('git', ['push', ...tagFlag], { cwd, timeout: 60000, encoding: 'utf-8' });
       return { ok: true };
     } catch (err) {
       const e = err as { stderr?: string | Buffer };
@@ -1358,7 +1367,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
           return { ok: false, message: 'Detached HEAD — checkout a branch before pushing.' };
         }
         try {
-          execFileSync('git', ['push', '-u', 'origin', branch], {
+          execFileSync('git', ['push', '-u', ...tagFlag, 'origin', branch], {
             cwd, timeout: 60000, encoding: 'utf-8',
           });
           return { ok: true, publishedUpstream: true };

@@ -101,6 +101,10 @@ export interface AppSettings {
    * 'ask' = primary button opens the chevron menu so the user picks
    * each time. */
   pullStrategy: 'merge' | 'rebase' | 'ask';
+  /** What plain Push does about tags by default. The dropdown always
+   * offers the explicit "Push with tags" / "Push reachable tags" items
+   * regardless. */
+  pushTagsStrategy: 'off' | 'reachable' | 'all';
   /** Default landing page for a Web tab that has never been navigated.
    * Once a view has a saved URL in `webUrls`, this is ignored. Free-form
    * text — non-URL input is interpreted as a DuckDuckGo search at click
@@ -210,6 +214,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   functionKanbanEnabled: true,
   functionWebEnabled: true,
   pullStrategy: 'merge',
+  pushTagsStrategy: 'off',
   webDefaultUrl: 'https://duckduckgo.com/',
   webUrls: {},
 };
