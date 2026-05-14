@@ -37,6 +37,10 @@ interface FileExplorerProps {
    * CodeMirror caret to that 1-based line once the editor is mounted. */
   pendingOpenPath?: { path: string; nonce: number; line?: number } | null;
   onPendingOpenHandled?: () => void;
+  /** T-045: run Prettier on every save when true. The explicit
+   * Format Document action (toolbar / Shift+Alt+F) always works
+   * regardless of this flag. */
+  formatOnSave?: boolean;
 }
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp']);
@@ -432,6 +436,7 @@ export function FileExplorer({
   hidden = false,
   pendingOpenPath,
   onPendingOpenHandled,
+  formatOnSave = false,
 }: FileExplorerProps) {
   const [rootEntries, setRootEntries] = useState<FileEntry[]>([]);
   const [tabs, setTabs] = useState<FileTab[]>([]);
@@ -827,9 +832,56 @@ export function FileExplorer({
     }
   }, []);
 
+  // T-045: format error (transient toast). Cleared after a few
+  // seconds so it doesn't linger after the user has retried.
+  const [formatError, setFormatError] = useState<string | null>(null);
+  // Mirror formatOnSave into a ref so handleSave (with empty deps)
+  // reads the latest value without rebinding when the setting changes.
+  const formatOnSaveRef = useRef(formatOnSave);
+  formatOnSaveRef.current = formatOnSave;
+
+  // T-045: run Prettier against the active editor buffer.
+  // Cursor is approximately preserved via line/column snap — Prettier
+  // can rewrite arbitrarily, so we don't try for byte-perfect
+  // restoration.
+  const handleFormat = useCallback(async (): Promise<boolean> => {
+    const path = activePathRef.current;
+    if (!path) return false;
+    const view = viewRef.current;
+    if (!view) return false;
+    const sel = view.state.selection.main;
+    const lineBefore = view.state.doc.lineAt(sel.head);
+    const lineNo = lineBefore.number;
+    const col = sel.head - lineBefore.from;
+    const content = view.state.doc.toString();
+    const result = await window.api.formatDocument(path, content);
+    if (result.error) {
+      setFormatError(result.error);
+      setTimeout(() => setFormatError(null), 5000);
+      return false;
+    }
+    if (!result.content || result.content === content) return true;
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: result.content },
+    });
+    try {
+      const targetLine = Math.min(lineNo, view.state.doc.lines);
+      const lineAfter = view.state.doc.line(targetLine);
+      const pos = Math.min(lineAfter.from + col, lineAfter.to);
+      view.dispatch({ selection: EditorSelection.cursor(pos) });
+    } catch { /* best-effort */ }
+    return true;
+  }, []);
+
   const handleSave = useCallback(async () => {
     const path = activePathRef.current;
     if (!path) return;
+    // Format-on-save: run Prettier first so what we write to disk
+    // and what's in the buffer end up identical. Format failures
+    // surface in the toast but don't block the save.
+    if (formatOnSaveRef.current && viewRef.current && !isExcalidrawFile(fileName(path))) {
+      await handleFormat();
+    }
     let content: string | null = null;
     if (excalidrawRef.current && isExcalidrawFile(fileName(path))) {
       content = excalidrawRef.current.serialize();
@@ -962,6 +1014,7 @@ export function FileExplorer({
         keymap.of([
           { key: 'Mod-s', run: () => { handleSave(); return true; } },
           { key: 'Mod-Shift-s', run: () => { handleSaveAs(); return true; } },
+          { key: 'Shift-Alt-f', run: () => { handleFormat(); return true; } },
           // Clipboard. CodeMirror 6 normally relies on the browser's native
           // copy/cut/paste events, but Electron on macOS doesn't fire those
           // for Cmd+C/V/X without an Edit-menu role accelerator (which we
@@ -1149,7 +1202,7 @@ export function FileExplorer({
         // best-effort — corrupt doc state shouldn't break the open.
       }
     }
-  }, [handleSave, handleSaveAs]);
+  }, [handleSave, handleSaveAs, handleFormat]);
 
   // ── Tab management ───────────────────────────────────────────
 
@@ -1720,6 +1773,14 @@ export function FileExplorer({
               >
                 Reveal
               </button>
+              <button
+                className="file-tab-action-btn"
+                onClick={handleFormat}
+                title="Format with Prettier (Shift+Alt+F)"
+                disabled={!activeTabPath || activeIsImage || activeIsExcalidraw}
+              >
+                Format
+              </button>
               {activeIsMd && (
                 <button
                   className={`file-tab-action-btn ${activeMdMode === 'edit' ? 'is-active' : ''}`}
@@ -1954,6 +2015,15 @@ export function FileExplorer({
           onOpenNewTab={ctxMenu.entry && !ctxMenu.entry.isDirectory ? handleOpenNewTab : null}
           onShowHistory={ctxMenu.entry && !ctxMenu.entry.isDirectory ? handleShowHistory : null}
         />
+      )}
+
+      {/* T-045 format error toast */}
+      {formatError && (
+        <div className="file-format-toast">
+          <span className="file-format-toast-label">Format failed</span>
+          <code className="file-format-toast-msg">{formatError}</code>
+          <button className="file-format-toast-close" onClick={() => setFormatError(null)} aria-label="Dismiss">×</button>
+        </div>
       )}
 
       {/* T-043 tab right-click menu */}
