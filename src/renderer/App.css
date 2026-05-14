@@ -3595,14 +3595,16 @@
 
 /* Toolbar row above the tab bar. Same button styling as the old
    inline `.file-tab-actions` block, but on its own row so the tab
-   bar can show just tabs. */
+   bar can show just tabs. Background matches the editor body
+   (`--c-base`) so the toolbar reads as part of the same surface;
+   buttons right-aligned. */
 .file-editor-toolbar {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
   padding: 4px 8px;
-  background: var(--c-mantle);
-  border-bottom: 1px solid var(--c-surface0);
+  background: var(--c-base);
   flex-shrink: 0;
 }
 
