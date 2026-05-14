@@ -110,6 +110,8 @@ declare global {
       gitFetch: (cwd: string) => Promise<boolean>;
       gitPushForceLease: (cwd: string) => Promise<GitOpResult>;
       gitPullRebase: (cwd: string) => Promise<GitOpResult>;
+      gitCompareFiles: (cwd: string, a: string, b: string, threeDot: boolean) => Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>;
+      gitCompareFileDiff: (cwd: string, a: string, b: string, filePath: string, threeDot: boolean) => Promise<string>;
       getGitChangedFiles: (cwd: string) => Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>;
       getGitFileDiff: (cwd: string, filePath: string, staged?: boolean) => Promise<string>;
       getGitLog: (cwd: string, limit: number) => Promise<GitCommit[]>;
@@ -301,7 +303,7 @@ export function App() {
   const inspectedParallelRef = useRef<Set<string>>(new Set());
   const [changesVisible, setChangesVisible] = useState(false);
   const [changesWidth, setChangesWidth] = useState(50); // percent of agent pane
-  const [gitPanelTab, setGitPanelTab] = useState<'changes' | 'tree' | 'branches'>('changes');
+  const [gitPanelTab, setGitPanelTab] = useState<'changes' | 'tree' | 'branches' | 'compare'>('changes');
   const [focusedPane, setFocusedPane] = useState<{ pane: 'agent' | 'shell'; shellIndex: number }>({ pane: 'agent', shellIndex: 0 });
   const shellCountRef = useRef(1);
   const profileMemoryRef = useRef<ProfileMemoryMap>({});

@@ -181,6 +181,13 @@ contextBridge.exposeInMainWorld('api', {
    * existing rebase-in-progress banner. */
   gitPullRebase: (cwd: string): Promise<GitOpResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_PULL_REBASE, cwd),
+  /** Files differing between two refs. `threeDot=true` uses `a...b`
+   * (merge-base range — "what would arrive on a if you merged b");
+   * false (default) uses `a..b` (every difference). */
+  gitCompareFiles: (cwd: string, a: string, b: string, threeDot: boolean): Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_COMPARE_FILES, cwd, a, b, threeDot),
+  gitCompareFileDiff: (cwd: string, a: string, b: string, filePath: string, threeDot: boolean): Promise<string> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_COMPARE_FILE_DIFF, cwd, a, b, filePath, threeDot),
   gitMerge: (cwd: string, sourceRef: string): Promise<GitMergeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>

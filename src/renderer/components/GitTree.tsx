@@ -10,6 +10,9 @@ interface GitTreeProps {
   /** Bumped by the parent panel after Push / Pull / Fetch so the tree
    * reloads its commits + refs + status. */
   reloadEpoch?: number;
+  /** "Compare with…" handler injected by the panel. The hook builds
+   * commit-row compares with `b = sha`, `a = currentBranch || HEAD`. */
+  onCompareWith?: (sourceRef: string, sourceLabel: string) => void;
 }
 
 const ROW_HEIGHT = 28;
@@ -307,7 +310,7 @@ function RowGraph({ row, laneCount }: RowGraphProps) {
   );
 }
 
-export function GitTree({ workingDirectory, reloadEpoch = 0 }: GitTreeProps) {
+export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith }: GitTreeProps) {
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [refs, setRefs] = useState<GitRef[]>([]);
   const [status, setStatus] = useState<GitStatus | null>(null);
@@ -486,7 +489,11 @@ export function GitTree({ workingDirectory, reloadEpoch = 0 }: GitTreeProps) {
       error: null,
     });
   }, [workingDirectory]);
-  const opsWithReword = useMemo(() => ({ ...ops, onReword: openRewordDialog }), [ops, openRewordDialog]);
+  const opsWithReword = useMemo(() => ({
+    ...ops,
+    onReword: openRewordDialog,
+    onCompareWith,
+  }), [ops, openRewordDialog, onCompareWith]);
 
   // Convert a DisplayRef (which collapses local + remote-tracking pairs
   // into one chip) to the menu's RefMenuNode shape. When both local and
