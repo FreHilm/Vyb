@@ -269,10 +269,11 @@ function createTerminalInstance(
 
 // Match file-ish tokens in a terminal line. A match must contain a file
 // extension (1-8 chars). Path prefix is optional. Optional trailing
-// :line or :line:col suffix is captured so we can strip it server-side.
+// :line, :line:col, or :line-line (range) suffix is captured so we can
+// strip it server-side AND surface the first line for caret jumping.
 // We deliberately don't include `:` inside the path part so URLs like
 // `https://host/path` don't slip through the filename matcher.
-const FILE_TOKEN_RE = /(?:\.{0,2}\/)?(?:[A-Za-z0-9_.@-]+\/)*[A-Za-z0-9_][A-Za-z0-9_.-]*\.[A-Za-z0-9]{1,8}(?::\d+(?::\d+)?)?(?![A-Za-z0-9])/g;
+const FILE_TOKEN_RE = /(?:\.{0,2}\/)?(?:[A-Za-z0-9_.@-]+\/)*[A-Za-z0-9_][A-Za-z0-9_.-]*\.[A-Za-z0-9]{1,8}(?::\d+(?:[-:]\d+)?)?(?![A-Za-z0-9])/g;
 
 function getBufferLine(terminal: Terminal, bufferLineNumber: number): string {
   // bufferLineNumber from xterm's link provider is 1-based.
@@ -318,10 +319,16 @@ function registerFileLinkProvider(
           },
           text,
           activate: (_event, linkText) => {
+            // Pull the first line number out of the token before passing
+            // it to the main-side resolver. Handles `:line`, `:line:col`
+            // AND `:line-line` ranges (used by tracebacks like
+            // `controller.py:254-273`).
+            const lineMatch = /:(\d+)(?:[-:]\d+)?$/.exec(linkText);
+            const line = lineMatch ? parseInt(lineMatch[1], 10) : undefined;
             window.api.resolveFilePath(workingDirectory, linkText).then((resolved) => {
               if (resolved) {
                 window.dispatchEvent(
-                  new CustomEvent('open-file-in-explorer', { detail: { path: resolved } }),
+                  new CustomEvent('open-file-in-explorer', { detail: { path: resolved, line } }),
                 );
               }
             });

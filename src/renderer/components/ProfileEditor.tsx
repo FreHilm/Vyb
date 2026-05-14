@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Profile, AgentConfig } from '../../shared/types';
 
 // Agent icons — must match SettingsDialog.tsx definitions
@@ -37,6 +37,13 @@ interface ProfileEditorProps {
   onSave: (profile: Profile) => void;
   onDelete: (profileId: string) => void;
   onClose: () => void;
+  /** Fire an icon generation in the background. App owns the lifecycle —
+   * we just kick it off and forget. The dialog can be closed before the
+   * generation finishes; App updates the saved profile in place. */
+  onStartIconGeneration?: (profileId: string, name: string) => void;
+  /** Set of profile IDs that App is currently generating icons for —
+   * drives the "Generating…" indicator. */
+  pendingIconGenerations?: Set<string>;
 }
 
 function generateId(name: string): string {
@@ -53,6 +60,8 @@ export function ProfileEditor({
   onSave,
   onDelete,
   onClose,
+  onStartIconGeneration,
+  pendingIconGenerations,
 }: ProfileEditorProps) {
   const isNew = profile === null;
 
@@ -62,9 +71,36 @@ export function ProfileEditor({
   const [agentId, setAgentId] = useState('claude');
   const [parallelAgentEnabled, setParallelAgentEnabled] = useState(false);
   const [parallelAgentAutoPush, setParallelAgentAutoPush] = useState(false);
-  const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState('');
   const [iconCacheBust, setIconCacheBust] = useState(0);
+  /** Locked-in profile id. Resolved lazily — the moment either "AI
+   * Generate" or "Save" is clicked, we settle on an id (existing profile's
+   * id, or a freshly generated one) and keep using it. This is what lets
+   * the background icon land on the same id the user eventually saves. */
+  const [pendingProfileId, setPendingProfileId] = useState<string | null>(profile?.id ?? null);
+  // Derive "is generating" from the parent's pending set, scoped to this
+  // dialog's locked-in profile id (if any).
+  const generating = pendingProfileId
+    ? pendingIconGenerations?.has(pendingProfileId) === true
+    : false;
+
+  // Snapshot of the initial form values for this dialog session — used to
+  // detect "unsaved changes" so we can prompt the user before closing.
+  // We capture once per profile prop change and keep it as a ref so it
+  // doesn't trigger re-renders.
+  const initialSnapshotRef = useRef({
+    name: profile?.name ?? '',
+    icon: profile?.icon ?? '',
+    workingDirectory: profile?.workingDirectory ?? '',
+    agentId: profile?.agentId ?? 'claude',
+    parallelAgentEnabled: profile?.parallelAgentEnabled === true,
+    parallelAgentAutoPush: profile?.parallelAgentAutoPush === true,
+  });
+  // Whether the user has saved this session — `handleSave` flips this to
+  // true so the "are you sure?" prompt skips after a normal save+close.
+  const [hasSaved, setHasSaved] = useState(false);
+  // Dialog state for "you have unsaved changes" confirmation on close.
+  const [confirmClose, setConfirmClose] = useState(false);
 
   useEffect(() => {
     if (profile) {
@@ -74,13 +110,19 @@ export function ProfileEditor({
       setParallelAgentEnabled(profile.parallelAgentEnabled === true);
       setParallelAgentAutoPush(profile.parallelAgentAutoPush === true);
       // Resolve agentId: use stored agentId, or match by command
-      if (profile.agentId) {
-        setAgentId(profile.agentId);
-      } else {
-        // Backwards compat: try to match by command
-        const match = agents.find((a) => a.command === profile.command);
-        setAgentId(match?.id || agents[0]?.id || 'claude');
-      }
+      const resolvedAgentId = profile.agentId
+        || agents.find((a) => a.command === profile.command)?.id
+        || agents[0]?.id
+        || 'claude';
+      setAgentId(resolvedAgentId);
+      initialSnapshotRef.current = {
+        name: profile.name,
+        icon: profile.icon,
+        workingDirectory: profile.workingDirectory,
+        agentId: resolvedAgentId,
+        parallelAgentEnabled: profile.parallelAgentEnabled === true,
+        parallelAgentAutoPush: profile.parallelAgentAutoPush === true,
+      };
     }
   }, [profile, agents]);
 
@@ -103,32 +145,53 @@ export function ProfileEditor({
     if (file) setIcon(file);
   };
 
-  const handleGenerateIcon = async () => {
+  const handleGenerateIcon = () => {
     if (!name.trim()) return;
-    setGenerating(true);
     setGenError('');
-    try {
-      const profileId = profile?.id ?? generateId(name);
-      const iconPath = await window.api.generateIcon(profileId, name.trim());
-      if (iconPath) {
-        setIcon(iconPath);
-        setIconCacheBust(Date.now());
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setGenError(msg);
-    } finally {
-      setGenerating(false);
-    }
+    const id = pendingProfileId ?? profile?.id ?? generateId(name);
+    setPendingProfileId(id);
+    // Fire and forget. App owns the lifecycle and updates the saved
+    // profile's icon when generation completes, even if the user has
+    // already saved and closed this dialog.
+    onStartIconGeneration?.(id, name.trim());
   };
+
+  // Refresh the in-dialog preview when the App's background generation
+  // resolves for our locked-in id. If the dialog has already been closed
+  // there's no listener to fire — App still updates the saved profile.
+  useEffect(() => {
+    const onReady = (e: Event) => {
+      const detail = (e as CustomEvent<{ profileId: string; iconPath: string }>).detail;
+      if (!detail || !pendingProfileId) return;
+      if (detail.profileId !== pendingProfileId) return;
+      setIcon(detail.iconPath);
+      setIconCacheBust(Date.now());
+    };
+    const onFailed = (e: Event) => {
+      const detail = (e as CustomEvent<{ profileId: string; error: string }>).detail;
+      if (!detail || !pendingProfileId) return;
+      if (detail.profileId !== pendingProfileId) return;
+      setGenError(detail.error);
+    };
+    window.addEventListener('profile-icon-ready', onReady);
+    window.addEventListener('profile-icon-failed', onFailed);
+    return () => {
+      window.removeEventListener('profile-icon-ready', onReady);
+      window.removeEventListener('profile-icon-failed', onFailed);
+    };
+  }, [pendingProfileId]);
 
   const handleSave = () => {
     if (!name.trim() || !workingDirectory.trim()) return;
 
     const agent = agents.find((a) => a.id === agentId);
 
+    // Use the same id the background generation (if any) is targeting so
+    // the late-arriving icon updates this saved profile rather than an
+    // orphan id.
+    const id = pendingProfileId ?? profile?.id ?? generateId(name);
     const saved: Profile = {
-      id: profile?.id ?? generateId(name),
+      id,
       name: name.trim(),
       icon,
       workingDirectory: workingDirectory.trim(),
@@ -140,7 +203,32 @@ export function ProfileEditor({
       args: agent?.args || [],
     };
 
+    setHasSaved(true);
     onSave(saved);
+  };
+
+  // Any form field differs from the initial snapshot? Treated as "unsaved
+  // changes" — close attempts surface the confirmation popup. Initiating
+  // an AI Generate also counts because pendingProfileId moves off its
+  // initial value (the profile's own id, or null).
+  const isDirty = !hasSaved && (
+    name !== initialSnapshotRef.current.name
+    || icon !== initialSnapshotRef.current.icon
+    || workingDirectory !== initialSnapshotRef.current.workingDirectory
+    || agentId !== initialSnapshotRef.current.agentId
+    || parallelAgentEnabled !== initialSnapshotRef.current.parallelAgentEnabled
+    || parallelAgentAutoPush !== initialSnapshotRef.current.parallelAgentAutoPush
+    || (pendingProfileId !== null && pendingProfileId !== profile?.id)
+  );
+
+  /** Gated close: when there are unsaved changes, surface the prompt.
+   * The prompt's own buttons call onClose() directly to actually close. */
+  const requestClose = () => {
+    if (isDirty) {
+      setConfirmClose(true);
+      return;
+    }
+    onClose();
   };
 
   const handleDelete = () => {
@@ -150,7 +238,7 @@ export function ProfileEditor({
   };
 
   const handleOverlayClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) onClose();
+    if (e.target === e.currentTarget) requestClose();
   };
 
   const selectedAgent = agents.find((a) => a.id === agentId);
@@ -160,7 +248,7 @@ export function ProfileEditor({
       <div className="modal">
         <div className="modal-header">
           <h3>{isNew ? 'New Profile' : 'Edit Profile'}</h3>
-          <button className="modal-close" onClick={onClose}>
+          <button className="modal-close" onClick={requestClose}>
             <svg
               width="14"
               height="14"
@@ -328,7 +416,7 @@ export function ProfileEditor({
             </button>
           )}
           <div className="modal-footer-right">
-            <button className="cancel-btn" onClick={onClose}>
+            <button className="cancel-btn" onClick={requestClose}>
               Cancel
             </button>
             <button
@@ -341,6 +429,49 @@ export function ProfileEditor({
           </div>
         </div>
       </div>
+
+      {confirmClose && (
+        <div className="modal-overlay" onClick={() => setConfirmClose(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Unsaved changes</h3></div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, lineHeight: 1.5 }}>
+                You have unsaved changes
+                {generating ? ' and an icon generation is still running' : ''}.
+                <br />
+                <span style={{ opacity: 0.7 }}>
+                  {generating
+                    ? 'Save now so the new icon attaches to this profile when ready, or discard to abandon the changes (the icon will still finish but won’t be saved anywhere).'
+                    : 'Save your edits or discard them and close.'}
+                </span>
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="cancel-btn" onClick={() => setConfirmClose(false)}>Keep editing</button>
+              <div className="modal-footer-right">
+                <button
+                  className="delete-btn"
+                  onClick={() => { setConfirmClose(false); onClose(); }}
+                >
+                  Discard
+                </button>
+                <button
+                  className="save-btn"
+                  onClick={() => {
+                    if (!name.trim() || !workingDirectory.trim()) return;
+                    setConfirmClose(false);
+                    handleSave();
+                    onClose();
+                  }}
+                  disabled={!name.trim() || !workingDirectory.trim()}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

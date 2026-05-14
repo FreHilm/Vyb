@@ -156,6 +156,11 @@ declare global {
       createFile: (filePath: string) => Promise<boolean>;
       saveFileAs: (content: string, defaultPath: string) => Promise<string | null>;
       resolveFilePath: (workingDir: string, token: string) => Promise<string | null>;
+      watchDir: (cwd: string) => Promise<string | null>;
+      unwatchDir: (watchId: string) => Promise<void>;
+      onFileWatchChange: (
+        callback: (payload: { watchId: string; eventType: string; absPath: string; relPath: string }) => void,
+      ) => () => void;
       exportBackup: () => Promise<string | null>;
       importBackup: () => Promise<boolean>;
       transcribeAudio: (audioBase64: string, lang: string) => Promise<string>;
@@ -220,6 +225,11 @@ export function App() {
   const stoppedRef = useRef<Set<string>>(new Set());
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
+  /** Profile IDs whose icon is currently being generated in the
+   * background. Lets the ProfileEditor show a spinner without blocking
+   * Save / Close — the generation continues even after the dialog is
+   * dismissed, and updates the profile's icon path in place when done. */
+  const [pendingIconGenerations, setPendingIconGenerations] = useState<Set<string>>(new Set());
   const [iconRevision, setIconRevision] = useState(0);
   const [shellOpenSet, setShellOpenSet] = useState<Set<string>>(new Set());
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -286,7 +296,7 @@ export function App() {
   // visible and stash the resolved path here. FileExplorer reacts to changes
   // by opening the file in a tab. Stamped with a counter so re-clicks of the
   // same path still trigger the effect.
-  const [pendingFileOpen, setPendingFileOpen] = useState<{ path: string; nonce: number } | null>(null);
+  const [pendingFileOpen, setPendingFileOpen] = useState<{ path: string; nonce: number; line?: number } | null>(null);
 
   // Build the view key for the currently-active profile + parallel selection.
   // Parent: just the profileId. Parallel: `${profileId}|${parallelId}`.
@@ -772,7 +782,7 @@ export function App() {
   // Other overlays (README/Kanban) get hidden so the file is actually visible.
   useEffect(() => {
     const handleOpenFile = (e: Event) => {
-      const detail = (e as CustomEvent<{ path: string }>).detail;
+      const detail = (e as CustomEvent<{ path: string; line?: number }>).detail;
       if (!detail?.path) return;
       if (activeViewKey) {
         const key = activeViewKey;
@@ -781,7 +791,7 @@ export function App() {
         setKanbanViews((prev) => removeFromSet(prev, key));
         setWebViews((prev) => removeFromSet(prev, key));
       }
-      setPendingFileOpen({ path: detail.path, nonce: Date.now() });
+      setPendingFileOpen({ path: detail.path, nonce: Date.now(), line: detail.line });
     };
     window.addEventListener('open-file-in-explorer', handleOpenFile);
     return () => window.removeEventListener('open-file-in-explorer', handleOpenFile);
@@ -987,6 +997,50 @@ export function App() {
     setBatchGenerating(false);
     setBatchProgress('');
   }, [batchGenerating, profiles]);
+
+  /** Kick off an icon generation for a profile that may or may not yet
+   * exist in `profiles`. Runs in the background — ProfileEditor calls
+   * this and immediately returns control to the user, who can Save and
+   * close. When the generation resolves, we update the matching profile
+   * (if it exists by then) and dispatch a window event so an open
+   * ProfileEditor for the same id can refresh its preview. */
+  const handleStartIconGeneration = useCallback((profileId: string, name: string) => {
+    setPendingIconGenerations((prev) => {
+      const next = new Set(prev);
+      next.add(profileId);
+      return next;
+    });
+    window.api.generateIcon(profileId, name)
+      .then((iconPath) => {
+        if (!iconPath) return;
+        setProfiles((prev) => {
+          const exists = prev.some((p) => p.id === profileId);
+          if (!exists) {
+            // Profile wasn't saved (dialog cancelled). Icon file lingers
+            // on disk but is harmless — orphans are tiny and Settings →
+            // Icons can sweep them later.
+            return prev;
+          }
+          const updated = prev.map((p) => p.id === profileId ? { ...p, icon: iconPath } : p);
+          window.api.saveProfiles(updated);
+          return updated;
+        });
+        setIconRevision((r) => r + 1);
+        window.dispatchEvent(new CustomEvent('profile-icon-ready', { detail: { profileId, iconPath } }));
+      })
+      .catch((err) => {
+        console.error('icon generation failed', err);
+        window.dispatchEvent(new CustomEvent('profile-icon-failed', { detail: { profileId, error: String(err) } }));
+      })
+      .finally(() => {
+        setPendingIconGenerations((prev) => {
+          if (!prev.has(profileId)) return prev;
+          const next = new Set(prev);
+          next.delete(profileId);
+          return next;
+        });
+      });
+  }, []);
 
   const initializeProfile = useCallback(
     (profileId: string) => {
@@ -1645,6 +1699,7 @@ export function App() {
         showAgentBadge={settings.showAgentBadge !== false}
         parallelAgents={[...parallelAgents.values()]}
         selectedParallelId={selectedParallelId}
+        pendingIconGenerations={pendingIconGenerations}
         onSelectParallel={(id) => setSelectedParallelId(id)}
         onRunParallel={(id) => submitParallelTask(id)}
         onStopParallel={(id) => {
@@ -1910,6 +1965,8 @@ export function App() {
           onSave={handleSaveProfile}
           onDelete={handleDeleteProfile}
           onClose={() => setEditorOpen(false)}
+          onStartIconGeneration={handleStartIconGeneration}
+          pendingIconGenerations={pendingIconGenerations}
         />
       )}
       {settingsOpen && (

@@ -2074,6 +2074,71 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // ── Filesystem watcher (drives auto-refresh of the file tree + open
+  //     tabs when files change underneath Vyb — e.g. an agent writes to
+  //     them). One fs.watch per FileExplorer instance, keyed by an id we
+  //     hand back to the renderer.
+  //
+  //   On macOS + Windows we use fs.watch with `recursive: true` which is
+  //   cheap (FSEvents / ReadDirectoryChangesW). On Linux that flag is a
+  //   no-op for non-watched subdirs — events still fire for the top
+  //   level which is enough to drive a refresh (the renderer re-runs
+  //   listDir on every event), so we don't bother with a recursive
+  //   walk. Noise filters drop the usual suspects (.git, node_modules,
+  //   dist, etc.). */
+  const fileWatchers = new Map<string, fs.FSWatcher>();
+  let nextFileWatchId = 1;
+  const WATCH_IGNORE_SEGMENTS = new Set([
+    '.git', 'node_modules', '.next', '.vite', '.turbo', 'dist', 'build',
+    'out', '.cache', '.parcel-cache', 'coverage', '.nyc_output',
+    '.idea', '.vscode', '.DS_Store',
+  ]);
+  function watchPathIsNoise(rel: string): boolean {
+    if (!rel) return false;
+    for (const segment of rel.split(/[\\/]/)) {
+      if (WATCH_IGNORE_SEGMENTS.has(segment)) return true;
+    }
+    return false;
+  }
+
+  ipcMain.handle(IPC_CHANNELS.FILE_WATCH_START, (_, cwd: string): string | null => {
+    if (!cwd) return null;
+    try {
+      if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) return null;
+    } catch {
+      return null;
+    }
+    const id = `fw-${nextFileWatchId++}`;
+    try {
+      const watcher = fs.watch(cwd, { recursive: true, persistent: true }, (eventType, filename) => {
+        const rel = (filename ?? '').toString();
+        if (watchPathIsNoise(rel)) return;
+        const abs = rel ? path.join(cwd, rel) : cwd;
+        safeSend(IPC_CHANNELS.FILE_WATCH_CHANGE, {
+          watchId: id,
+          eventType,
+          absPath: abs,
+          relPath: rel,
+        });
+      });
+      watcher.on('error', () => {
+        // Best effort — if the watcher dies (e.g. directory removed), let
+        // the renderer notice via its next manual refresh.
+      });
+      fileWatchers.set(id, watcher);
+      return id;
+    } catch {
+      return null;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FILE_WATCH_STOP, (_, watchId: string) => {
+    const watcher = fileWatchers.get(watchId);
+    if (!watcher) return;
+    try { watcher.close(); } catch { /* already closed */ }
+    fileWatchers.delete(watchId);
+  });
+
   ipcMain.handle(IPC_CHANNELS.FILE_DELETE, (_, targetPath: string): boolean => {
     try {
       const stat = fs.statSync(targetPath);
@@ -2153,8 +2218,9 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     (_, workingDir: string, token: string): string | null => {
       if (!workingDir || !token) return null;
 
-      // Strip optional :line or :line:col suffix.
-      const cleaned = token.replace(/:\d+(?::\d+)?$/, '').trim();
+      // Strip optional :line, :line:col, or :line-line range suffix. The
+      // ranged form shows up in tracebacks like `controller.py:254-273`.
+      const cleaned = token.replace(/:\d+(?:[-:]\d+)?$/, '').trim();
       if (!cleaned) return null;
 
       const isAbs = path.isAbsolute(cleaned);
