@@ -197,7 +197,6 @@ export function SettingsDialog({
   const [functionWebEnabled, setFunctionWebEnabled] = useState(settings.functionWebEnabled !== false);
   const [showAuthorAvatars, setShowAuthorAvatars] = useState(settings.showAuthorAvatars !== false);
   const [formatOnSave, setFormatOnSave] = useState(settings.formatOnSave === true);
-  const [editorBreadcrumbs, setEditorBreadcrumbs] = useState(settings.editorBreadcrumbs !== false);
   const [editorStickyScroll, setEditorStickyScroll] = useState(settings.editorStickyScroll !== false);
   const [webDefaultUrl, setWebDefaultUrl] = useState(settings.webDefaultUrl || 'https://duckduckgo.com/');
   const [pullStrategy, setPullStrategy] = useState<'merge' | 'rebase' | 'ask'>(settings.pullStrategy ?? 'merge');
@@ -250,7 +249,6 @@ export function SettingsDialog({
       functionWebEnabled,
       showAuthorAvatars,
       formatOnSave,
-      editorBreadcrumbs,
       editorStickyScroll,
       webDefaultUrl: webDefaultUrl.trim() || 'https://duckduckgo.com/',
       pullStrategy,
@@ -402,22 +400,6 @@ export function SettingsDialog({
               <span className="field-hint">
                 Runs Prettier on every Cmd+S save. Picks up the repo's
                 local Prettier config when one exists.
-              </span>
-
-              <label className="field field-row-toggle" style={{ marginTop: 12 }}>
-                <span className="field-label">Editor breadcrumbs</span>
-                <label className="integration-toggle">
-                  <input
-                    type="checkbox"
-                    checked={editorBreadcrumbs}
-                    onChange={(e) => setEditorBreadcrumbs(e.target.checked)}
-                  />
-                  <span className="toggle-slider" />
-                </label>
-              </label>
-              <span className="field-hint">
-                Shows a clickable path row above the editor's tab bar.
-                Each segment reveals that path in the file tree.
               </span>
 
               <label className="field field-row-toggle" style={{ marginTop: 12 }}>

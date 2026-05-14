@@ -42,8 +42,6 @@ interface FileExplorerProps {
    * Format Document action (toolbar / Shift+Alt+F) always works
    * regardless of this flag. */
   formatOnSave?: boolean;
-  /** T-046: render the path breadcrumb row above the tab bar. */
-  breadcrumbs?: boolean;
   /** T-046: include the sticky-scroll plugin in the editor. */
   stickyScroll?: boolean;
   /** T-047: callback for Cmd+= / Cmd+- / Cmd+0. `delta === 0` is
@@ -446,7 +444,6 @@ export function FileExplorer({
   pendingOpenPath,
   onPendingOpenHandled,
   formatOnSave = false,
-  breadcrumbs = true,
   stickyScroll: stickyScrollEnabled = true,
   onAdjustEditorFontSize,
 }: FileExplorerProps) {
@@ -1763,36 +1760,80 @@ export function FileExplorer({
       style={hidden ? { display: 'none' } : undefined}
     >
       <div className="file-editor-pane">
-        {/* T-046 breadcrumbs — clickable path segments above the tab
-            bar. Each segment opens the corresponding tree path via
-            the same revealRequest pipeline tabs use. */}
-        {breadcrumbs && activeTabPath && (() => {
-          const base = workingDirectory.replace(/\/+$/, '');
-          const rel = activeTabPath.startsWith(base) ? activeTabPath.slice(base.length + 1) : activeTabPath;
-          const segments = rel.split('/');
-          const crumbs: { label: string; target: string }[] = [];
-          let acc = base;
-          for (let i = 0; i < segments.length; i++) {
-            acc = `${acc}/${segments[i]}`;
-            crumbs.push({ label: segments[i], target: acc });
-          }
-          return (
-            <div className="file-breadcrumbs" title={activeTabPath}>
-              {crumbs.map((c, i) => (
-                <span key={c.target} className="file-breadcrumbs-segment">
-                  {i > 0 && <span className="file-breadcrumbs-sep">›</span>}
-                  <button
-                    className={`file-breadcrumbs-link${i === crumbs.length - 1 ? ' is-current' : ''}`}
-                    onClick={() => setRevealRequest({ path: c.target, nonce: Date.now() })}
-                  >
-                    {c.label}
-                  </button>
-                </span>
-              ))}
-            </div>
-          );
-        })()}
-        {/* Tab bar */}
+        {/* Action toolbar — sits above the tab bar. Replaces the old
+            T-046 breadcrumbs row (the path was redundant with the
+            tab label) and frees the tab row to show tabs only. */}
+        {activeTabPath && !activeIsImage && (
+          <div className="file-editor-toolbar">
+            <button
+              className="file-tab-action-btn"
+              onClick={handleSave}
+              disabled={saving || !activeIsModified}
+              title="Save (Cmd+S)"
+            >
+              Save
+            </button>
+            <button
+              className="file-tab-action-btn"
+              onClick={handleSaveAs}
+              disabled={saving}
+              title="Save As (Cmd+Shift+S)"
+            >
+              Save As
+            </button>
+            <button
+              className={`file-tab-action-btn ${blameEnabled.has(activeTabPath) ? 'is-active' : ''}`}
+              onClick={toggleBlame}
+              title={blameEnabled.has(activeTabPath) ? 'Hide blame gutter' : 'Show blame gutter (git blame)'}
+            >
+              Blame
+            </button>
+            <button
+              className="file-tab-action-btn"
+              onClick={openFindReplace}
+              title="Find and Replace (Cmd+Alt+F)"
+              disabled={!activeTabPath || activeIsImage}
+            >
+              Find/Replace
+            </button>
+            <button
+              className="file-tab-action-btn"
+              onClick={revealActiveInTree}
+              title="Reveal this file in the tree (Cmd+Shift+E)"
+              disabled={!activeTabPath}
+            >
+              Reveal
+            </button>
+            <button
+              className="file-tab-action-btn"
+              onClick={handleFormat}
+              title="Format with Prettier (Shift+Alt+F)"
+              disabled={!activeTabPath || activeIsImage || activeIsExcalidraw}
+            >
+              Format
+            </button>
+            {activeIsMd && (
+              <button
+                className={`file-tab-action-btn ${activeMdMode === 'edit' ? 'is-active' : ''}`}
+                onClick={toggleMdMode}
+                title={activeMdMode === 'view' ? 'Edit markdown source' : 'View rendered markdown'}
+              >
+                {activeMdMode === 'view' ? (
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M11 1.5l3.5 3.5L5 14.5H1.5V11L11 1.5z" />
+                  </svg>
+                ) : (
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1.5 8s2-5 6.5-5 6.5 5 6.5 5-2 5-6.5 5S1.5 8 1.5 8z" />
+                    <circle cx="8" cy="8" r="2" />
+                  </svg>
+                )}
+              </button>
+            )}
+          </div>
+        )}
+        {/* Tab bar — tabs only now that the action buttons live in
+            the toolbar above. */}
         <div className="file-tab-bar">
           <div className="file-tabs-scroll">
             {tabs.map((tab) => {
@@ -1824,77 +1865,6 @@ export function FileExplorer({
               );
             })}
           </div>
-          {activeTabPath && !activeIsImage && (
-            <div className="file-tab-actions">
-              <button
-                className="file-tab-action-btn"
-                onClick={handleSave}
-                disabled={saving || !activeIsModified}
-                title="Save (Cmd+S)"
-              >
-                Save
-              </button>
-              <button
-                className="file-tab-action-btn"
-                onClick={handleSaveAs}
-                disabled={saving}
-                title="Save As (Cmd+Shift+S)"
-              >
-                Save As
-              </button>
-              <button
-                className={`file-tab-action-btn ${blameEnabled.has(activeTabPath) ? 'is-active' : ''}`}
-                onClick={toggleBlame}
-                title={blameEnabled.has(activeTabPath) ? 'Hide blame gutter' : 'Show blame gutter (git blame)'}
-              >
-                Blame
-              </button>
-              <button
-                className="file-tab-action-btn"
-                onClick={openFindReplace}
-                title="Find and Replace (Cmd+Alt+F)"
-                disabled={!activeTabPath || activeIsImage}
-              >
-                Find/Replace
-              </button>
-              <button
-                className="file-tab-action-btn"
-                onClick={revealActiveInTree}
-                title="Reveal this file in the tree (Cmd+Shift+E)"
-                disabled={!activeTabPath}
-              >
-                Reveal
-              </button>
-              <button
-                className="file-tab-action-btn"
-                onClick={handleFormat}
-                title="Format with Prettier (Shift+Alt+F)"
-                disabled={!activeTabPath || activeIsImage || activeIsExcalidraw}
-              >
-                Format
-              </button>
-              {activeIsMd && (
-                <button
-                  className={`file-tab-action-btn ${activeMdMode === 'edit' ? 'is-active' : ''}`}
-                  onClick={toggleMdMode}
-                  title={activeMdMode === 'view' ? 'Edit markdown source' : 'View rendered markdown'}
-                >
-                  {activeMdMode === 'view' ? (
-                    /* Pencil icon = edit (the action when clicked). */
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M11 1.5l3.5 3.5L5 14.5H1.5V11L11 1.5z" />
-                    </svg>
-                  ) : (
-                    /* Eye icon = view. */
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M1.5 8s2-5 6.5-5 6.5 5 6.5 5-2 5-6.5 5S1.5 8 1.5 8z" />
-                      <circle cx="8" cy="8" r="2" />
-                    </svg>
-                  )}
-                </button>
-              )}
-            </div>
-          )}
         </div>
 
         {/* External-change conflict banner — visible when this tab's
