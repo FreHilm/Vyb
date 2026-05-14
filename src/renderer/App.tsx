@@ -1959,6 +1959,8 @@ export function App() {
             onTabChange={setGitPanelTab}
             pullStrategy={settings.pullStrategy ?? 'merge'}
             pushTagsStrategy={settings.pushTagsStrategy ?? 'off'}
+            diffViewMode={settings.diffViewMode ?? 'unified'}
+            onDiffViewModeChange={(mode) => savePaneSizes({ diffViewMode: mode })}
           />
         )}
       </div>

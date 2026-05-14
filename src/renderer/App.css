@@ -2801,13 +2801,58 @@
    differ between paired del/add lines. The surrounding line-level red
    /green stays so unchanged tokens still read as "part of this changed
    line", but the eye is pulled to the bits that matter. */
-.git-diff-del .git-diff-word {
+.git-diff-del .git-diff-word,
+.git-diff-split-cell.git-diff-del .git-diff-word {
   background: color-mix(in srgb, var(--c-red) 38%, transparent);
   border-radius: 2px;
 }
-.git-diff-add .git-diff-word {
+.git-diff-add .git-diff-word,
+.git-diff-split-cell.git-diff-add .git-diff-word {
   background: color-mix(in srgb, var(--c-green) 38%, transparent);
   border-radius: 2px;
+}
+
+/* Side-by-side diff layout. Each row is a 4-column grid: left gutter,
+   left content, right gutter, right content. Empty placeholder cells
+   keep alignment when one side has no paired line. */
+.git-diff-split {
+  display: flex;
+  flex-direction: column;
+}
+.git-diff-split-row {
+  display: grid;
+  grid-template-columns: 40px 1fr 40px 1fr;
+  font-family: Menlo, Monaco, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  min-height: 1.5em;
+}
+.git-diff-split-cell {
+  padding: 0 8px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.git-diff-split-cell.git-diff-add { background: color-mix(in srgb, var(--c-green) 14%, transparent); }
+.git-diff-split-cell.git-diff-del { background: color-mix(in srgb, var(--c-red) 14%, transparent); }
+.git-diff-split-cell.git-diff-ctx { color: var(--c-subtext0); }
+.git-diff-split-empty { background: color-mix(in srgb, var(--c-overlay0) 6%, transparent); }
+.git-diff-split-hunk {
+  background: var(--c-surface0);
+  color: var(--c-subtext0);
+}
+.git-diff-split-hunk .git-diff-split-cell {
+  font-style: italic;
+  font-size: 11px;
+}
+/* Match unified-view gutter colours on the split rows. */
+.git-diff-split-row > .git-diff-gutter {
+  font-family: Menlo, Monaco, monospace;
+  font-size: 11px;
+  color: var(--c-overlay0);
+  text-align: right;
+  padding: 0 4px;
+  user-select: none;
 }
 
 .git-diff-ctx .git-diff-content {

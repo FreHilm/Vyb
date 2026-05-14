@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { FileIcon } from '../file-icons';
 import { GitTree } from './GitTree';
 import { BranchTree } from './BranchTree';
@@ -98,6 +98,11 @@ interface GitChangesPanelProps {
    * "Push with tags" / "Push reachable tags" dropdown items always
    * use their literal mode, ignoring this. */
   pushTagsStrategy?: 'off' | 'reachable' | 'all';
+  /** Initial diff render mode. The toggle button in the status bar
+   * flips this locally; persistence (when the user saves it in
+   * Settings) lives in AppSettings.diffViewMode. */
+  diffViewMode?: 'unified' | 'split';
+  onDiffViewModeChange?: (mode: 'unified' | 'split') => void;
 }
 
 function fileName(filePath: string): string {
@@ -279,11 +284,19 @@ function parseDiff(diff: string): DiffLine[] {
   return result;
 }
 
-function FileDiff({ diff }: { diff: string }) {
+/** Render either a unified diff (default) or a side-by-side split.
+ * For split mode we pair adjacent del/add lines so the per-token word
+ * highlights line up across the two columns. */
+function FileDiff({ diff, mode }: { diff: string; mode: 'unified' | 'split' }) {
   const lines = parseDiff(diff);
   if (lines.length === 0) {
     return <div className="git-diff-empty">No diff available</div>;
   }
+
+  if (mode === 'split') {
+    return <SplitFileDiff lines={lines} />;
+  }
+
   return (
     <div className="git-diff">
       {lines.map((line, idx) => {
@@ -317,7 +330,111 @@ function FileDiff({ diff }: { diff: string }) {
   );
 }
 
-export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWidthChange, activeTab, onTabChange, pullStrategy = 'merge', pushTagsStrategy = 'off' }: GitChangesPanelProps) {
+// Single rendered row in the split view: a left cell + a right cell.
+// Either side may be empty (one-sided change), or both filled (context
+// or a paired del/add). `kind` drives the per-side background tint.
+interface SplitRow {
+  kind: 'hunk' | 'ctx' | 'change';
+  left: DiffLine | null;   // null = empty placeholder on the left
+  right: DiffLine | null;  // null = empty placeholder on the right
+  hunkText?: string;       // for `kind === 'hunk'`
+}
+
+function pairSplitRows(lines: DiffLine[]): SplitRow[] {
+  const out: SplitRow[] = [];
+  let dels: DiffLine[] = [];
+  let adds: DiffLine[] = [];
+  const flush = () => {
+    const n = Math.max(dels.length, adds.length);
+    for (let p = 0; p < n; p++) {
+      out.push({
+        kind: 'change',
+        left: dels[p] ?? null,
+        right: adds[p] ?? null,
+      });
+    }
+    dels = [];
+    adds = [];
+  };
+  for (const line of lines) {
+    if (line.type === 'hunk') {
+      flush();
+      out.push({ kind: 'hunk', left: null, right: null, hunkText: line.content });
+      continue;
+    }
+    if (line.type === 'ctx') {
+      flush();
+      out.push({ kind: 'ctx', left: line, right: line });
+      continue;
+    }
+    if (line.type === 'del') {
+      dels.push(line);
+      continue;
+    }
+    if (line.type === 'add') {
+      adds.push(line);
+      continue;
+    }
+  }
+  flush();
+  return out;
+}
+
+function SplitFileDiff({ lines }: { lines: DiffLine[] }) {
+  const rows = useMemo(() => pairSplitRows(lines), [lines]);
+  const cellClass = (side: DiffLine | null, sideKind: 'left' | 'right'): string => {
+    if (!side) return 'git-diff-split-cell git-diff-split-empty';
+    if (side.type === 'add') return 'git-diff-split-cell git-diff-add';
+    if (side.type === 'del') return 'git-diff-split-cell git-diff-del';
+    return `git-diff-split-cell git-diff-ctx ${sideKind === 'left' ? 'is-left' : 'is-right'}`;
+  };
+  const renderContent = (side: DiffLine | null) => {
+    if (!side) return null;
+    if (side.segments) {
+      return side.segments.map((seg, i) => (
+        <span key={i} className={seg.changed ? 'git-diff-word' : undefined}>{seg.text}</span>
+      ));
+    }
+    return side.content;
+  };
+  return (
+    <div className="git-diff git-diff-split">
+      {rows.map((r, idx) => {
+        if (r.kind === 'hunk') {
+          return (
+            <div key={idx} className="git-diff-split-row git-diff-split-hunk">
+              <span className="git-diff-gutter" />
+              <code className="git-diff-split-cell">{r.hunkText}</code>
+              <span className="git-diff-gutter" />
+              <code className="git-diff-split-cell">{r.hunkText}</code>
+            </div>
+          );
+        }
+        return (
+          <div key={idx} className="git-diff-split-row">
+            <span className="git-diff-gutter">{r.left?.oldLine ?? ''}</span>
+            <code className={cellClass(r.left, 'left')}>{renderContent(r.left)}</code>
+            <span className="git-diff-gutter">{r.right?.newLine ?? ''}</span>
+            <code className={cellClass(r.right, 'right')}>{renderContent(r.right)}</code>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function GitChangesPanel({
+  workingDirectory,
+  onClose,
+  widthPercent,
+  onWidthChange,
+  activeTab,
+  onTabChange,
+  pullStrategy = 'merge',
+  pushTagsStrategy = 'off',
+  diffViewMode: diffViewModeProp = 'unified',
+  onDiffViewModeChange,
+}: GitChangesPanelProps) {
   const [files, setFiles] = useState<GitChangedFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -350,6 +467,18 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
   // sub-tab (Tree / Branches) to reload. ChangesView reloads via its
   // own `reloadFiles`; Tree + BranchTree pick this up as a useEffect dep.
   const [reloadEpoch, setReloadEpoch] = useState(0);
+  // Local diff view mode mirror — synced to the prop on change so the
+  // panel re-renders whatever is in AppSettings, but the toggle button
+  // can flip it without waiting for the parent.
+  const [diffViewMode, setDiffViewMode] = useState<'unified' | 'split'>(diffViewModeProp);
+  useEffect(() => { setDiffViewMode(diffViewModeProp); }, [diffViewModeProp]);
+  const toggleDiffViewMode = useCallback(() => {
+    setDiffViewMode((m) => {
+      const next = m === 'unified' ? 'split' : 'unified';
+      onDiffViewModeChange?.(next);
+      return next;
+    });
+  }, [onDiffViewModeChange]);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -839,6 +968,23 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
               <span>Fetch</span>
             </button>
             <button
+              className={`git-panel-statusbar-btn ${diffViewMode === 'split' ? 'is-on' : ''}`}
+              onClick={toggleDiffViewMode}
+              title={diffViewMode === 'split' ? 'Switch to unified diff view' : 'Switch to side-by-side diff view'}
+            >
+              {diffViewMode === 'split' ? (
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="1.5" y="3" width="5.5" height="10" rx="1" />
+                  <rect x="9" y="3" width="5.5" height="10" rx="1" />
+                </svg>
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="1.5" y="3" width="13" height="10" rx="1" />
+                  <line x1="1.5" y1="8" x2="14.5" y2="8" />
+                </svg>
+              )}
+            </button>
+            <button
               className="git-panel-statusbar-btn"
               onClick={() => { load(); setReloadEpoch((n) => n + 1); }}
               disabled={syncing !== null}
@@ -891,6 +1037,7 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
           amendAvailable={!!headInfo}
           amendPushed={headInfo?.pushed === true}
           onToggleAmend={toggleAmendMode}
+          diffViewMode={diffViewMode}
         />
       )}
       {forcePushConfirm && (
@@ -1030,6 +1177,7 @@ interface ChangesViewProps {
    * subtext in amend mode. */
   amendPushed: boolean;
   onToggleAmend: () => void;
+  diffViewMode: 'unified' | 'split';
 }
 
 function ChangesView({
@@ -1056,6 +1204,7 @@ function ChangesView({
   amendAvailable,
   amendPushed,
   onToggleAmend,
+  diffViewMode,
 }: ChangesViewProps) {
   const unstaged = files.filter((f) => !f.staged);
   const staged = files.filter((f) => f.staged);
@@ -1085,6 +1234,7 @@ function ChangesView({
             onMoveAll={() => onStageAll(unstaged.map((f) => f.path))}
             onContextMenu={onContextMenu}
             rowKey={rowKey}
+            diffViewMode={diffViewMode}
           />
         )}
 
@@ -1101,6 +1251,7 @@ function ChangesView({
             onMoveAll={() => onUnstageAll(staged.map((f) => f.path))}
             onContextMenu={onContextMenu}
             rowKey={rowKey}
+            diffViewMode={diffViewMode}
           />
         )}
       </div>
@@ -1190,10 +1341,11 @@ interface FileSectionProps {
   onMoveAll: () => void;
   onContextMenu: (e: React.MouseEvent, file: GitChangedFile) => void;
   rowKey: (path: string, staged: boolean) => string;
+  diffViewMode: 'unified' | 'split';
 }
 
 function FileSection({
-  title, count, files, staged, expanded, diffs, onToggle, onMove, onMoveAll, onContextMenu, rowKey,
+  title, count, files, staged, expanded, diffs, onToggle, onMove, onMoveAll, onContextMenu, rowKey, diffViewMode,
 }: FileSectionProps) {
   return (
     <div className="git-changes-section">
@@ -1267,7 +1419,7 @@ function FileSection({
                 {diff === undefined ? (
                   <div className="git-diff-empty">Loading diff...</div>
                 ) : (
-                  <FileDiff diff={diff} />
+                  <FileDiff diff={diff} mode={diffViewMode} />
                 )}
               </div>
             )}
