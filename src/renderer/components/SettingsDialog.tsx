@@ -196,6 +196,8 @@ export function SettingsDialog({
   const [functionWebEnabled, setFunctionWebEnabled] = useState(settings.functionWebEnabled !== false);
   const [showAuthorAvatars, setShowAuthorAvatars] = useState(settings.showAuthorAvatars !== false);
   const [formatOnSave, setFormatOnSave] = useState(settings.formatOnSave === true);
+  const [editorBreadcrumbs, setEditorBreadcrumbs] = useState(settings.editorBreadcrumbs !== false);
+  const [editorStickyScroll, setEditorStickyScroll] = useState(settings.editorStickyScroll !== false);
   const [webDefaultUrl, setWebDefaultUrl] = useState(settings.webDefaultUrl || 'https://duckduckgo.com/');
   const [pullStrategy, setPullStrategy] = useState<'merge' | 'rebase' | 'ask'>(settings.pullStrategy ?? 'merge');
   const [pushTagsStrategy, setPushTagsStrategy] = useState<'off' | 'reachable' | 'all'>(settings.pushTagsStrategy ?? 'off');
@@ -246,6 +248,8 @@ export function SettingsDialog({
       functionWebEnabled,
       showAuthorAvatars,
       formatOnSave,
+      editorBreadcrumbs,
+      editorStickyScroll,
       webDefaultUrl: webDefaultUrl.trim() || 'https://duckduckgo.com/',
       pullStrategy,
       pushTagsStrategy,
@@ -396,6 +400,39 @@ export function SettingsDialog({
               <span className="field-hint">
                 Runs Prettier on every Cmd+S save. Picks up the repo's
                 local Prettier config when one exists.
+              </span>
+
+              <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                <span className="field-label">Editor breadcrumbs</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={editorBreadcrumbs}
+                    onChange={(e) => setEditorBreadcrumbs(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+              <span className="field-hint">
+                Shows a clickable path row above the editor's tab bar.
+                Each segment reveals that path in the file tree.
+              </span>
+
+              <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                <span className="field-label">Sticky scroll</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={editorStickyScroll}
+                    onChange={(e) => setEditorStickyScroll(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+              <span className="field-hint">
+                Pins the current function / class declaration to the
+                top of the editor while scrolling. Up to 3 nested
+                scopes. Takes effect on next file open.
               </span>
 
               {functionWebEnabled && (
