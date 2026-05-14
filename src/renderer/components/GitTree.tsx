@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { GitCommit, GitRef, GitReflogEntry, GitStatus } from '../../shared/types';
+import { GitBisectStatus, GitCommit, GitRef, GitReflogEntry, GitStatus } from '../../shared/types';
 import { buildGraph, GraphRow, maxLane } from '../git-graph';
 import {
   RefMenuNode, RefContextMenu, useGitRefOps,
@@ -386,18 +386,26 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
   const [reflog, setReflog] = useState<GitReflogEntry[]>([]);
   const [reflogLoading, setReflogLoading] = useState(false);
   const [reflogMenu, setReflogMenu] = useState<{ x: number; y: number; entry: GitReflogEntry } | null>(null);
+  // T-041 bisect state. Polled via `gitBisectStatus` whenever the
+  // tree reloads; the banner above the commit list is driven from
+  // this snapshot.
+  const [bisect, setBisect] = useState<GitBisectStatus>({ inProgress: false, goodCount: 0, badCount: 0, stepsRemaining: -1 });
+  const [bisectBusy, setBisectBusy] = useState(false);
+  const [bisectError, setBisectError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [c, r, s] = await Promise.all([
+      const [c, r, s, b] = await Promise.all([
         window.api.getGitLog(workingDirectory, COMMIT_LIMIT),
         window.api.getGitRefs(workingDirectory),
         window.api.getGitStatus(workingDirectory),
+        window.api.gitBisectStatus(workingDirectory),
       ]);
       setCommits(c);
       setRefs(r);
       setStatus(s);
+      setBisect(b);
     } finally {
       setLoading(false);
     }
@@ -583,11 +591,73 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
       error: null,
     });
   }, [workingDirectory]);
+  // T-041 bisect actions. `bisectStart` resolves HEAD via the active
+  // status (its `branch` field may be a SHA when detached — that's
+  // fine, git accepts it). Each action refreshes the tree afterwards
+  // so the banner / current commit highlight follow along.
+  const refreshBisect = useCallback(async () => {
+    const next = await window.api.gitBisectStatus(workingDirectory);
+    setBisect(next);
+  }, [workingDirectory]);
+
+  const handleBisectStart = useCallback(async (sha: string, role: 'good' | 'bad') => {
+    if (bisectBusy) return;
+    setBisectBusy(true);
+    setBisectError(null);
+    // HEAD is the other end. `bisect start` requires SHAs/refs; HEAD
+    // resolves at the main-process side via the validateSha check, so
+    // we look it up here first.
+    let head = '';
+    try {
+      const headRefs = refs.find((r) => r.isHead);
+      head = headRefs?.sha ?? '';
+    } catch { /* fall through */ }
+    if (!head) {
+      // Fall back to a rev-parse via git status (status.branch is a
+      // branch name or short SHA when detached; we need the full SHA).
+      const stat = await window.api.getGitStatus(workingDirectory);
+      head = stat?.branch ?? '';
+    }
+    if (!head || head === sha) {
+      setBisectError('Bisect needs HEAD to differ from the clicked commit.');
+      setBisectBusy(false);
+      return;
+    }
+    const result = role === 'good'
+      ? await window.api.gitBisectStart(workingDirectory, sha, head)
+      : await window.api.gitBisectStart(workingDirectory, head, sha);
+    setBisectBusy(false);
+    if (!result.ok) { setBisectError(result.message || 'bisect start failed'); return; }
+    await load();
+  }, [bisectBusy, refs, workingDirectory, load]);
+
+  const handleBisectMark = useCallback(async (kind: 'good' | 'bad' | 'skip') => {
+    if (bisectBusy) return;
+    setBisectBusy(true);
+    setBisectError(null);
+    const result = await window.api.gitBisectMark(workingDirectory, kind);
+    setBisectBusy(false);
+    if (!result.ok) { setBisectError(result.message || `bisect ${kind} failed`); return; }
+    await load();
+  }, [bisectBusy, workingDirectory, load]);
+
+  const handleBisectReset = useCallback(async () => {
+    if (bisectBusy) return;
+    setBisectBusy(true);
+    setBisectError(null);
+    const result = await window.api.gitBisectReset(workingDirectory);
+    setBisectBusy(false);
+    if (!result.ok) { setBisectError(result.message || 'bisect reset failed'); return; }
+    await load();
+  }, [bisectBusy, workingDirectory, load]);
+  void refreshBisect; // kept for potential V2 explicit refresh button
+
   const opsWithReword = useMemo(() => ({
     ...ops,
     onReword: openRewordDialog,
     onCompareWith,
-  }), [ops, openRewordDialog, onCompareWith]);
+    onBisectStart: handleBisectStart,
+  }), [ops, openRewordDialog, onCompareWith, handleBisectStart]);
 
   // Convert a DisplayRef (which collapses local + remote-tracking pairs
   // into one chip) to the menu's RefMenuNode shape. When both local and
@@ -733,6 +803,49 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
       {/* Op error + merge/rebase in-progress banners come from the shared hook. */}
       {errorBar}
       {banner}
+
+      {/* T-041 bisect banner — sits above the commit list whenever a
+          bisect is in flight. Shows running counts + the current
+          commit being tested, with Good/Bad/Skip/Reset buttons. When
+          git has identified the first-bad commit, it switches to a
+          result row with Reset only. */}
+      {(bisect.inProgress || bisectError) && (
+        <div className={`git-tree-merge-banner git-tree-bisect-banner${bisect.foundSha ? ' git-tree-bisect-banner-done' : ''}`}>
+          <div className="git-tree-merge-banner-text">
+            <strong>{bisect.foundSha ? 'Bisect found a commit' : 'Bisect in progress'}</strong>
+            {bisect.foundSha ? (
+              <>
+                {' '}— first bad commit is <code>{bisect.foundSha.slice(0, 7)}</code>
+                {bisect.foundSubject && <>: {bisect.foundSubject}</>}
+              </>
+            ) : (
+              <>
+                {' '}— {bisect.goodCount} good, {bisect.badCount} bad
+                {bisect.stepsRemaining >= 0 && <>, ~{bisect.stepsRemaining} step{bisect.stepsRemaining === 1 ? '' : 's'} left</>}
+                {bisect.currentSha && (
+                  <div className="git-tree-merge-banner-hint">
+                    Testing <code>{bisect.currentSha.slice(0, 7)}</code>
+                    {bisect.currentSubject && <>: {bisect.currentSubject}</>}
+                  </div>
+                )}
+              </>
+            )}
+            {bisectError && (
+              <div className="git-tree-merge-banner-hint" style={{ color: 'var(--c-red)' }}>{bisectError}</div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {bisect.inProgress && !bisect.foundSha && (
+              <>
+                <button className="git-tree-merge-banner-continue" disabled={bisectBusy} onClick={() => handleBisectMark('good')}>Good</button>
+                <button className="git-tree-merge-banner-abort" disabled={bisectBusy} onClick={() => handleBisectMark('bad')}>Bad</button>
+                <button className="git-tree-merge-banner-abort" disabled={bisectBusy} onClick={() => handleBisectMark('skip')} style={{ background: 'var(--c-yellow)' }}>Skip</button>
+              </>
+            )}
+            <button className="git-tree-merge-banner-abort" disabled={bisectBusy} onClick={handleBisectReset}>Reset</button>
+          </div>
+        </div>
+      )}
 
       {refMenu && (
         <RefContextMenu

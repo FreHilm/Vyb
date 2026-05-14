@@ -233,6 +233,15 @@ contextBridge.exposeInMainWorld('api', {
   gitReflog: (cwd: string, ref?: string, limit?: number) =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_REFLOG, cwd, ref ?? 'HEAD', limit ?? 500),
 
+  gitBisectStart: (cwd: string, goodSha: string, badSha: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_BISECT_START, cwd, goodSha, badSha),
+  gitBisectMark: (cwd: string, kind: 'good' | 'bad' | 'skip'): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_BISECT_MARK, cwd, kind),
+  gitBisectReset: (cwd: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_BISECT_RESET, cwd),
+  gitBisectStatus: (cwd: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_BISECT_STATUS, cwd),
+
   gitMerge: (cwd: string, sourceRef: string): Promise<GitMergeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>

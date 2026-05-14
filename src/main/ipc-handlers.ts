@@ -2408,6 +2408,126 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // Bisect (T-041). Four IPCs cover the whole lifecycle. Each one
+  // shells out to plain `git bisect …` — no clever state tracking on
+  // our side; the panel polls bisectStatus to refresh its banner.
+  ipcMain.handle(IPC_CHANNELS.GIT_BISECT_START, (_, cwd: string, goodSha: string, badSha: string): GitOpResult => {
+    if (!validateSha(goodSha) || !validateSha(badSha)) return { ok: false, message: 'invalid SHA' };
+    if (goodSha === badSha) return { ok: false, message: 'good and bad must differ' };
+    try {
+      // `git bisect start <bad> <good>` — note the order: bad first
+      // is git's CLI convention.
+      execFileSync('git', ['bisect', 'start', badSha, goodSha], { cwd, timeout: 30000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'bisect start failed') };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_BISECT_MARK, (_, cwd: string, kind: 'good' | 'bad' | 'skip'): GitOpResult => {
+    if (kind !== 'good' && kind !== 'bad' && kind !== 'skip') return { ok: false, message: 'invalid mark' };
+    try {
+      execFileSync('git', ['bisect', kind], { cwd, timeout: 30000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, `bisect ${kind} failed`) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_BISECT_RESET, (_, cwd: string): GitOpResult => {
+    try {
+      execFileSync('git', ['bisect', 'reset'], { cwd, timeout: 30000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'bisect reset failed') };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_BISECT_STATUS, (_, cwd: string): import('../shared/types').GitBisectStatus => {
+    const empty: import('../shared/types').GitBisectStatus = { inProgress: false, goodCount: 0, badCount: 0, stepsRemaining: -1 };
+    if (!cwd) return empty;
+    // `git rev-parse --git-dir` resolves to the per-worktree git dir
+    // (matters for linked worktrees — they have their own bisect state).
+    let gitDir: string;
+    try {
+      gitDir = execFileSync('git', ['rev-parse', '--git-dir'], {
+        cwd, timeout: 3000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+    } catch { return empty; }
+    const gitDirAbs = path.isAbsolute(gitDir) ? gitDir : path.resolve(cwd, gitDir);
+    if (!fs.existsSync(path.join(gitDirAbs, 'BISECT_LOG'))) return empty;
+    try {
+      // Parse `git bisect log` for the counts. Each line of interest is
+      // "git bisect good <sha>" / "git bisect bad <sha>" / "git bisect
+      // skip <sha>". The first "# first <bad|good> commit:" line
+      // signals a found commit.
+      const log = execFileSync('git', ['bisect', 'log'], {
+        cwd, timeout: 3000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      let goodCount = 0;
+      let badCount = 0;
+      let foundSha: string | undefined;
+      for (const line of log.split('\n')) {
+        const t = line.trim();
+        if (/^git bisect good /.test(t)) goodCount++;
+        else if (/^git bisect bad /.test(t)) badCount++;
+        else if (/^#\s+first (bad|good) commit:/i.test(t)) {
+          // The next line in the log is "<sha> <subject>" — capture
+          // its SHA. Simpler: parse from `git bisect view` below.
+        }
+      }
+      // Use `bisect view` to grab the current HEAD (one we're testing).
+      let currentSha: string | undefined;
+      let currentSubject: string | undefined;
+      try {
+        const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, timeout: 3000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+        if (head) currentSha = head;
+        if (head) {
+          const subj = execFileSync('git', ['log', '-1', '--pretty=%s', head], { cwd, timeout: 3000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+          currentSubject = subj;
+        }
+      } catch { /* best-effort */ }
+      // Estimate remaining steps using `git bisect run` machinery:
+      // `git bisect visualize --pretty=oneline | wc -l` gives the
+      // bisectable range count. log2(n) is the rough step count.
+      let stepsRemaining = -1;
+      try {
+        const range = execFileSync('git', ['rev-list', '--bisect-vars'], { cwd, timeout: 3000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+        const m = range.match(/bisect_nr=(\d+)/);
+        if (m) {
+          const n = parseInt(m[1], 10);
+          stepsRemaining = n > 0 ? Math.ceil(Math.log2(n + 1)) : 0;
+        }
+      } catch { /* best-effort */ }
+      // Detect found-commit by checking BISECT_RUN_BAD / BISECT_NAMES /
+      // BISECT_TERMS, OR simpler: if the most recent line in the log is
+      // a "first bad commit" comment, the next line has the SHA.
+      const logLines = log.split('\n');
+      for (let i = 0; i < logLines.length; i++) {
+        if (/^#\s+first (bad|good) commit:/i.test(logLines[i])) {
+          const next = logLines[i + 1] ?? '';
+          const m = next.trim().match(/^([0-9a-f]{7,40})\s+(.*)$/);
+          if (m) {
+            foundSha = m[1];
+            if (m[2]) currentSubject = m[2];
+          }
+        }
+      }
+      return {
+        inProgress: true,
+        currentSha,
+        currentSubject,
+        goodCount,
+        badCount,
+        stepsRemaining,
+        foundSha,
+        foundSubject: foundSha ? currentSubject : undefined,
+      };
+    } catch {
+      return empty;
+    }
+  });
+
   // ── Pull request via gh ───────────────────────────────────────
   // Shells out to the GitHub CLI. `gh pr create --fill` reuses the
   // commit message as title/body; if the user passes an explicit
