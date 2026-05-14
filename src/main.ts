@@ -245,6 +245,31 @@ const createWindow = () => {
   }
 };
 
+// Cmd+C / Cmd+V / Cmd+X / Cmd+A / Cmd+Z inside the in-app browser
+// (`<webview>`). The host Edit menu deliberately omits Cocoa-role
+// accelerators (they would intercept Cmd+C before xterm.js could
+// handle it), but the inner webview is its own Chromium renderer and
+// also needs those accelerators — so we re-bind here on the
+// webview's webContents via `before-input-event`. The host renderer
+// never sees these keystrokes (focus is fully inside the webview), so
+// this main-process listener is the only place that can intercept.
+app.on('web-contents-created', (_event, contents) => {
+  if (contents.getType() !== 'webview') return;
+  contents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const mod = process.platform === 'darwin' ? input.meta : input.control;
+    if (!mod || input.alt) return;
+    const key = input.key.toLowerCase();
+    if (key === 'c') contents.copy();
+    else if (key === 'v') contents.paste();
+    else if (key === 'x') contents.cut();
+    else if (key === 'a') contents.selectAll();
+    else if (key === 'z') input.shift ? contents.redo() : contents.undo();
+    else return;
+    event.preventDefault();
+  });
+});
+
 app.on('ready', async () => {
   // Resolve the user's shell PATH/env (zshrc/zshenv etc.) before any PTY
   // spawns — Electron processes get a minimal PATH from launchd otherwise.

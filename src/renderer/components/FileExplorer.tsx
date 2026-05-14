@@ -1231,13 +1231,12 @@ export function FileExplorer({
     setCtxMenu(null);
   }, [ctxMenu, workingDirectory]);
 
-  const handlePaste = useCallback(async () => {
+  // Paste with an explicit target dir. Right-click "Paste" uses
+  // `handlePaste` (below) which picks the target from the context
+  // menu; the file-tree keyboard handler calls this directly to
+  // skip the menu state.
+  const pasteIntoDir = useCallback(async (targetDir: string) => {
     if (!clipboard) return;
-    const targetDir = ctxMenu?.entry?.isDirectory
-      ? ctxMenu.entry.path
-      : ctxMenu?.entry
-        ? parentDir(ctxMenu.entry.path)
-        : workingDirectory;
     const name = clipboard.split('/').pop() || '';
     let destPath = `${targetDir}/${name}`;
     let i = 0;
@@ -1248,14 +1247,62 @@ export function FileExplorer({
       destPath = `${targetDir}/${baseName} copy${i > 1 ? ` ${i}` : ''}${ext}`;
     }
     await window.api.copyFile(clipboard, destPath);
-    setCtxMenu(null);
     refresh();
-  }, [clipboard, ctxMenu, workingDirectory, refresh]);
+  }, [clipboard, refresh]);
+
+  const handlePaste = useCallback(async () => {
+    if (!clipboard) return;
+    const targetDir = ctxMenu?.entry?.isDirectory
+      ? ctxMenu.entry.path
+      : ctxMenu?.entry
+        ? parentDir(ctxMenu.entry.path)
+        : workingDirectory;
+    setCtxMenu(null);
+    await pasteIntoDir(targetDir);
+  }, [clipboard, ctxMenu, workingDirectory, pasteIntoDir]);
 
   const handleDelete = useCallback(() => {
     if (ctxMenu?.entry) setDeleteTarget(ctxMenu.entry);
     setCtxMenu(null);
   }, [ctxMenu]);
+
+  // Keyboard Cmd+C / Cmd+V inside the file tree pane. The right-click
+  // Copy / Paste menu items already work; this just makes the
+  // matching shortcuts behave the same way. Cmd+C copies the path of
+  // the currently-active tab (what the user has open in the editor);
+  // Cmd+V pastes into that file's parent directory. Falls back to
+  // the working directory when no tab is open.
+  useEffect(() => {
+    if (hidden) return;
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.altKey || e.shiftKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== 'c' && key !== 'v') return;
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      // Only intercept when the keystroke originated inside the tree
+      // pane. Editor / CodeMirror / inputs / xterm all have their
+      // own handling further up the chain.
+      if (!target.closest('.file-tree-pane')) return;
+      // Stay out of edit-in-place inputs (rename / new file/folder).
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      if (key === 'c') {
+        if (activeTabPath) {
+          e.preventDefault();
+          setClipboard(activeTabPath);
+        }
+      } else if (key === 'v') {
+        if (clipboard) {
+          e.preventDefault();
+          const targetDir = activeTabPath ? parentDir(activeTabPath) : workingDirectory;
+          pasteIntoDir(targetDir);
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [hidden, activeTabPath, clipboard, workingDirectory, pasteIntoDir]);
 
   const handleConfirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
