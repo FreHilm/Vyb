@@ -8,6 +8,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { ResizeHandle } from './components/ResizeHandle';
 import { FileExplorer } from './components/FileExplorer';
 import { QuickOpenDialog } from './components/QuickOpenDialog';
+import { FindInFilesPanel } from './components/FindInFilesPanel';
 import { KanbanViewer } from './components/KanbanViewer';
 import { WebViewer } from './components/WebViewer';
 import { ParallelAgentTerminal } from './components/ParallelAgentTerminal';
@@ -15,7 +16,7 @@ import { StatusBar } from './components/StatusBar';
 import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -196,6 +197,7 @@ declare global {
       gitReset: (cwd: string, sha: string, mode: 'soft' | 'mixed' | 'hard') => Promise<GitOpResult>;
       listDir: (dirPath: string) => Promise<FileEntry[]>;
       listProjectFiles: (cwd: string) => Promise<string[]>;
+      searchInFiles: (cwd: string, query: string, opts?: FileSearchOptions) => Promise<FileSearchResult>;
       readFile: (filePath: string) => Promise<string | null>;
       saveFile: (filePath: string, content: string) => Promise<boolean>;
       deleteFile: (targetPath: string) => Promise<boolean>;
@@ -351,6 +353,8 @@ export function App() {
   // tab is currently active — opening a file via the picker pops
   // the Files tab open if it isn't already.
   const [quickOpenVisible, setQuickOpenVisible] = useState(false);
+  // T-044: Find-in-Files panel. Toggled by Cmd+Shift+F.
+  const [findInFilesVisible, setFindInFilesVisible] = useState(false);
 
   // Build the view key for the currently-active profile + parallel selection.
   // Parent: just the profileId. Parallel: `${profileId}|${parallelId}`.
@@ -585,6 +589,13 @@ export function App() {
         e.preventDefault();
         e.stopPropagation();
         setQuickOpenVisible((v) => !v);
+      }
+      if (key === 'f' && e.shiftKey) {
+        // T-044 Find in Files. Stays out of xterm's way — xterm
+        // doesn't bind Cmd+Shift+F.
+        e.preventDefault();
+        e.stopPropagation();
+        setFindInFilesVisible((v) => !v);
       }
     };
     window.addEventListener('keydown', handler, true);
@@ -2128,6 +2139,23 @@ export function App() {
           onClose={() => setEditorOpen(false)}
           onStartIconGeneration={handleStartIconGeneration}
           pendingIconGenerations={pendingIconGenerations}
+        />
+      )}
+      {findInFilesVisible && activeProfile && (
+        <FindInFilesPanel
+          workingDirectory={activeProfile.workingDirectory}
+          onClose={() => setFindInFilesVisible(false)}
+          onOpenResult={(absolutePath, line) => {
+            setFindInFilesVisible(false);
+            if (activeViewKey) {
+              const key = activeViewKey;
+              setFilesViews((prev) => ensureInSet(prev, key));
+              setFilesRunning((prev) => ensureInSet(prev, key));
+              setKanbanViews((prev) => removeFromSet(prev, key));
+              setWebViews((prev) => removeFromSet(prev, key));
+            }
+            setPendingFileOpen({ path: absolutePath, nonce: Date.now(), line });
+          }}
         />
       )}
       {quickOpenVisible && activeProfile && (

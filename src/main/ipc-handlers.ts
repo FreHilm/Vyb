@@ -3313,6 +3313,105 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     return result;
   });
 
+  // Cross-file search (T-044). Spawns ripgrep with --json, parses
+  // its newline-delimited records, and returns up to 500 matches.
+  // ripgrep absent → returns `fallbackUsed: true` with no matches
+  // so the renderer can hint about installing it. We don't ship a
+  // node-glob walker as a real fallback in V1; that path's purely
+  // informational.
+  ipcMain.handle(
+    IPC_CHANNELS.FILE_SEARCH_IN_FILES,
+    async (_, cwd: string, query: string, opts?: import('../shared/types').FileSearchOptions): Promise<import('../shared/types').FileSearchResult> => {
+      const empty: import('../shared/types').FileSearchResult = { matches: [], truncated: false, fallbackUsed: false };
+      if (!cwd || !query) return empty;
+      const CAP = 500;
+      const args: string[] = ['--json', '--max-count', '50', '--max-filesize', '2M'];
+      if (!opts?.caseSensitive) args.push('-i');
+      if (opts?.wholeWord) args.push('-w');
+      if (!opts?.regex) args.push('-F'); // fixed string
+      if (opts?.include) {
+        for (const g of opts.include.split(/[,\n]/).map((s) => s.trim()).filter(Boolean)) {
+          args.push('-g', g);
+        }
+      }
+      if (opts?.exclude) {
+        for (const g of opts.exclude.split(/[,\n]/).map((s) => s.trim()).filter(Boolean)) {
+          args.push('-g', `!${g}`);
+        }
+      }
+      args.push('--', query, '.');
+      return await new Promise<import('../shared/types').FileSearchResult>((resolve) => {
+        let child: ReturnType<typeof spawn>;
+        try {
+          child = spawn('rg', args, { cwd });
+        } catch {
+          resolve({ ...empty, fallbackUsed: true, error: 'ripgrep not installed' });
+          return;
+        }
+        let stdoutBuf = '';
+        let stderrBuf = '';
+        const matches: import('../shared/types').FileSearchMatch[] = [];
+        let truncated = false;
+        const timer = setTimeout(() => {
+          try { child.kill('SIGTERM'); } catch { /* ignore */ }
+        }, 30_000);
+        child.stdout?.setEncoding('utf-8');
+        child.stdout?.on('data', (chunk: string) => {
+          stdoutBuf += chunk;
+          let nl: number;
+          while ((nl = stdoutBuf.indexOf('\n')) !== -1) {
+            const line = stdoutBuf.slice(0, nl);
+            stdoutBuf = stdoutBuf.slice(nl + 1);
+            if (!line.trim()) continue;
+            try {
+              const rec = JSON.parse(line) as {
+                type: string;
+                data: {
+                  path?: { text: string };
+                  line_number?: number;
+                  lines?: { text: string };
+                  submatches?: { start: number; end: number }[];
+                };
+              };
+              if (rec.type !== 'match') continue;
+              if (matches.length >= CAP) {
+                truncated = true;
+                try { child.kill('SIGTERM'); } catch { /* ignore */ }
+                break;
+              }
+              const path = rec.data.path?.text ?? '';
+              const lineNumber = rec.data.line_number ?? 0;
+              const text = (rec.data.lines?.text ?? '').replace(/\r?\n$/, '');
+              const sub = rec.data.submatches?.[0];
+              matches.push({
+                path,
+                lineNumber,
+                line: text.length > 500 ? text.slice(0, 500) + '…' : text,
+                matchStart: sub?.start ?? 0,
+                matchEnd: sub?.end ?? 0,
+              });
+            } catch { /* skip malformed lines */ }
+          }
+        });
+        child.stderr?.setEncoding('utf-8');
+        child.stderr?.on('data', (chunk: string) => { stderrBuf += chunk; });
+        child.on('error', () => {
+          clearTimeout(timer);
+          resolve({ ...empty, fallbackUsed: true, error: 'ripgrep not installed' });
+        });
+        child.on('close', () => {
+          clearTimeout(timer);
+          resolve({
+            matches,
+            truncated,
+            fallbackUsed: false,
+            error: stderrBuf.trim() && matches.length === 0 ? stderrBuf.trim() : undefined,
+          });
+        });
+      });
+    },
+  );
+
   ipcMain.handle(IPC_CHANNELS.FILE_READ, (_, filePath: string): string | null => {
     try {
       return fs.readFileSync(filePath, 'utf-8');
