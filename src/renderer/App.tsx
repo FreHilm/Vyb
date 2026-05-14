@@ -117,6 +117,17 @@ declare global {
       gitUnstage: (cwd: string, filePath: string) => Promise<boolean>;
       gitDiscardFile: (cwd: string, filePath: string, untracked: boolean) => Promise<boolean>;
       gitCommit: (cwd: string, subject: string, description: string) => Promise<GitCommitResult>;
+      gitAmendCommit: (cwd: string, subject: string | null, description: string | null) => Promise<GitCommitResult>;
+      gitRewordHead: (cwd: string, subject: string, description: string) => Promise<GitCommitResult>;
+      gitHeadInfo: (cwd: string) => Promise<{
+        ok: boolean;
+        sha?: string;
+        subject?: string;
+        body?: string;
+        pushed?: boolean;
+        branch?: string;
+        message?: string;
+      }>;
       gitPush: (cwd: string) => Promise<GitOpResult>;
       gitPull: (cwd: string) => Promise<GitOpResult>;
       gitMerge: (cwd: string, sourceRef: string) => Promise<GitMergeResult>;

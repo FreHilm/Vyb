@@ -317,6 +317,10 @@ export function GitTree({ workingDirectory, reloadEpoch = 0 }: GitTreeProps) {
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [refMenu, setRefMenu] = useState<{ x: number; y: number; node: RefMenuNode } | null>(null);
+  // HEAD-reword dialog. Pre-filled with HEAD's current message; on save
+  // runs `gitRewordHead` and reloads. Only opened from the commit menu's
+  // "Reword commit message…" item, which is HEAD-only.
+  const [rewordDialog, setRewordDialog] = useState<{ subject: string; body: string; busy: boolean; error: string | null } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -402,6 +406,20 @@ export function GitTree({ workingDirectory, reloadEpoch = 0 }: GitTreeProps) {
     status,
     currentBranch,
   });
+
+  // Wire the HEAD-only Reword action. The menu item is gated on
+  // node.isHead so this only triggers from the right commit row.
+  const openRewordDialog = useCallback(async () => {
+    const head = await window.api.gitHeadInfo(workingDirectory);
+    if (!head.ok) return;
+    setRewordDialog({
+      subject: head.subject ?? '',
+      body: head.body ?? '',
+      busy: false,
+      error: null,
+    });
+  }, [workingDirectory]);
+  const opsWithReword = useMemo(() => ({ ...ops, onReword: openRewordDialog }), [ops, openRewordDialog]);
 
   // Convert a DisplayRef (which collapses local + remote-tracking pairs
   // into one chip) to the menu's RefMenuNode shape. When both local and
@@ -517,8 +535,62 @@ export function GitTree({ workingDirectory, reloadEpoch = 0 }: GitTreeProps) {
           currentBranch={currentBranch}
           onBranch={onBranch}
           onClose={() => setRefMenu(null)}
-          {...ops}
+          {...opsWithReword}
         />
+      )}
+      {rewordDialog && (
+        <div className="modal-overlay" onClick={() => !rewordDialog.busy && setRewordDialog(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Reword commit message</h3></div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <input
+                type="text"
+                value={rewordDialog.subject}
+                onChange={(e) => setRewordDialog((d) => d ? { ...d, subject: e.target.value } : d)}
+                placeholder="Subject"
+                style={{ width: '100%' }}
+                autoFocus
+              />
+              <textarea
+                value={rewordDialog.body}
+                onChange={(e) => setRewordDialog((d) => d ? { ...d, body: e.target.value } : d)}
+                placeholder="Description (optional)"
+                rows={6}
+                style={{ width: '100%', fontFamily: 'inherit' }}
+              />
+              {rewordDialog.error && (
+                <div className="git-tree-error">{rewordDialog.error}</div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button
+                className="cancel-btn"
+                disabled={rewordDialog.busy}
+                onClick={() => setRewordDialog(null)}
+              >
+                Cancel
+              </button>
+              <div className="modal-footer-right">
+                <button
+                  className="save-btn"
+                  disabled={rewordDialog.busy || !rewordDialog.subject.trim()}
+                  onClick={async () => {
+                    setRewordDialog((d) => d ? { ...d, busy: true, error: null } : d);
+                    const result = await window.api.gitRewordHead(workingDirectory, rewordDialog.subject, rewordDialog.body);
+                    if (!result.ok) {
+                      setRewordDialog((d) => d ? { ...d, busy: false, error: result.message ?? 'reword failed' } : d);
+                      return;
+                    }
+                    setRewordDialog(null);
+                    await load();
+                  }}
+                >
+                  {rewordDialog.busy ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
       {modals}
 
@@ -547,6 +619,7 @@ export function GitTree({ workingDirectory, reloadEpoch = 0 }: GitTreeProps) {
                     sha: row.sha,
                     shortSha: row.sha.slice(0, 8),
                     subject: c.subject,
+                    isHead: row.sha === headSha,
                   },
                 });
               }}

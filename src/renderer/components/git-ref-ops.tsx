@@ -68,6 +68,10 @@ export interface CommitNode {
   sha: string;
   shortSha: string;
   subject: string;
+  /** True when this commit IS the current HEAD. Unlocks the Reword
+   * action in the menu (only HEAD can be reworded via `commit --amend`
+   * without an interactive rebase). */
+  isHead?: boolean;
 }
 
 export type RefMenuNode =
@@ -101,6 +105,10 @@ export interface RefOps {
   onCherryPick: (sha: string) => void;
   onRevert: (sha: string) => void;
   onReset: (sha: string) => void;
+  /** Reword the HEAD commit's message. Only surfaced in the menu when
+   * the right-clicked commit is HEAD. Optional so callers that don't
+   * implement it (e.g. test harness) still type-check. */
+  onReword?: (sha: string) => void;
 }
 
 // ── Menu component ────────────────────────────────────────────────
@@ -218,6 +226,10 @@ function buildMenuItems(p: RefContextMenuProps): MenuItem[] {
   if (node.kind === 'commit') {
     items.push({ type: 'item', label: `Checkout ${node.shortSha} (detached)`, onClick: () => p.onCheckout(node.sha) });
     items.push({ type: 'divider' });
+    if (node.isHead && p.onReword) {
+      items.push({ type: 'item', label: 'Reword commit message…', onClick: () => p.onReword!(node.sha) });
+      items.push({ type: 'divider' });
+    }
     items.push({ type: 'item', label: onBranch ? `Merge ${node.shortSha} into '${currentBranch}'` : 'Merge — checkout a branch first', onClick: () => p.onMergeInto(node.sha), disabled: !onBranch });
     items.push({ type: 'item', label: onBranch ? `Cherry-pick ${node.shortSha}` : 'Cherry-pick — checkout a branch first', onClick: () => p.onCherryPick(node.sha), disabled: !onBranch });
     items.push({ type: 'item', label: onBranch ? `Revert ${node.shortSha}…` : 'Revert — checkout a branch first', onClick: () => p.onRevert(node.sha), disabled: !onBranch });

@@ -180,6 +180,17 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
   const [commitSubject, setCommitSubject] = useState('');
   const [commitDescription, setCommitDescription] = useState('');
   const [commitBusy, setCommitBusy] = useState(false);
+  // Amend mode: next commit folds into HEAD via `git commit --amend`
+  // instead of creating a fresh commit. We track HEAD info so the UI can
+  // pre-fill the subject + description when amend turns on, and warn
+  // when the HEAD has already been pushed (rewriting public history).
+  const [amendMode, setAmendMode] = useState(false);
+  const [headInfo, setHeadInfo] = useState<{ subject: string; body: string; pushed: boolean; sha: string } | null>(null);
+  // Captured commit fields from BEFORE amend mode was switched on, so
+  // we can restore them if the user toggles amend off without committing.
+  const preAmendDraftRef = useRef<{ subject: string; description: string } | null>(null);
+  // Confirm dialog for "this would rewrite history that's been pushed".
+  const [amendConfirmOpen, setAmendConfirmOpen] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<ChangesCtxMenuState | null>(null);
   const [discardTarget, setDiscardTarget] = useState<GitChangedFile | null>(null);
@@ -206,6 +217,23 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
       } : null);
     } catch {
       setStatus(null);
+    }
+    // Refresh HEAD info alongside status — drives the Amend pre-fill +
+    // the "rewrites public history" warning.
+    try {
+      const h = await window.api.gitHeadInfo(workingDirectory);
+      if (h.ok) {
+        setHeadInfo({
+          subject: h.subject ?? '',
+          body: h.body ?? '',
+          pushed: h.pushed === true,
+          sha: h.sha ?? '',
+        });
+      } else {
+        setHeadInfo(null);
+      }
+    } catch {
+      setHeadInfo(null);
     }
   }, [workingDirectory]);
 
@@ -326,25 +354,73 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
     await reloadFiles();
   }, [workingDirectory, reloadFiles]);
 
-  const handleCommit = useCallback(async () => {
+  // Shared commit / amend execution. `kind = 'amend'` folds staged work
+  // into HEAD via `git commit --amend`; `kind = 'commit'` creates a new
+  // commit as before. Both consult the local subject+description.
+  const runCommitOrAmend = useCallback(async (kind: 'commit' | 'amend') => {
     if (!commitSubject.trim() || commitBusy) return;
     setCommitBusy(true);
     setCommitError(null);
     try {
-      const result = await window.api.gitCommit(workingDirectory, commitSubject, commitDescription);
+      const result = kind === 'amend'
+        ? await window.api.gitAmendCommit(workingDirectory, commitSubject, commitDescription)
+        : await window.api.gitCommit(workingDirectory, commitSubject, commitDescription);
       if (!result.ok) {
-        setCommitError(result.message ?? 'commit failed');
+        setCommitError(result.message ?? `${kind} failed`);
       } else {
         setCommitSubject('');
         setCommitDescription('');
-        // Optimistic: drop staged files locally; reload reconciles.
         setFiles((prev) => prev.filter((f) => !f.staged));
+        if (kind === 'amend') {
+          setAmendMode(false);
+          preAmendDraftRef.current = null;
+        }
         await reloadFiles();
+        await loadStatus();
+        setReloadEpoch((n) => n + 1);
       }
     } finally {
       setCommitBusy(false);
     }
-  }, [workingDirectory, commitSubject, commitDescription, commitBusy, reloadFiles]);
+  }, [workingDirectory, commitSubject, commitDescription, commitBusy, reloadFiles, loadStatus]);
+
+  const handleCommit = useCallback(async () => {
+    if (amendMode) {
+      // Surface a confirm dialog when the HEAD we're about to rewrite
+      // has already been pushed — fork-style "this rewrites public
+      // history" warning. Skip the dialog otherwise for a one-click amend.
+      if (headInfo?.pushed) {
+        setAmendConfirmOpen(true);
+        return;
+      }
+      await runCommitOrAmend('amend');
+      return;
+    }
+    await runCommitOrAmend('commit');
+  }, [amendMode, headInfo, runCommitOrAmend]);
+
+  // Toggle amend mode. Turning on pre-fills the subject + description
+  // from HEAD (after stashing the user's in-progress draft); turning off
+  // restores the draft so toggling is non-destructive.
+  const toggleAmendMode = useCallback(() => {
+    setAmendMode((wasOn) => {
+      const turningOn = !wasOn;
+      if (turningOn) {
+        if (!headInfo) return wasOn; // no HEAD yet — refuse silently
+        preAmendDraftRef.current = { subject: commitSubject, description: commitDescription };
+        setCommitSubject(headInfo.subject);
+        setCommitDescription(headInfo.body);
+      } else {
+        const restore = preAmendDraftRef.current;
+        if (restore) {
+          setCommitSubject(restore.subject);
+          setCommitDescription(restore.description);
+        }
+        preAmendDraftRef.current = null;
+      }
+      return turningOn;
+    });
+  }, [commitSubject, commitDescription, headInfo]);
 
   const openContextMenu = useCallback((e: React.MouseEvent, file: GitChangedFile) => {
     e.preventDefault();
@@ -577,7 +653,42 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
           onCommitDescriptionChange={setCommitDescription}
           onCommit={handleCommit}
           onDismissCommitError={() => setCommitError(null)}
+          amendMode={amendMode}
+          amendAvailable={!!headInfo}
+          amendPushed={headInfo?.pushed === true}
+          onToggleAmend={toggleAmendMode}
         />
+      )}
+      {amendConfirmOpen && (
+        <div className="modal-overlay" onClick={() => setAmendConfirmOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Rewrite pushed commit?</h3></div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, lineHeight: 1.5 }}>
+                The current HEAD ({headInfo?.sha?.slice(0, 7)}) has already
+                been pushed to a remote. Amending will rewrite history —
+                anyone who has pulled this commit will need to reset.
+              </p>
+              <p style={{ fontSize: 12, lineHeight: 1.5, opacity: 0.75, marginTop: 8 }}>
+                You'll likely need a force-push (with lease) afterwards.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="cancel-btn" onClick={() => setAmendConfirmOpen(false)}>Cancel</button>
+              <div className="modal-footer-right">
+                <button
+                  className="delete-btn"
+                  onClick={async () => {
+                    setAmendConfirmOpen(false);
+                    await runCommitOrAmend('amend');
+                  }}
+                >
+                  Amend anyway
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
       {ctxMenu && (
         <ChangesContextMenu
@@ -640,6 +751,16 @@ interface ChangesViewProps {
   onCommitDescriptionChange: (s: string) => void;
   onCommit: () => void;
   onDismissCommitError: () => void;
+  /** When true the commit area is in amend mode — the action button
+   * folds staged changes into HEAD instead of creating a new commit. */
+  amendMode: boolean;
+  /** Whether HEAD exists at all (false on an empty repo). Disables the
+   * Amend checkbox in that case. */
+  amendAvailable: boolean;
+  /** Whether HEAD has been pushed to a remote — surfaces a warning
+   * subtext in amend mode. */
+  amendPushed: boolean;
+  onToggleAmend: () => void;
 }
 
 function ChangesView({
@@ -662,10 +783,17 @@ function ChangesView({
   onCommitDescriptionChange,
   onCommit,
   onDismissCommitError,
+  amendMode,
+  amendAvailable,
+  amendPushed,
+  onToggleAmend,
 }: ChangesViewProps) {
   const unstaged = files.filter((f) => !f.staged);
   const staged = files.filter((f) => f.staged);
-  const canCommit = staged.length > 0 && commitSubject.trim().length > 0 && !commitBusy;
+  // In amend mode the commit area becomes usable even with no staged
+  // files (a pure message-rewrite). Out of amend mode we still require
+  // staged content as before.
+  const canCommit = commitSubject.trim().length > 0 && !commitBusy && (amendMode || staged.length > 0);
 
   return (
     <div className="git-changes-split">
@@ -735,19 +863,46 @@ function ChangesView({
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canCommit) onCommit();
           }}
         />
+        <div className="git-commit-amend-row">
+          <label
+            className={`git-commit-amend-toggle ${amendAvailable ? '' : 'is-disabled'}`}
+            title={amendAvailable ? 'Fold staged changes into the last commit' : 'No HEAD yet — make the first commit normally'}
+          >
+            <input
+              type="checkbox"
+              checked={amendMode}
+              disabled={!amendAvailable}
+              onChange={onToggleAmend}
+            />
+            <span>Amend last commit</span>
+          </label>
+          {amendMode && amendPushed && (
+            <span className="git-commit-amend-warning" title="HEAD has been pushed — amending rewrites public history.">
+              ⚠ pushed
+            </span>
+          )}
+        </div>
         <button
           className="git-commit-btn"
           disabled={!canCommit}
           onClick={onCommit}
           title={
-            staged.length === 0
-              ? 'Stage a file first'
-              : !commitSubject.trim()
-                ? 'Enter a subject'
-                : 'Commit (⌘↵)'
+            !commitSubject.trim()
+              ? 'Enter a subject'
+              : !amendMode && staged.length === 0
+                ? 'Stage a file first'
+                : amendMode
+                  ? 'Amend HEAD (⌘↵)'
+                  : 'Commit (⌘↵)'
           }
         >
-          {commitBusy ? 'Committing…' : `Commit ${staged.length} ${staged.length === 1 ? 'file' : 'files'}`}
+          {commitBusy
+            ? (amendMode ? 'Amending…' : 'Committing…')
+            : amendMode
+              ? (staged.length === 0
+                  ? 'Amend message'
+                  : `Amend ${staged.length} ${staged.length === 1 ? 'file' : 'files'} into HEAD`)
+              : `Commit ${staged.length} ${staged.length === 1 ? 'file' : 'files'}`}
         </button>
       </div>
     </div>
