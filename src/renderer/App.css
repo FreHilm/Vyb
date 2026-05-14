@@ -5701,3 +5701,115 @@
   background: color-mix(in srgb, var(--c-yellow) 30%, var(--c-surface0));
   color: var(--c-yellow);
 }
+
+/* T-043 Quick open dialog */
+.quick-open-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 200;
+  padding-top: 12vh;
+}
+.quick-open-dialog {
+  width: 560px;
+  max-width: 90vw;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
+  border-radius: 8px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.quick-open-input {
+  background: var(--c-mantle);
+  color: var(--c-text);
+  border: none;
+  border-bottom: 1px solid var(--c-surface0);
+  padding: 12px 14px;
+  font-size: 14px;
+  outline: none;
+}
+.quick-open-list {
+  flex: 1 1 auto;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.quick-open-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  color: var(--c-text);
+  text-align: left;
+  cursor: pointer;
+  font-size: 12px;
+}
+.quick-open-row.is-active {
+  background: var(--c-surface0);
+}
+.quick-open-row:focus { outline: none; }
+.quick-open-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.quick-open-match {
+  color: var(--c-yellow);
+  font-weight: 700;
+}
+.quick-open-empty {
+  padding: 18px;
+  text-align: center;
+  color: var(--c-overlay0);
+  font-size: 12px;
+}
+.quick-open-footer {
+  padding: 6px 12px;
+  border-top: 1px solid var(--c-surface0);
+  font-size: 10.5px;
+  color: var(--c-overlay0);
+  background: var(--c-mantle);
+}
+
+/* T-043 Tab right-click context menu */
+.file-tab-ctx-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 200px;
+  background: var(--c-mantle);
+  border: 1px solid var(--c-surface1);
+  border-radius: 6px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  padding: 4px 0;
+}
+
+/* T-043 Git decorations on file-tree rows */
+.file-tree-item.git-modified .file-tree-name { color: var(--c-yellow); }
+.file-tree-item.git-added .file-tree-name { color: var(--c-green); }
+.file-tree-item.git-untracked .file-tree-name { color: var(--c-green); opacity: 0.85; }
+.file-tree-item.git-deleted .file-tree-name {
+  color: var(--c-red);
+  text-decoration: line-through;
+}
+.file-tree-item.git-renamed .file-tree-name { color: var(--c-blue); }
+.file-tree-item .file-tree-git-badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--c-surface1);
+}
+.file-tree-item.git-modified .file-tree-git-badge { color: var(--c-yellow); }
+.file-tree-item.git-added .file-tree-git-badge,
+.file-tree-item.git-untracked .file-tree-git-badge { color: var(--c-green); }
+.file-tree-item.git-deleted .file-tree-git-badge { color: var(--c-red); }
+.file-tree-item.git-renamed .file-tree-git-badge { color: var(--c-blue); }

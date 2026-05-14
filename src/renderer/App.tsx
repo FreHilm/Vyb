@@ -7,6 +7,7 @@ import { ProfileEditor } from './components/ProfileEditor';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ResizeHandle } from './components/ResizeHandle';
 import { FileExplorer } from './components/FileExplorer';
+import { QuickOpenDialog } from './components/QuickOpenDialog';
 import { KanbanViewer } from './components/KanbanViewer';
 import { WebViewer } from './components/WebViewer';
 import { ParallelAgentTerminal } from './components/ParallelAgentTerminal';
@@ -194,6 +195,7 @@ declare global {
       gitRevertContinue: (cwd: string) => Promise<GitMergeResult>;
       gitReset: (cwd: string, sha: string, mode: 'soft' | 'mixed' | 'hard') => Promise<GitOpResult>;
       listDir: (dirPath: string) => Promise<FileEntry[]>;
+      listProjectFiles: (cwd: string) => Promise<string[]>;
       readFile: (filePath: string) => Promise<string | null>;
       saveFile: (filePath: string, content: string) => Promise<boolean>;
       deleteFile: (targetPath: string) => Promise<boolean>;
@@ -345,6 +347,10 @@ export function App() {
   // by opening the file in a tab. Stamped with a counter so re-clicks of the
   // same path still trigger the effect.
   const [pendingFileOpen, setPendingFileOpen] = useState<{ path: string; nonce: number; line?: number } | null>(null);
+  // T-043 quick-open dialog. Cmd+P toggles. Independent of which
+  // tab is currently active — opening a file via the picker pops
+  // the Files tab open if it isn't already.
+  const [quickOpenVisible, setQuickOpenVisible] = useState(false);
 
   // Build the view key for the currently-active profile + parallel selection.
   // Parent: just the profileId. Parallel: `${profileId}|${parallelId}`.
@@ -563,6 +569,26 @@ export function App() {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // T-043: Cmd+P (or Ctrl+P) opens the quick-open file picker. Global
+  // — works regardless of which tab is active. We intercept before
+  // anything else so the keystroke isn't passed through to xterm,
+  // a focused input, or CodeMirror. Also wires Cmd+Shift+E for the
+  // "Reveal in tree" action used by the FileExplorer toolbar.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === 'p' && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        setQuickOpenVisible((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
   }, []);
 
   // Load settings and profiles on mount
@@ -2102,6 +2128,27 @@ export function App() {
           onClose={() => setEditorOpen(false)}
           onStartIconGeneration={handleStartIconGeneration}
           pendingIconGenerations={pendingIconGenerations}
+        />
+      )}
+      {quickOpenVisible && activeProfile && (
+        <QuickOpenDialog
+          workingDirectory={activeProfile.workingDirectory}
+          onClose={() => setQuickOpenVisible(false)}
+          onPick={(relativePath) => {
+            setQuickOpenVisible(false);
+            // Make sure the Files tab is open + mounted before the
+            // pendingFileOpen ref fires, otherwise the FileExplorer
+            // won't see it.
+            if (activeViewKey) {
+              const key = activeViewKey;
+              setFilesViews((prev) => ensureInSet(prev, key));
+              setFilesRunning((prev) => ensureInSet(prev, key));
+              setKanbanViews((prev) => removeFromSet(prev, key));
+              setWebViews((prev) => removeFromSet(prev, key));
+            }
+            const absolute = `${activeProfile.workingDirectory.replace(/\/+$/, '')}/${relativePath}`;
+            setPendingFileOpen({ path: absolute, nonce: Date.now() });
+          }}
         />
       )}
       {settingsOpen && (

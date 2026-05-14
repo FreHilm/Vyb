@@ -3263,6 +3263,56 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // List every file under `cwd` for the quick-open picker (T-043).
+  // Prefers `git ls-files` (fast, .gitignore-aware) when inside a
+  // git repo; falls back to a recursive walk otherwise. Returns
+  // forward-slash paths relative to `cwd`. Capped so the picker
+  // never has to render an unbounded list — 10k is enough headroom
+  // for most repos; bigger trees just truncate.
+  ipcMain.handle(IPC_CHANNELS.FILE_LIST_PROJECT, (_, cwd: string): string[] => {
+    if (!cwd) return [];
+    const CAP = 10000;
+    // Try git ls-files first. `--cached --others --exclude-standard`
+    // returns tracked + untracked, honouring .gitignore.
+    try {
+      const out = execFileSync('git', [
+        'ls-files', '--cached', '--others', '--exclude-standard', '-z',
+      ], {
+        cwd, timeout: 10000, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      const result: string[] = [];
+      for (const p of out.split('\0')) {
+        if (!p) continue;
+        result.push(p);
+        if (result.length >= CAP) break;
+      }
+      if (result.length > 0) return result;
+    } catch { /* fall through to walk */ }
+    // Fallback: BFS walk skipping common heavy directories.
+    const SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.cache', '.vite', 'coverage', '.idea', '.vscode']);
+    const result: string[] = [];
+    const stack: string[] = [''];
+    while (stack.length > 0 && result.length < CAP) {
+      const rel = stack.pop()!;
+      const abs = rel ? path.join(cwd, rel) : cwd;
+      let entries: import('fs').Dirent[];
+      try { entries = fs.readdirSync(abs, { withFileTypes: true }); }
+      catch { continue; }
+      for (const entry of entries) {
+        if (entry.name.startsWith('.') && entry.name !== '.gitignore') continue;
+        if (SKIP.has(entry.name)) continue;
+        const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          stack.push(childRel);
+        } else if (entry.isFile()) {
+          result.push(childRel);
+          if (result.length >= CAP) break;
+        }
+      }
+    }
+    return result;
+  });
+
   ipcMain.handle(IPC_CHANNELS.FILE_READ, (_, filePath: string): string | null => {
     try {
       return fs.readFileSync(filePath, 'utf-8');

@@ -331,6 +331,9 @@ contextBridge.exposeInMainWorld('api', {
   listDir: (dirPath: string): Promise<FileEntry[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_DIR, dirPath),
 
+  listProjectFiles: (cwd: string): Promise<string[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_PROJECT, cwd),
+
   readFile: (filePath: string): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_READ, filePath),
 
