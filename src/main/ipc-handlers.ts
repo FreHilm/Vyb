@@ -2369,6 +2369,45 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // Reflog (T-036). Parses `git log -g` for the named ref (default
+  // HEAD). Capped at 1000 entries — useful recovery range; users
+  // chasing deeper can drop to the shell. We use NUL separators +
+  // RS terminators so subjects containing tabs/newlines parse
+  // cleanly, same trick as GIT_LOG.
+  ipcMain.handle(IPC_CHANNELS.GIT_REFLOG, (_, cwd: string, ref: string, limit: number): import('../shared/types').GitReflogEntry[] => {
+    if (!cwd) return [];
+    const cap = Math.max(1, Math.min(5000, (limit ?? 500) | 0 || 500));
+    const target = ref && /^[A-Za-z0-9._/-]+$/.test(ref) ? ref : 'HEAD';
+    try {
+      const fmt = '%H%x00%gD%x00%gs%x00%aI%x00%s%x00%x1e';
+      const out = execFileSync('git', [
+        'log', '-g',
+        `--max-count=${cap}`,
+        `--pretty=format:${fmt}`,
+        target,
+      ], { cwd, timeout: 15000, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
+      const entries: import('../shared/types').GitReflogEntry[] = [];
+      for (const record of out.split('\x1e')) {
+        const trimmed = record.replace(/^\n+/, '');
+        if (!trimmed) continue;
+        const fields = trimmed.split('\x00');
+        if (fields.length < 5) continue;
+        const [sha, selector, action, time, subject] = fields;
+        entries.push({
+          sha,
+          shortSha: sha.slice(0, 7),
+          selector,
+          action,
+          time,
+          subject,
+        });
+      }
+      return entries;
+    } catch {
+      return [];
+    }
+  });
+
   // ── Pull request via gh ───────────────────────────────────────
   // Shells out to the GitHub CLI. `gh pr create --fill` reuses the
   // commit message as title/body; if the user passes an explicit

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { GitCommit, GitRef, GitStatus } from '../../shared/types';
+import { GitCommit, GitRef, GitReflogEntry, GitStatus } from '../../shared/types';
 import { buildGraph, GraphRow, maxLane } from '../git-graph';
 import {
   RefMenuNode, RefContextMenu, useGitRefOps,
@@ -378,6 +378,14 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
   const [appliedQuery, setAppliedQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  // T-036 reflog browser. Toggled via the toolbar; the toggle swaps
+  // the commit-graph list for a flat reflog list. Right-clicking a
+  // reflog entry reuses the existing checkout / reset flows so the
+  // recovery path is unified with the rest of the tab.
+  const [viewMode, setViewMode] = useState<'commits' | 'reflog'>('commits');
+  const [reflog, setReflog] = useState<GitReflogEntry[]>([]);
+  const [reflogLoading, setReflogLoading] = useState(false);
+  const [reflogMenu, setReflogMenu] = useState<{ x: number; y: number; entry: GitReflogEntry } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -419,6 +427,32 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
     load();
     // reloadEpoch bumps every time the parent runs Push / Pull / Fetch.
   }, [load, reloadEpoch]);
+
+  // T-036: lazy-fetch the reflog on first toggle + whenever the
+  // parent's reloadEpoch advances. We don't fetch it eagerly because
+  // most users never look at the reflog.
+  useEffect(() => {
+    if (viewMode !== 'reflog') return;
+    let cancelled = false;
+    setReflogLoading(true);
+    window.api.gitReflog(workingDirectory, 'HEAD', 1000).then((entries) => {
+      if (cancelled) return;
+      setReflog(entries);
+      setReflogLoading(false);
+    }).catch(() => { if (!cancelled) setReflogLoading(false); });
+    return () => { cancelled = true; };
+  }, [viewMode, workingDirectory, reloadEpoch]);
+
+  useEffect(() => {
+    if (!reflogMenu) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target;
+      if (target instanceof Element && target.closest('.file-context-menu')) return;
+      setReflogMenu(null);
+    };
+    window.addEventListener('mousedown', handler);
+    return () => window.removeEventListener('mousedown', handler);
+  }, [reflogMenu]);
 
   // Debounced search application. Live `query` updates the input
   // immediately; `appliedQuery` is what the filter uses (150ms after
@@ -642,30 +676,45 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
     <div className="git-tree">
       <div className="git-tree-toolbar">
         <span className="git-tree-count">
-          {commits.length} commits
-          {appliedQuery && ` · ${matchedShas.length} match${matchedShas.length === 1 ? '' : 'es'}`}
+          {viewMode === 'commits' ? (
+            <>
+              {commits.length} commits
+              {appliedQuery && ` · ${matchedShas.length} match${matchedShas.length === 1 ? '' : 'es'}`}
+            </>
+          ) : (
+            <>{reflog.length} reflog entries</>
+          )}
         </span>
-        <input
-          ref={searchInputRef}
-          type="text"
-          className="git-tree-search"
-          placeholder="Search subject, author, SHA…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              setQuery('');
-              setAppliedQuery('');
-              (e.target as HTMLInputElement).blur();
-              return;
-            }
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              jumpMatch(e.shiftKey ? -1 : 1);
-            }
-          }}
-          spellCheck={false}
-        />
+        {viewMode === 'commits' && (
+          <input
+            ref={searchInputRef}
+            type="text"
+            className="git-tree-search"
+            placeholder="Search subject, author, SHA…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setQuery('');
+                setAppliedQuery('');
+                (e.target as HTMLInputElement).blur();
+                return;
+              }
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                jumpMatch(e.shiftKey ? -1 : 1);
+              }
+            }}
+            spellCheck={false}
+          />
+        )}
+        <button
+          className={`git-tree-toolbar-btn ${viewMode === 'reflog' ? 'is-active' : ''}`}
+          onClick={() => setViewMode((m) => m === 'commits' ? 'reflog' : 'commits')}
+          title={viewMode === 'commits' ? 'Show the reflog (HEAD recovery history)' : 'Back to commit graph'}
+        >
+          {viewMode === 'commits' ? 'Reflog' : 'Commits'}
+        </button>
       </div>
 
       {checkoutError && (
@@ -752,6 +801,33 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
       )}
       {modals}
 
+      {viewMode === 'reflog' ? (
+        <div className="git-reflog-list">
+          {reflogLoading && reflog.length === 0 && (
+            <div className="git-reflog-loading">Loading reflog…</div>
+          )}
+          {!reflogLoading && reflog.length === 0 && (
+            <div className="git-reflog-loading">No reflog entries.</div>
+          )}
+          {reflog.map((entry, idx) => (
+            <div
+              key={`${entry.selector}-${idx}`}
+              className="git-reflog-row"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setReflogMenu({ x: e.clientX, y: e.clientY, entry });
+              }}
+              title={`${entry.selector}\n${entry.action}\n${entry.subject}`}
+            >
+              <span className="git-reflog-selector">{entry.selector}</span>
+              <span className="git-reflog-sha">{entry.shortSha}</span>
+              <span className="git-reflog-action">{entry.action}</span>
+              <span className="git-reflog-subject">{entry.subject}</span>
+              <span className="git-reflog-time">{relativeDate(entry.time)}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
       <div className="git-tree-list" ref={listRef}>
         {graph.map((row, idx) => {
           const c = commits[idx];
@@ -833,6 +909,27 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
           );
         })}
       </div>
+      )}
+
+      {reflogMenu && (
+        <div className="file-context-menu" style={{ left: reflogMenu.x, top: reflogMenu.y }} onClick={(e) => e.stopPropagation()}>
+          <button className="file-ctx-item" onClick={() => { navigator.clipboard.writeText(reflogMenu.entry.sha); setReflogMenu(null); }}>
+            Copy SHA ({reflogMenu.entry.shortSha})
+          </button>
+          <button className="file-ctx-item" onClick={() => { ops.onCheckout(reflogMenu.entry.sha); setReflogMenu(null); }}>
+            Checkout this state (detached)
+          </button>
+          <div className="file-ctx-divider" />
+          <button
+            className="file-ctx-item file-ctx-danger"
+            disabled={!onBranch}
+            title={onBranch ? undefined : 'Reset requires being on a branch (currently detached).'}
+            onClick={() => { if (onBranch) ops.onReset(reflogMenu.entry.sha); setReflogMenu(null); }}
+          >
+            Reset {onBranch ? `'${currentBranch}'` : 'branch'} to here…
+          </button>
+        </div>
+      )}
 
       {confirmCheckout && (
         <div className="modal-overlay" onClick={() => setConfirmCheckout(null)}>

@@ -230,6 +230,9 @@ contextBridge.exposeInMainWorld('api', {
   gitRemoveWorktree: (cwd: string, worktreePath: string, force: boolean): Promise<GitOpResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_REMOVE_WORKTREE, cwd, worktreePath, force),
 
+  gitReflog: (cwd: string, ref?: string, limit?: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_REFLOG, cwd, ref ?? 'HEAD', limit ?? 500),
+
   gitMerge: (cwd: string, sourceRef: string): Promise<GitMergeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>

@@ -324,6 +324,7 @@ export const IPC_CHANNELS = {
   GIT_REMOTE_TRACKING_BRANCHES: 'git:remoteTrackingBranches',
   GIT_LIST_WORKTREES: 'git:listWorktrees',
   GIT_REMOVE_WORKTREE: 'git:removeWorktree',
+  GIT_REFLOG: 'git:reflog',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',
@@ -502,6 +503,24 @@ export interface GitBlameLine {
   author: string;
   authorTime: string;   // ISO 8601
   summary: string;      // first line of the commit message
+}
+
+/** T-036: one entry from `git reflog`. Used by the Tree tab's
+ * Reflog view as a recovery aid — every state HEAD (or another ref)
+ * has held in the local history is reachable via these SHAs even if
+ * no branch points at them anymore. */
+export interface GitReflogEntry {
+  sha: string;
+  shortSha: string;
+  /** Selector like `HEAD@{2}` — git's stable handle for this entry. */
+  selector: string;
+  /** Reflog subject from `%gs`: "commit", "reset: moving to abc",
+   * "checkout: moving from main to feature", etc. */
+  action: string;
+  /** ISO 8601 author date of the commit the reflog entry points at. */
+  time: string;
+  /** Commit subject (first line of the commit message). */
+  subject: string;
 }
 
 /** T-035: a working tree linked to the repo. Returned by
