@@ -307,6 +307,7 @@ export const IPC_CHANNELS = {
   GIT_APPLY_PATCH: 'git:applyPatch',
   GIT_FILE_LOG: 'git:fileLog',
   GIT_FILE_LOG_DIFF: 'git:fileLogDiff',
+  GIT_BLAME_FILE: 'git:blameFile',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',
@@ -463,6 +464,19 @@ export interface GitCommit {
   email: string;        // author email
   date: string;         // ISO 8601 author date
   subject: string;      // first line of commit message
+}
+
+/** Per-line blame record returned by `git:blameFile` (T-027). One
+ * entry per line of the working-copy file at the time of the call.
+ * `sha` is the commit that last touched the line; uncommitted local
+ * changes appear with the special sentinel `0000000000000000000000000000000000000000`. */
+export interface GitBlameLine {
+  lineNumber: number;   // 1-based line in the current file
+  sha: string;
+  shortSha: string;
+  author: string;
+  authorTime: string;   // ISO 8601
+  summary: string;      // first line of the commit message
 }
 
 export interface GitRef {

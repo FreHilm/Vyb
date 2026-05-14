@@ -5260,3 +5260,55 @@
   font-size: 12px;
   text-align: center;
 }
+
+/* ── Blame gutter (T-027) ────────────────────────────────────── */
+.cm-blame-gutter {
+  background: var(--c-mantle);
+  border-right: 1px solid var(--c-surface0);
+  min-width: 0;
+}
+.cm-blame-marker {
+  display: grid;
+  grid-template-columns: 56px 18px 36px;
+  gap: 6px;
+  align-items: center;
+  padding: 0 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  background: transparent;
+  color: var(--c-overlay1);
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: left;
+}
+.cm-blame-marker:hover {
+  background: var(--c-surface0);
+  color: var(--c-text);
+}
+.cm-blame-sha {
+  color: var(--c-yellow);
+}
+.cm-blame-initials {
+  display: inline-block;
+  width: 18px;
+  height: 14px;
+  line-height: 14px;
+  text-align: center;
+  background: var(--c-surface1);
+  color: var(--c-text);
+  border-radius: 2px;
+  font-weight: 600;
+}
+.cm-blame-date {
+  color: var(--c-overlay0);
+}
+.cm-blame-marker-uncommitted {
+  opacity: 0.55;
+  cursor: default;
+}
+.file-tab-action-btn.is-active {
+  background: color-mix(in srgb, var(--c-yellow) 30%, var(--c-surface0));
+  color: var(--c-yellow);
+}

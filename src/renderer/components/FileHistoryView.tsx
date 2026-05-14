@@ -19,6 +19,10 @@ export interface FileHistoryViewProps {
   filePath: string;
   fileName: string;
   onClose: () => void;
+  /** Optional SHA to preselect once the commit list loads. Set when
+   * the overlay is opened by clicking a T-027 blame gutter marker so
+   * the diff jumps straight to the relevant commit. */
+  initialSha?: string | null;
 }
 
 function shortSha(sha: string): string {
@@ -41,7 +45,7 @@ function relativeDate(iso: string): string {
   return `${Math.floor(months / 12)}y ago`;
 }
 
-export function FileHistoryView({ workingDirectory, filePath, fileName, onClose }: FileHistoryViewProps) {
+export function FileHistoryView({ workingDirectory, filePath, fileName, onClose, initialSha }: FileHistoryViewProps) {
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
   const [diff, setDiff] = useState<string>('');
@@ -59,11 +63,14 @@ export function FileHistoryView({ workingDirectory, filePath, fileName, onClose 
       const result = await window.api.gitFileLog(workingDirectory, filePath);
       if (cancelled) return;
       setCommits(result);
-      if (result.length > 0) setSelectedSha(result[0].sha);
+      // Preselect the requested SHA when present (T-027 blame click);
+      // otherwise default to newest-first.
+      const wanted = initialSha && result.find((c) => c.sha === initialSha || c.sha.startsWith(initialSha))?.sha;
+      setSelectedSha(wanted || (result.length > 0 ? result[0].sha : null));
       setLoadingCommits(false);
     })();
     return () => { cancelled = true; };
-  }, [workingDirectory, filePath]);
+  }, [workingDirectory, filePath, initialSha]);
 
   useEffect(() => {
     if (!selectedSha) {
