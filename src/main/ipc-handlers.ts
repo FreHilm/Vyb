@@ -2528,6 +2528,115 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // ── Git LFS (T-040) ───────────────────────────────────────────
+  // Every handler treats `git lfs not installed` as a soft failure
+  // and returns an empty/false result so the renderer's LFS section
+  // can show an empty-state hint instead of an error toast.
+  ipcMain.handle(IPC_CHANNELS.GIT_LFS_INFO, (_, cwd: string): import('../shared/types').GitLfsInfo => {
+    const empty: import('../shared/types').GitLfsInfo = { available: false, configured: false, trackedSample: [], trackedCount: 0 };
+    if (!cwd) return empty;
+    // 1) Is the LFS extension on PATH at all?
+    try {
+      execFileSync('git', ['lfs', 'version'], { cwd, timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch {
+      return empty;
+    }
+    // 2) Does this repo configure any LFS patterns? `git lfs ls-files`
+    // returns rows; empty output ⇒ not configured.
+    let trackedSample: string[] = [];
+    let trackedCount = 0;
+    let configured = false;
+    try {
+      const out = execFileSync('git', ['lfs', 'ls-files'], {
+        cwd, timeout: 8000, encoding: 'utf-8', maxBuffer: 8 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      // Each line: "<oid> [*-] <path>" — keep just the path.
+      const paths: string[] = [];
+      for (const line of out.split('\n')) {
+        const m = line.match(/^[0-9a-f]+\s+[*\-]\s+(.+)$/);
+        if (m) paths.push(m[1]);
+      }
+      trackedCount = paths.length;
+      trackedSample = paths.slice(0, 50);
+      configured = trackedCount > 0;
+    } catch {
+      // ls-files may fail in a fresh repo even with lfs available.
+    }
+    return { available: true, configured, trackedSample, trackedCount };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_LFS_LIST_LOCKS, (_, cwd: string): import('../shared/types').GitLfsLock[] => {
+    if (!cwd) return [];
+    try {
+      // `--json` is supported by recent git-lfs and is the cleanest
+      // parsing path. Fall back to plain output if json fails.
+      const out = execFileSync('git', ['lfs', 'locks', '--json'], {
+        cwd, timeout: 8000, encoding: 'utf-8', maxBuffer: 8 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      try {
+        const parsed = JSON.parse(out);
+        if (Array.isArray(parsed)) {
+          return parsed.map((l: { id?: string; path?: string; owner?: { name?: string }; locked_at?: string }) => ({
+            id: String(l.id ?? ''),
+            path: String(l.path ?? ''),
+            owner: String(l.owner?.name ?? ''),
+            lockedAt: l.locked_at,
+          })).filter((l) => l.path);
+        }
+      } catch { /* fall through */ }
+      // Plain output: "<id> <path> [<user>]"
+      const result: import('../shared/types').GitLfsLock[] = [];
+      for (const line of out.split('\n')) {
+        const m = line.match(/^(\S+)\s+(.+?)\s+(\S+)\s*$/);
+        if (m) result.push({ id: m[1], path: m[2], owner: m[3] });
+      }
+      return result;
+    } catch {
+      return [];
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_LFS_LOCK, (_, cwd: string, filePath: string): GitOpResult => {
+    if (!filePath) return { ok: false, message: 'no path' };
+    try {
+      execFileSync('git', ['lfs', 'lock', '--', filePath], { cwd, timeout: 10000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'lfs lock failed') };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_LFS_UNLOCK, (_, cwd: string, filePath: string, force: boolean): GitOpResult => {
+    if (!filePath) return { ok: false, message: 'no path' };
+    try {
+      const args = ['lfs', 'unlock'];
+      if (force) args.push('--force');
+      args.push('--', filePath);
+      execFileSync('git', args, { cwd, timeout: 10000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'lfs unlock failed') };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_LFS_FETCH, (_, cwd: string): GitOpResult => {
+    try {
+      execFileSync('git', ['lfs', 'fetch'], { cwd, timeout: 120000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'lfs fetch failed') };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_LFS_PRUNE, (_, cwd: string): GitOpResult => {
+    try {
+      execFileSync('git', ['lfs', 'prune'], { cwd, timeout: 120000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: stderrMsg(err, 'lfs prune failed') };
+    }
+  });
+
   // ── Pull request via gh ───────────────────────────────────────
   // Shells out to the GitHub CLI. `gh pr create --fill` reuses the
   // commit message as title/body; if the user passes an explicit

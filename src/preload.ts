@@ -242,6 +242,19 @@ contextBridge.exposeInMainWorld('api', {
   gitBisectStatus: (cwd: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_BISECT_STATUS, cwd),
 
+  gitLfsInfo: (cwd: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_LFS_INFO, cwd),
+  gitLfsListLocks: (cwd: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_LFS_LIST_LOCKS, cwd),
+  gitLfsLock: (cwd: string, filePath: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_LFS_LOCK, cwd, filePath),
+  gitLfsUnlock: (cwd: string, filePath: string, force: boolean): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_LFS_UNLOCK, cwd, filePath, force),
+  gitLfsFetch: (cwd: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_LFS_FETCH, cwd),
+  gitLfsPrune: (cwd: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_LFS_PRUNE, cwd),
+
   gitMerge: (cwd: string, sourceRef: string): Promise<GitMergeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>

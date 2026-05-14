@@ -2346,6 +2346,52 @@
 .git-tree-bisect-banner-done {
   border-left-color: var(--c-green);
 }
+
+/* T-040 Git LFS panel section */
+.git-lfs-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--c-surface0);
+}
+.git-lfs-busy {
+  font-size: 11px;
+  color: var(--c-overlay0);
+  margin-left: auto;
+}
+.git-lfs-subheader {
+  padding: 4px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--c-overlay0);
+  background: color-mix(in srgb, var(--c-surface0) 50%, transparent);
+  border-top: 1px solid var(--c-surface0);
+  border-bottom: 1px solid var(--c-surface0);
+}
+.git-lfs-lock-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--c-surface0);
+}
+.git-lfs-lock-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.git-lfs-lock-owner {
+  color: var(--c-overlay1);
+  font-size: 11px;
+  flex-shrink: 0;
+}
 .git-tree-toolbar-badge {
   background: var(--c-blue);
   color: var(--c-base);
