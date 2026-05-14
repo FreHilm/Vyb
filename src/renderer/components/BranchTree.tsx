@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { GitLfsInfo, GitLfsLock, GitRef, GitRemote, GitStash, GitStatus, GitWorktree } from '../../shared/types';
+import { GitLfsInfo, GitLfsLock, GitRef, GitRemote, GitStash, GitStatus, GitSubmodule, GitWorktree } from '../../shared/types';
 import {
   LocalBranchNode, RemoteBranchNode, TagNode, StashNode, RefMenuNode,
   RefContextMenu, useGitRefOps,
@@ -164,11 +164,16 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
   const [lfsLocks, setLfsLocks] = useState<GitLfsLock[]>([]);
   const [lfsBusy, setLfsBusy] = useState(false);
   const [lfsError, setLfsError] = useState<string | null>(null);
+  // T-039 submodule state.
+  const [submodules, setSubmodules] = useState<GitSubmodule[]>([]);
+  const [submoduleMenu, setSubmoduleMenu] = useState<{ x: number; y: number; sm: GitSubmodule } | null>(null);
+  const [submoduleBusy, setSubmoduleBusy] = useState(false);
+  const [submoduleError, setSubmoduleError] = useState<string | null>(null);
 
   // Per-section open/closed state. Default: branches + stashes open,
   // remotes + tags collapsed (they tend to be larger).
   const [openSections, setOpenSections] = useState<Set<string>>(
-    () => new Set(['branches', 'worktrees', 'stashes']),
+    () => new Set(['branches', 'worktrees', 'submodules', 'stashes']),
   );
 
   // Folder open state, keyed by `${section}:${fullPath}`.
@@ -183,13 +188,14 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, s, st, rm, wt, li] = await Promise.all([
+      const [r, s, st, rm, wt, li, sm] = await Promise.all([
         window.api.getGitRefs(workingDirectory),
         window.api.gitListStashes(workingDirectory),
         window.api.getGitStatus(workingDirectory),
         window.api.gitListRemotes(workingDirectory),
         window.api.gitListWorktrees(workingDirectory),
         window.api.gitLfsInfo(workingDirectory),
+        window.api.gitSubmodulesList(workingDirectory),
       ]);
       setRefs(r);
       setStashes(s);
@@ -197,6 +203,7 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
       setRemotes(rm);
       setWorktrees(wt);
       setLfs(li);
+      setSubmodules(sm);
       if (li.available && li.configured) {
         // Lazy second round-trip — locks are slower (network) so
         // fetch them only when LFS is actually in use.
@@ -384,6 +391,33 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
   const handleLfsPrune = useCallback(() => runLfsOp(() => window.api.gitLfsPrune(workingDirectory), 'lfs prune'), [runLfsOp, workingDirectory]);
   const handleLfsUnlock = useCallback((lockPath: string) => runLfsOp(() => window.api.gitLfsUnlock(workingDirectory, lockPath, false), 'lfs unlock'), [runLfsOp, workingDirectory]);
   const handleLfsForceUnlock = useCallback((lockPath: string) => runLfsOp(() => window.api.gitLfsUnlock(workingDirectory, lockPath, true), 'lfs unlock --force'), [runLfsOp, workingDirectory]);
+
+  // ── T-039 submodule ops ────────────────────────────────────────
+  const runSubmoduleOp = useCallback(async (op: () => Promise<{ ok: boolean; message?: string }>, label: string) => {
+    if (submoduleBusy) return;
+    setSubmoduleBusy(true);
+    setSubmoduleError(null);
+    try {
+      const result = await op();
+      if (!result.ok) { setSubmoduleError(result.message || `${label} failed`); return; }
+      // Re-fetch status so the row's flag flips after init/update/sync.
+      const next = await window.api.gitSubmodulesList(workingDirectory);
+      setSubmodules(next);
+    } finally {
+      setSubmoduleBusy(false);
+    }
+  }, [submoduleBusy, workingDirectory]);
+
+  useEffect(() => {
+    if (!submoduleMenu) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target;
+      if (target instanceof Element && target.closest('.file-context-menu')) return;
+      setSubmoduleMenu(null);
+    };
+    window.addEventListener('mousedown', handler);
+    return () => window.removeEventListener('mousedown', handler);
+  }, [submoduleMenu]);
 
   const toggleSection = (key: string) => {
     setOpenSections((prev) => {
@@ -636,6 +670,44 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
           ))}
         </Section>
 
+        {/* T-039: Submodules section. Rendered only when the repo
+            actually has a .gitmodules file (the main-process handler
+            returns an empty list otherwise). */}
+        {submodules.length > 0 && (
+          <Section
+            title={`Submodules (${submodules.length})`}
+            sectionKey="submodules"
+            isOpen={openSections.has('submodules')}
+            onToggle={toggleSection}
+          >
+            {submoduleError && <div className="git-tree-error" style={{ margin: '4px 12px' }}>{submoduleError}</div>}
+            {submodules.map((sm) => (
+              <div
+                key={sm.path}
+                className={`file-tree-item git-submodule-row git-submodule-${sm.status}`}
+                style={{ paddingLeft: 18 }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setSubmoduleError(null);
+                  setSubmoduleMenu({ x: e.clientX, y: e.clientY, sm });
+                }}
+                title={`${sm.path}\n${sm.sha}${sm.url ? `\n${sm.url}` : ''}`}
+              >
+                <span className="git-submodule-status-dot" aria-hidden />
+                <span className="git-submodule-name">{sm.path}</span>
+                <span className="git-submodule-sha">{sm.shortSha}</span>
+                {sm.describe && <span className="git-submodule-describe">{sm.describe}</span>}
+                <span className={`git-submodule-status git-submodule-status-${sm.status}`}>
+                  {sm.status === 'clean' ? 'clean'
+                    : sm.status === 'modified' ? 'modified'
+                    : sm.status === 'uninitialised' ? 'uninit'
+                    : 'conflict'}
+                </span>
+              </div>
+            ))}
+          </Section>
+        )}
+
         {/* T-040: LFS section. Always present so the user can see "LFS
             not installed" hints in repos that need it; the body
             content adapts based on availability. */}
@@ -801,6 +873,28 @@ export function BranchTree({ workingDirectory, reloadEpoch = 0, onCompareWith, o
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* T-039 submodule context menu */}
+      {submoduleMenu && (
+        <div className="file-context-menu" style={{ left: submoduleMenu.x, top: submoduleMenu.y }} onClick={(e) => e.stopPropagation()}>
+          <button className="file-ctx-item" disabled={submoduleBusy} onClick={() => { runSubmoduleOp(() => window.api.gitSubmoduleInit(workingDirectory, submoduleMenu.sm.path), 'submodule init'); setSubmoduleMenu(null); }}>
+            Init
+          </button>
+          <button className="file-ctx-item" disabled={submoduleBusy} onClick={() => { runSubmoduleOp(() => window.api.gitSubmoduleUpdate(workingDirectory, submoduleMenu.sm.path, false), 'submodule update'); setSubmoduleMenu(null); }}>
+            Update (checkout pinned SHA)
+          </button>
+          <button className="file-ctx-item" disabled={submoduleBusy} onClick={() => { runSubmoduleOp(() => window.api.gitSubmoduleUpdate(workingDirectory, submoduleMenu.sm.path, true), 'submodule update --remote'); setSubmoduleMenu(null); }}>
+            Update --remote (fetch + advance)
+          </button>
+          <button className="file-ctx-item" disabled={submoduleBusy} onClick={() => { runSubmoduleOp(() => window.api.gitSubmoduleSync(workingDirectory, submoduleMenu.sm.path), 'submodule sync'); setSubmoduleMenu(null); }}>
+            Sync URL
+          </button>
+          <div className="file-ctx-divider" />
+          <button className="file-ctx-item" onClick={() => { window.api.openInFinder(`${workingDirectory}/${submoduleMenu.sm.path}`); setSubmoduleMenu(null); }}>
+            Show in Finder
+          </button>
         </div>
       )}
 

@@ -335,6 +335,10 @@ export const IPC_CHANNELS = {
   GIT_LFS_UNLOCK: 'git:lfsUnlock',
   GIT_LFS_FETCH: 'git:lfsFetch',
   GIT_LFS_PRUNE: 'git:lfsPrune',
+  GIT_SUBMODULES_LIST: 'git:submodulesList',
+  GIT_SUBMODULE_INIT: 'git:submoduleInit',
+  GIT_SUBMODULE_UPDATE: 'git:submoduleUpdate',
+  GIT_SUBMODULE_SYNC: 'git:submoduleSync',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',
@@ -513,6 +517,24 @@ export interface GitBlameLine {
   author: string;
   authorTime: string;   // ISO 8601
   summary: string;      // first line of the commit message
+}
+
+/** T-039: one submodule entry. Status comes from the leading char of
+ * `git submodule status`:
+ *   ' ' clean, '-' not initialised, '+' SHA differs from index,
+ *   'U' merge conflict. */
+export interface GitSubmodule {
+  path: string;
+  /** Currently checked-out SHA (or expected SHA if uninitialised). */
+  sha: string;
+  shortSha: string;
+  /** Friendly status: 'clean' / 'modified' / 'uninitialised' / 'conflict'. */
+  status: 'clean' | 'modified' | 'uninitialised' | 'conflict';
+  /** `git describe` output when available (e.g. tag/branch the SHA
+   * points at). Empty when not initialised. */
+  describe?: string;
+  /** Configured URL from `.gitmodules` for this submodule (best-effort). */
+  url?: string;
 }
 
 /** T-040: presence + summary of Git LFS in the current repo. Returned
