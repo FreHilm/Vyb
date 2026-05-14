@@ -1,5 +1,5 @@
 import { app, ipcMain, shell, dialog, BrowserWindow, Notification } from 'electron';
-import { exec, execSync, execFileSync } from 'child_process';
+import { exec, execSync, execFileSync, spawn } from 'child_process';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1176,6 +1176,31 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     } catch {
       return '';
     }
+  });
+
+  // Hunk / line-level staging (T-023). Renderer builds a unified-diff
+  // string that includes only the hunks (or hunk subsets) the user
+  // picked, then we stream it through `git apply --cached`. `reverse`
+  // flips the direction so unstage-selection works against the staged
+  // diff. `--recount` lets git fix off-by-one line counts that the
+  // renderer's builder might produce when boundary lines drop;
+  // `--whitespace=nowarn` keeps the apply quiet on CRLF repos.
+  ipcMain.handle(IPC_CHANNELS.GIT_APPLY_PATCH, async (_, cwd: string, patch: string, opts?: { reverse?: boolean }): Promise<{ ok: boolean; error?: string }> => {
+    if (!cwd || !patch) return { ok: false, error: 'Empty patch' };
+    return await new Promise((resolve) => {
+      const args = ['apply', '--cached', '--whitespace=nowarn', '--recount'];
+      if (opts?.reverse) args.push('--reverse');
+      args.push('-');
+      const child = spawn('git', args, { cwd });
+      let stderr = '';
+      child.stderr.on('data', (chunk) => { stderr += chunk.toString('utf-8'); });
+      child.on('error', (err) => resolve({ ok: false, error: err.message }));
+      child.on('close', (code) => {
+        if (code === 0) resolve({ ok: true });
+        else resolve({ ok: false, error: stderr.trim() || `git apply exited with code ${code}` });
+      });
+      child.stdin.end(patch);
+    });
   });
 
   ipcMain.handle(IPC_CHANNELS.GIT_FILE_DIFF, (_, cwd: string, filePath: string, staged?: boolean): string => {
