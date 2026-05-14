@@ -2337,6 +2337,15 @@
   font-size: 10.5px;
   text-align: right;
 }
+
+/* T-041 bisect banner — re-uses the in-progress banner box but tints
+   the left edge so it's distinguishable from merge/rebase banners. */
+.git-tree-bisect-banner {
+  border-left: 3px solid var(--c-mauve, var(--c-blue));
+}
+.git-tree-bisect-banner-done {
+  border-left-color: var(--c-green);
+}
 .git-tree-toolbar-badge {
   background: var(--c-blue);
   color: var(--c-base);

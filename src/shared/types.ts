@@ -325,6 +325,10 @@ export const IPC_CHANNELS = {
   GIT_LIST_WORKTREES: 'git:listWorktrees',
   GIT_REMOVE_WORKTREE: 'git:removeWorktree',
   GIT_REFLOG: 'git:reflog',
+  GIT_BISECT_START: 'git:bisectStart',
+  GIT_BISECT_MARK: 'git:bisectMark',
+  GIT_BISECT_RESET: 'git:bisectReset',
+  GIT_BISECT_STATUS: 'git:bisectStatus',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',
@@ -503,6 +507,26 @@ export interface GitBlameLine {
   author: string;
   authorTime: string;   // ISO 8601
   summary: string;      // first line of the commit message
+}
+
+/** T-041: state of an in-progress `git bisect` session. `inProgress`
+ * is false when there's no active bisect — all other fields are
+ * meaningless in that case. */
+export interface GitBisectStatus {
+  inProgress: boolean;
+  /** The commit the user is currently testing (HEAD during bisect). */
+  currentSha?: string;
+  currentSubject?: string;
+  /** How many "good" / "bad" marks have been recorded so far. */
+  goodCount: number;
+  badCount: number;
+  /** Estimated remaining bisect steps. -1 when git hasn't yet narrowed
+   * to a bisectable range (e.g. only one side marked). */
+  stepsRemaining: number;
+  /** When git has identified the first-bad commit, its SHA. The
+   * banner switches to a result view at this point. */
+  foundSha?: string;
+  foundSubject?: string;
 }
 
 /** T-036: one entry from `git reflog`. Used by the Tree tab's

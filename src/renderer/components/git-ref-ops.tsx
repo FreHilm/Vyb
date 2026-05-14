@@ -114,6 +114,10 @@ export interface RefOps {
    * and `b` (the right-clicked ref). Optional so test/intermediate
    * callers don't have to wire it. */
   onCompareWith?: (sourceRef: string, sourceLabel: string) => void;
+  /** T-041: start a bisect session with the right-clicked commit
+   * playing the named role; HEAD plays the other. Optional so panels
+   * that don't host the bisect banner don't have to wire it. */
+  onBisectStart?: (sha: string, role: 'good' | 'bad') => void;
 }
 
 // ── Menu component ────────────────────────────────────────────────
@@ -255,6 +259,12 @@ function buildMenuItems(p: RefContextMenuProps): MenuItem[] {
     items.push({ type: 'item', label: `New tag at ${node.shortSha}…`, onClick: () => p.onNewTag(node.sha, '') });
     items.push({ type: 'divider' });
     items.push({ type: 'item', label: onBranch ? `Reset '${currentBranch}' to ${node.shortSha}…` : 'Reset — checkout a branch first', onClick: () => p.onReset(node.sha), disabled: !onBranch, danger: true });
+    if (p.onBisectStart) {
+      items.push({ type: 'divider' });
+      items.push({ type: 'item', label: `Start bisect: ${node.shortSha} good, HEAD bad`, onClick: () => p.onBisectStart!(node.sha, 'good') });
+      items.push({ type: 'item', label: `Start bisect: ${node.shortSha} bad, HEAD good`, onClick: () => p.onBisectStart!(node.sha, 'bad') });
+    }
+    items.push({ type: 'divider' });
     items.push({ type: 'item', label: 'Copy SHA', onClick: () => p.onCopyName(node.sha) });
     return items;
   }
