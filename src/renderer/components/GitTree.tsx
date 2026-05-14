@@ -86,6 +86,45 @@ function RemoteIcon() {
   );
 }
 
+// T-042 signature badge. Small inline glyph next to the commit
+// subject indicating whether the commit was GPG-signed and the
+// verification status. Hover tooltip shows the signer name and the
+// raw status code so power users can match against `git log`'s
+// `%G?` output.
+function SignatureBadge({ status, signer }: { status: string; signer: string }) {
+  if (!status || status === 'N') return null;
+  const verified = status === 'G';
+  const bad = status === 'B' || status === 'E';
+  // U/X/Y/R = signed but verification is incomplete (unknown key,
+  // expired, etc.). We surface them as a neutral indicator rather
+  // than green so the user knows to investigate.
+  const tone = verified ? 'verified' : bad ? 'bad' : 'unknown';
+  const label = (() => {
+    switch (status) {
+      case 'G': return 'verified signature';
+      case 'B': return 'bad signature';
+      case 'U': return 'signed (unknown validity)';
+      case 'X': return 'signed (expired)';
+      case 'Y': return 'signed (expired key)';
+      case 'R': return 'signed (revoked key)';
+      case 'E': return 'signature cannot be checked';
+      default: return `signed (${status})`;
+    }
+  })();
+  return (
+    <span
+      className={`git-tree-sig git-tree-sig-${tone}`}
+      title={`${signer ? signer + ' — ' : ''}${label}`}
+      aria-label={label}
+    >
+      <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M8 1L3 3v5a7 7 0 005 6 7 7 0 005-6V3l-5-2z" />
+        {verified && <path d="M6 8l1.5 1.5L10 7" strokeWidth="1.6" />}
+      </svg>
+    </span>
+  );
+}
+
 // Tag glyph — used for refs/tags/* labels.
 function TagIcon() {
   return (
@@ -751,6 +790,7 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
                   />
                 ))}
                 <span className="git-tree-subject" title={c.subject}>
+                  {c.sigStatus && <SignatureBadge status={c.sigStatus} signer={c.sigSigner || ''} />}
                   {c.subject}
                 </span>
               </div>

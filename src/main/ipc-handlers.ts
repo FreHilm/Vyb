@@ -1243,6 +1243,41 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // Per-profile commit-signing toggle (T-042). Reads / writes
+  // `commit.gpgsign` in the repo's local config. The value is also
+  // surfaced as a small badge next to the commit button so the user
+  // can see at a glance whether their next commit will be signed.
+  ipcMain.handle(IPC_CHANNELS.GIT_GET_SIGN_COMMITS, (_, cwd: string): boolean => {
+    if (!cwd) return false;
+    try {
+      const out = execFileSync('git', ['config', '--local', '--get', 'commit.gpgsign'], {
+        cwd, timeout: 3000, encoding: 'utf-8',
+      }).trim().toLowerCase();
+      return out === 'true' || out === '1' || out === 'yes';
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GIT_SET_SIGN_COMMITS, (_, cwd: string, enabled: boolean): { ok: boolean; error?: string } => {
+    if (!cwd) return { ok: false, error: 'no cwd' };
+    try {
+      if (enabled) {
+        execFileSync('git', ['config', '--local', 'commit.gpgsign', 'true'], { cwd, timeout: 3000 });
+      } else {
+        // `--unset` errors if the key is missing; ignore that path.
+        try {
+          execFileSync('git', ['config', '--local', '--unset', 'commit.gpgsign'], { cwd, timeout: 3000 });
+        } catch {
+          execFileSync('git', ['config', '--local', 'commit.gpgsign', 'false'], { cwd, timeout: 3000 });
+        }
+      }
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'failed' };
+    }
+  });
+
   // Per-line blame (T-027). Parses `git blame --line-porcelain` —
   // every line is preceded by a header block of "<key> <value>" lines
   // (author, author-time, summary, etc.), then a content line prefixed
@@ -2292,7 +2327,10 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     (_, cwd: string, limit: number): GitCommit[] => {
       const cap = Math.max(1, Math.min(10000, limit | 0 || 1000));
       try {
-        const fmt = '%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%x1e';
+        // %G? is the signature-status field (T-042): one of G/B/U/X/Y/R/E/N.
+        // We expose it on every commit; the renderer decides whether to
+        // render the indicator pill. %GS is the signer's name.
+        const fmt = '%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%G?%x00%GS%x00%x1e';
         const out = execSync(
           `git log --all --topo-order --max-count=${cap} --pretty=format:${fmt}`,
           { cwd, timeout: 15000, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024 },
@@ -2303,7 +2341,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
           if (!trimmed) continue;
           const fields = trimmed.split('\x00');
           if (fields.length < 6) continue;
-          const [sha, parents, author, email, date, subject] = fields;
+          const [sha, parents, author, email, date, subject, sigStatus, sigSigner] = fields;
           commits.push({
             sha,
             parents: parents ? parents.split(' ').filter(Boolean) : [],
@@ -2311,6 +2349,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
             email,
             date,
             subject,
+            ...(sigStatus && sigStatus !== 'N' ? { sigStatus, sigSigner: sigSigner || '' } : {}),
           });
         }
         return commits;
