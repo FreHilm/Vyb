@@ -1767,9 +1767,44 @@ export function FileExplorer({
       style={hidden ? { display: 'none' } : undefined}
     >
       <div className="file-editor-pane">
-        {/* Action toolbar — sits above the tab bar. Replaces the old
-            T-046 breadcrumbs row (the path was redundant with the
-            tab label) and frees the tab row to show tabs only. */}
+        {/* Tab bar — tabs only. Action buttons live in the toolbar
+            below the tab bar. */}
+        <div className="file-tab-bar">
+          <div className="file-tabs-scroll">
+            {tabs.map((tab) => {
+              const isActive = tab.path === activeTabPath;
+              const isMod = modifiedSet.has(tab.path);
+              return (
+                <div
+                  key={tab.path}
+                  className={`file-tab ${isActive ? 'file-tab-active' : ''}`}
+                  onClick={() => switchTab(tab.path)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setTabCtxMenu({ x: e.clientX, y: e.clientY, path: tab.path });
+                  }}
+                  title={tab.path}
+                >
+                  <FileIcon filename={tab.name} isDirectory={false} />
+                  <span className="file-tab-name">{tab.name}{isMod ? ' *' : ''}</span>
+                  <button
+                    className="file-tab-close"
+                    onClick={(e) => { e.stopPropagation(); closeTab(tab.path); }}
+                    title="Close"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 14 14" fill="currentColor">
+                      <path d="M1.7 0.3a1 1 0 00-1.4 1.4L5.6 7l-5.3 5.3a1 1 0 101.4 1.4L7 8.4l5.3 5.3a1 1 0 001.4-1.4L8.4 7l5.3-5.3a1 1 0 00-1.4-1.4L7 5.6 1.7 0.3z" />
+                    </svg>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Action toolbar — sits below the tab bar so the tabs stay
+            at the top while frequently-used actions hang just above
+            the editor body. */}
         {activeTabPath && !activeIsImage && (
           <div className="file-editor-toolbar">
             <button
@@ -1839,40 +1874,6 @@ export function FileExplorer({
             )}
           </div>
         )}
-        {/* Tab bar — tabs only now that the action buttons live in
-            the toolbar above. */}
-        <div className="file-tab-bar">
-          <div className="file-tabs-scroll">
-            {tabs.map((tab) => {
-              const isActive = tab.path === activeTabPath;
-              const isMod = modifiedSet.has(tab.path);
-              return (
-                <div
-                  key={tab.path}
-                  className={`file-tab ${isActive ? 'file-tab-active' : ''}`}
-                  onClick={() => switchTab(tab.path)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setTabCtxMenu({ x: e.clientX, y: e.clientY, path: tab.path });
-                  }}
-                  title={tab.path}
-                >
-                  <FileIcon filename={tab.name} isDirectory={false} />
-                  <span className="file-tab-name">{tab.name}{isMod ? ' *' : ''}</span>
-                  <button
-                    className="file-tab-close"
-                    onClick={(e) => { e.stopPropagation(); closeTab(tab.path); }}
-                    title="Close"
-                  >
-                    <svg width="10" height="10" viewBox="0 0 14 14" fill="currentColor">
-                      <path d="M1.7 0.3a1 1 0 00-1.4 1.4L5.6 7l-5.3 5.3a1 1 0 101.4 1.4L7 8.4l5.3 5.3a1 1 0 001.4-1.4L8.4 7l5.3-5.3a1 1 0 00-1.4-1.4L7 5.6 1.7 0.3z" />
-                    </svg>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
 
         {/* External-change conflict banner — visible when this tab's
             disk content changed while the user had unsaved edits. */}
