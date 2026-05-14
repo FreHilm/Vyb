@@ -282,6 +282,7 @@ export const IPC_CHANNELS = {
   GIT_AMEND_COMMIT: 'git:amendCommit',
   GIT_REWORD_HEAD: 'git:rewordHead',
   GIT_HEAD_INFO: 'git:headInfo',
+  GIT_PUSH_FORCE_LEASE: 'git:pushForceLease',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',

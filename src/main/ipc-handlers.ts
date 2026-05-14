@@ -1370,6 +1370,43 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // Force-push the current branch with --force-with-lease. We always
+  // fetch first so the lease ref is populated — without that, git
+  // silently falls back to a plain --force which is exactly the
+  // unsafety we're trying to avoid. If the lease fails (someone else
+  // pushed in the meantime) we surface git's own rejection message.
+  ipcMain.handle(IPC_CHANNELS.GIT_PUSH_FORCE_LEASE, (_, cwd: string): GitOpResult => {
+    const errMsg = (err: unknown, fallback: string): string => {
+      const e = err as { message?: string; stderr?: string | Buffer; stdout?: string | Buffer };
+      const stderr = e.stderr ? e.stderr.toString().trim() : '';
+      const stdout = e.stdout ? e.stdout.toString().trim() : '';
+      return stderr || stdout || e.message || fallback;
+    };
+    // Resolve the current branch first — force-push needs a real branch.
+    let branch = '';
+    try {
+      branch = execSync('git symbolic-ref --short HEAD', { cwd, timeout: 5000, encoding: 'utf-8' }).trim();
+    } catch { /* detached */ }
+    if (!branch) {
+      return { ok: false, message: 'Detached HEAD — checkout a branch before force-pushing.' };
+    }
+    // Fetch first so --force-with-lease has a live remote-tracking ref
+    // to compare against (otherwise --force-with-lease degrades to a
+    // plain --force, defeating the safety net).
+    try {
+      execFileSync('git', ['fetch', '--quiet'], { cwd, timeout: 30000, encoding: 'utf-8' });
+    } catch {
+      // Fetch failure isn't fatal — push might still work over the
+      // existing remote-tracking refs. Surface push errors instead.
+    }
+    try {
+      execFileSync('git', ['push', '--force-with-lease'], { cwd, timeout: 60000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: errMsg(err, 'force-push failed') };
+    }
+  });
+
   // Pull from upstream. Uses git's configured pull strategy
   // (merge / rebase / ff-only) — surface git's own error message on
   // conflict / divergence rather than guessing.

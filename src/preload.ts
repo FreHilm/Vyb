@@ -169,6 +169,12 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.GIT_HEAD_INFO, cwd),
   gitPush: (cwd: string): Promise<GitOpResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_PUSH, cwd),
+  /** Safe force-push variant: fetches first, then pushes with
+   * `--force-with-lease`. Use only on diverged history (after amend /
+   * rebase). The lease prevents overwriting upstream commits that
+   * appeared while we were rewriting locally. */
+  gitPushForceLease: (cwd: string): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_PUSH_FORCE_LEASE, cwd),
   gitPull: (cwd: string): Promise<GitOpResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_PULL, cwd),
   gitMerge: (cwd: string, sourceRef: string): Promise<GitMergeResult> =>

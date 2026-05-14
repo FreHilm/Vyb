@@ -108,6 +108,7 @@ declare global {
       getGitStatus: (cwd: string) => Promise<GitStatus>;
       ackTerminalData: (profileId: string, bytes: number) => void;
       gitFetch: (cwd: string) => Promise<boolean>;
+      gitPushForceLease: (cwd: string) => Promise<GitOpResult>;
       getGitChangedFiles: (cwd: string) => Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>;
       getGitFileDiff: (cwd: string, filePath: string, staged?: boolean) => Promise<string>;
       getGitLog: (cwd: string, limit: number) => Promise<GitCommit[]>;
