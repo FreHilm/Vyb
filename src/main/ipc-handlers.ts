@@ -1407,6 +1407,22 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // Rebase variant of pull. Explicit so the call site can pick per-click
+  // without writing to user-level git config. Behaviour and error
+  // surface match the plain pull path — conflicts land in the same
+  // rebase-in-progress banner the renderer already shows.
+  ipcMain.handle(IPC_CHANNELS.GIT_PULL_REBASE, (_, cwd: string): GitOpResult => {
+    try {
+      execFileSync('git', ['pull', '--rebase'], { cwd, timeout: 60000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      const e = err as { message?: string; stderr?: string | Buffer; stdout?: string | Buffer };
+      const stderr = e.stderr ? e.stderr.toString().trim() : '';
+      const stdout = e.stdout ? e.stdout.toString().trim() : '';
+      return { ok: false, message: stderr || stdout || e.message || 'rebase pull failed' };
+    }
+  });
+
   // Pull from upstream. Uses git's configured pull strategy
   // (merge / rebase / ff-only) — surface git's own error message on
   // conflict / divergence rather than guessing.

@@ -91,6 +91,9 @@ interface GitChangesPanelProps {
   onWidthChange: (pct: number) => void;
   activeTab: GitPanelTab;
   onTabChange: (tab: GitPanelTab) => void;
+  /** Default behaviour for the primary Pull button. 'ask' means primary
+   * opens the chevron menu so the user picks each time. */
+  pullStrategy?: 'merge' | 'rebase' | 'ask';
 }
 
 function fileName(filePath: string): string {
@@ -173,7 +176,7 @@ function FileDiff({ diff }: { diff: string }) {
   );
 }
 
-export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWidthChange, activeTab, onTabChange }: GitChangesPanelProps) {
+export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWidthChange, activeTab, onTabChange, pullStrategy = 'merge' }: GitChangesPanelProps) {
   const [files, setFiles] = useState<GitChangedFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -266,13 +269,15 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
     }
   }, [workingDirectory, syncing, loadStatus]);
 
-  const handlePull = useCallback(async () => {
+  const runPullVariant = useCallback(async (kind: 'merge' | 'rebase') => {
     if (syncing) return;
     setSyncing('pull');
     setSyncError(null);
     try {
-      const result = await window.api.gitPull(workingDirectory);
-      if (!result.ok) setSyncError(result.message ?? 'pull failed');
+      const result = kind === 'rebase'
+        ? await window.api.gitPullRebase(workingDirectory)
+        : await window.api.gitPull(workingDirectory);
+      if (!result.ok) setSyncError(result.message ?? `${kind} pull failed`);
       await loadStatus();
       await load();
       setReloadEpoch((n) => n + 1);
@@ -280,6 +285,9 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
       setSyncing(null);
     }
   }, [workingDirectory, syncing, loadStatus, load]);
+
+  const handlePull = useCallback(() => runPullVariant('merge'), [runPullVariant]);
+  const handlePullRebase = useCallback(() => runPullVariant('rebase'), [runPullVariant]);
 
   // Force-push (with lease) confirmation. Opening sets this; the modal
   // surfaces the branch + upstream SHA so the user can sanity-check.
@@ -580,20 +588,46 @@ export function GitChangesPanel({ workingDirectory, onClose, widthPercent, onWid
               {behind > 0 && <span title={`${behind} commit${behind === 1 ? '' : 's'} behind origin`}>↓{behind}</span>}
             </span>
             <div className="git-panel-statusbar-spacer" />
-            <button
-              className={`git-panel-statusbar-btn ${syncing === 'pull' ? 'is-busy' : ''}`}
-              onClick={handlePull}
-              disabled={!pullEnabled || syncing !== null}
-              title={pullTip}
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
-                <line x1="8" y1="2" x2="8" y2="11" />
-                <polyline points="4 7 8 11 12 7" />
-                <line x1="3" y1="14" x2="13" y2="14" />
-              </svg>
-              <span>Pull</span>
-              {behind > 0 && <span className="git-panel-statusbar-badge">{behind}</span>}
-            </button>
+            {(() => {
+              const primary = pullStrategy === 'rebase' ? handlePullRebase : handlePull;
+              const primaryLabel = pullStrategy === 'rebase' ? 'Pull (rebase)' : 'Pull';
+              // 'ask' mode: the primary button is left without a default
+              // action — the user has to use the chevron. We keep it
+              // labelled "Pull" but disabled with a hint.
+              const ask = pullStrategy === 'ask';
+              return (
+                <SplitButton
+                  className={`git-panel-statusbar-btn ${syncing === 'pull' ? 'is-busy' : ''}`}
+                  label={ask ? 'Pull…' : primaryLabel}
+                  onClick={ask ? () => undefined : primary}
+                  disabled={!pullEnabled || syncing !== null || ask}
+                  title={ask ? 'Pick a pull strategy from the dropdown' : pullTip}
+                  busy={syncing === 'pull'}
+                  icon={(
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="8" y1="2" x2="8" y2="11" />
+                      <polyline points="4 7 8 11 12 7" />
+                      <line x1="3" y1="14" x2="13" y2="14" />
+                    </svg>
+                  )}
+                  badge={behind > 0 ? <span className="git-panel-statusbar-badge">{behind}</span> : undefined}
+                  items={[
+                    {
+                      label: 'Pull (merge)',
+                      hint: 'git pull — adds a merge commit if needed',
+                      disabled: !pullEnabled || syncing !== null,
+                      onClick: handlePull,
+                    },
+                    {
+                      label: 'Pull (rebase)',
+                      hint: 'git pull --rebase — replays local commits on top',
+                      disabled: !pullEnabled || syncing !== null,
+                      onClick: handlePullRebase,
+                    },
+                  ]}
+                />
+              );
+            })()}
             {(() => {
               // Force-with-lease is only safe — and useful — when local
               // history has actually diverged from upstream (we have

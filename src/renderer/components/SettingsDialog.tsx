@@ -195,6 +195,7 @@ export function SettingsDialog({
   const [functionKanbanEnabled, setFunctionKanbanEnabled] = useState(settings.functionKanbanEnabled !== false);
   const [functionWebEnabled, setFunctionWebEnabled] = useState(settings.functionWebEnabled !== false);
   const [webDefaultUrl, setWebDefaultUrl] = useState(settings.webDefaultUrl || 'https://duckduckgo.com/');
+  const [pullStrategy, setPullStrategy] = useState<'merge' | 'rebase' | 'ask'>(settings.pullStrategy ?? 'merge');
 
   useEffect(() => {
     window.api.getOrdnaHookInfo().then(setOrdnaHookInfo).catch((): void => undefined);
@@ -241,6 +242,7 @@ export function SettingsDialog({
       functionKanbanEnabled,
       functionWebEnabled,
       webDefaultUrl: webDefaultUrl.trim() || 'https://duckduckgo.com/',
+      pullStrategy,
     });
   };
 
@@ -375,6 +377,23 @@ export function SettingsDialog({
                   </span>
                 </label>
               )}
+
+              <label className="field" style={{ marginTop: 16 }}>
+                <span className="field-label">Pull strategy</span>
+                <select
+                  value={pullStrategy}
+                  onChange={(e) => setPullStrategy(e.target.value as 'merge' | 'rebase' | 'ask')}
+                >
+                  <option value="merge">Merge (git pull)</option>
+                  <option value="rebase">Rebase (git pull --rebase)</option>
+                  <option value="ask">Ask each time</option>
+                </select>
+                <span className="field-hint">
+                  Controls what the panel's primary Pull button does. The
+                  chevron dropdown always offers both. "Ask" leaves the
+                  primary disabled so you pick on every click.
+                </span>
+              </label>
             </>
           )}
           {tab === 'appearance' && (
