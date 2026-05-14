@@ -16,8 +16,16 @@ const failedHashes = new Set<string>();
 function hashFor(email: string): string {
   const key = email.trim().toLowerCase();
   let h = hashCache.get(key);
-  if (h) return h;
-  h = window.api.md5(key);
+  if (h !== undefined) return h;
+  // Defensive: if the preload bridge is missing the function (older
+  // build, packaging hiccup, etc.) or md5 throws for any reason, fall
+  // back to an empty hash so the avatar skips straight to the
+  // initials circle instead of crashing the renderer.
+  try {
+    h = (typeof window.api?.md5 === 'function') ? window.api.md5(key) : '';
+  } catch {
+    h = '';
+  }
   hashCache.set(key, h);
   return h;
 }
@@ -56,7 +64,10 @@ export function AuthorAvatar({ email, name, size = 18, enableNetwork = true }: A
     if (failedHashes.has(hash)) setFailed(true);
   }, [hash]);
 
-  if (!enableNetwork || failed) {
+  // Empty hash means the preload bridge wasn't available or md5
+  // failed; skip the gravatar fetch entirely and render the initials
+  // circle. Same fallback path as a 404 or onError.
+  if (!enableNetwork || failed || !hash) {
     return (
       <span
         className="author-avatar author-avatar-fallback"
