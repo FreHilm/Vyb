@@ -188,6 +188,10 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.GIT_COMPARE_FILES, cwd, a, b, threeDot),
   gitCompareFileDiff: (cwd: string, a: string, b: string, filePath: string, threeDot: boolean): Promise<string> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_COMPARE_FILE_DIFF, cwd, a, b, filePath, threeDot),
+  /** Read the base / ours / theirs version of a conflicted file from
+   * git's index. stage = 1 (base), 2 (ours = HEAD), 3 (theirs = MERGE_HEAD). */
+  gitShowStage: (cwd: string, filePath: string, stage: 1 | 2 | 3): Promise<string> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_SHOW_STAGE, cwd, filePath, stage),
   gitMerge: (cwd: string, sourceRef: string): Promise<GitMergeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>

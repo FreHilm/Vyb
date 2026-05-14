@@ -1162,6 +1162,22 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // Read the base / ours / theirs version of a conflicted file from the
+  // index. Stage 1 = common ancestor (base), 2 = HEAD (ours), 3 = MERGE_HEAD
+  // (theirs). Powers the conflict-resolution UI (T-025); returns '' if
+  // the stage doesn't exist for this path (e.g. add/add conflict has no
+  // base).
+  ipcMain.handle(IPC_CHANNELS.GIT_SHOW_STAGE, (_, cwd: string, filePath: string, stage: 1 | 2 | 3): string => {
+    if (!cwd || !filePath || (stage !== 1 && stage !== 2 && stage !== 3)) return '';
+    try {
+      return execFileSync('git', ['show', `:${stage}:${filePath}`], {
+        cwd, timeout: 10000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024,
+      });
+    } catch {
+      return '';
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.GIT_FILE_DIFF, (_, cwd: string, filePath: string, staged?: boolean): string => {
     const run = (cmd: string): string => {
       try {

@@ -3,6 +3,7 @@ import { FileIcon } from '../file-icons';
 import { GitTree } from './GitTree';
 import { BranchTree } from './BranchTree';
 import { SplitButton, type SplitButtonItem } from './SplitButton';
+import { ConflictResolver } from './ConflictResolver';
 
 interface GitChangedFile {
   path: string;
@@ -619,6 +620,12 @@ export function GitChangesPanel({
     onTabChange('compare');
   }, [status, onTabChange]);
 
+  // Active conflict file — when set, ConflictResolver overlay covers
+  // the panel body. Click any conflicted-file pill in the merge / rebase /
+  // cherry-pick / revert banner to set; close button or successful
+  // resolve clears.
+  const [activeConflictFile, setActiveConflictFile] = useState<string | null>(null);
+
   const closeCompare = useCallback(() => {
     setCompareSpec(null);
     onTabChange('changes');
@@ -1192,11 +1199,11 @@ export function GitChangesPanel({
       )}
       {activeTab === 'tree' ? (
         <div className="git-changes-body">
-          <GitTree workingDirectory={workingDirectory} reloadEpoch={reloadEpoch} onCompareWith={handleCompareWith} />
+          <GitTree workingDirectory={workingDirectory} reloadEpoch={reloadEpoch} onCompareWith={handleCompareWith} onResolveConflictFile={setActiveConflictFile} />
         </div>
       ) : activeTab === 'branches' ? (
         <div className="git-changes-body">
-          <BranchTree workingDirectory={workingDirectory} reloadEpoch={reloadEpoch} onCompareWith={handleCompareWith} />
+          <BranchTree workingDirectory={workingDirectory} reloadEpoch={reloadEpoch} onCompareWith={handleCompareWith} onResolveConflictFile={setActiveConflictFile} />
         </div>
       ) : activeTab === 'compare' && compareSpec ? (
         <div className="git-changes-body">
@@ -1234,6 +1241,17 @@ export function GitChangesPanel({
           amendPushed={headInfo?.pushed === true}
           onToggleAmend={toggleAmendMode}
           diffViewMode={diffViewMode}
+        />
+      )}
+      {activeConflictFile && (
+        <ConflictResolver
+          workingDirectory={workingDirectory}
+          filePath={activeConflictFile}
+          onClose={() => setActiveConflictFile(null)}
+          onResolved={() => {
+            load();
+            setReloadEpoch((n) => n + 1);
+          }}
         />
       )}
       {forcePushConfirm && (
