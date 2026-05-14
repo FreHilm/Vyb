@@ -3202,6 +3202,7 @@
   flex: 1;
   display: flex;
   overflow: hidden;
+  position: relative; /* containing block for the T-026 history overlay */
 }
 
 .file-editor-pane {
@@ -5116,4 +5117,146 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 8px;
+}
+
+/* ── File history overlay (T-026) ─────────────────────────────── */
+.file-history-overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--c-base);
+  display: flex;
+  flex-direction: column;
+  z-index: 60;
+  outline: none;
+}
+.file-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--c-surface0);
+  background: var(--c-mantle);
+}
+.file-history-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.file-history-title-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--c-blue);
+}
+.file-history-title-path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--c-overlay1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-history-count {
+  font-size: 11px;
+  color: var(--c-overlay0);
+}
+.file-history-close {
+  background: transparent;
+  border: none;
+  color: var(--c-overlay1);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.file-history-close:hover {
+  background: var(--c-surface1);
+  color: var(--c-text);
+}
+.file-history-body {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) 1fr;
+  overflow: hidden;
+}
+.file-history-list {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--c-surface0);
+  min-height: 0;
+}
+.file-history-search {
+  padding: 6px 10px;
+  background: var(--c-surface0);
+  border: none;
+  border-bottom: 1px solid var(--c-surface0);
+  color: var(--c-text);
+  font-size: 12px;
+  outline: none;
+}
+.file-history-commits {
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+.file-history-commit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--c-surface0);
+  cursor: pointer;
+  color: var(--c-text);
+}
+.file-history-commit:hover {
+  background: var(--c-surface0);
+}
+.file-history-commit-active,
+.file-history-commit-active:hover {
+  background: color-mix(in srgb, var(--c-blue) 22%, var(--c-base));
+}
+.file-history-commit-subject {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-history-commit-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--c-overlay1);
+}
+.file-history-commit-sha {
+  background: var(--c-mantle);
+  padding: 0 4px;
+  border-radius: 2px;
+  font-size: 10px;
+  color: var(--c-yellow);
+}
+.file-history-commit-author {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-history-commit-date {
+  flex-shrink: 0;
+}
+.file-history-diff-pane {
+  overflow: auto;
+  background: var(--c-base);
+  min-width: 0;
+}
+.file-history-loading,
+.file-history-empty {
+  padding: 16px;
+  color: var(--c-overlay0);
+  font-size: 12px;
+  text-align: center;
 }

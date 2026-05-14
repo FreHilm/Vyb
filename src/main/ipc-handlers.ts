@@ -1185,6 +1185,64 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   // diff. `--recount` lets git fix off-by-one line counts that the
   // renderer's builder might produce when boundary lines drop;
   // `--whitespace=nowarn` keeps the apply quiet on CRLF repos.
+  // File history (T-026). `--follow` chases renames; `-z`-style NUL
+  // separation isn't supported by `git log --pretty`, so we use the
+  // same record-separator trick as GIT_LOG. Path is passed as a strict
+  // positional after `--` so funny filenames can't be re-interpreted
+  // as flags.
+  ipcMain.handle(IPC_CHANNELS.GIT_FILE_LOG, (_, cwd: string, filePath: string, limit?: number): GitCommit[] => {
+    if (!cwd || !filePath) return [];
+    const cap = Math.max(1, Math.min(5000, (limit ?? 500) | 0 || 500));
+    try {
+      const fmt = '%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%x1e';
+      const out = execFileSync('git', [
+        'log',
+        '--follow',
+        `--max-count=${cap}`,
+        `--pretty=format:${fmt}`,
+        '--', filePath,
+      ], { cwd, timeout: 20000, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024 });
+      const commits: GitCommit[] = [];
+      for (const record of out.split('\x1e')) {
+        const trimmed = record.replace(/^\n+/, '');
+        if (!trimmed) continue;
+        const fields = trimmed.split('\x00');
+        if (fields.length < 6) continue;
+        const [sha, parents, author, email, date, subject] = fields;
+        commits.push({
+          sha, parents: parents ? parents.split(' ').filter(Boolean) : [], author, email, date, subject,
+        });
+      }
+      return commits;
+    } catch {
+      return [];
+    }
+  });
+
+  // Diff of a single file at a single commit (T-026). We use the
+  // commit's first parent to anchor the diff. For root commits (no
+  // parent) we diff against the empty tree so additions render
+  // correctly. `-M` enables rename detection so the diff still works
+  // when --follow gave us a renamed history.
+  ipcMain.handle(IPC_CHANNELS.GIT_FILE_LOG_DIFF, (_, cwd: string, sha: string, filePath: string): string => {
+    if (!cwd || !sha || !filePath) return '';
+    try {
+      const parent = (() => {
+        try {
+          return execFileSync('git', ['rev-parse', `${sha}^`], { cwd, timeout: 5000, encoding: 'utf-8' }).trim();
+        } catch {
+          return '';
+        }
+      })();
+      const base = parent || '4b825dc642cb6eb9a060e54bf8d69288fbee4904'; // empty tree
+      return execFileSync('git', ['diff', '-M', `${base}`, sha, '--', filePath], {
+        cwd, timeout: 10000, encoding: 'utf-8', maxBuffer: 16 * 1024 * 1024,
+      });
+    } catch {
+      return '';
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.GIT_APPLY_PATCH, async (_, cwd: string, patch: string, opts?: { reverse?: boolean }): Promise<{ ok: boolean; error?: string }> => {
     if (!cwd || !patch) return { ok: false, error: 'Empty patch' };
     return await new Promise((resolve) => {

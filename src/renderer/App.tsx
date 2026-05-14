@@ -114,6 +114,8 @@ declare global {
       gitCompareFileDiff: (cwd: string, a: string, b: string, filePath: string, threeDot: boolean) => Promise<string>;
       gitShowStage: (cwd: string, filePath: string, stage: 1 | 2 | 3) => Promise<string>;
       gitApplyPatch: (cwd: string, patch: string, opts?: { reverse?: boolean }) => Promise<{ ok: boolean; error?: string }>;
+      gitFileLog: (cwd: string, filePath: string, limit?: number) => Promise<GitCommit[]>;
+      gitFileLogDiff: (cwd: string, sha: string, filePath: string) => Promise<string>;
       getGitChangedFiles: (cwd: string) => Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>;
       getGitFileDiff: (cwd: string, filePath: string, staged?: boolean) => Promise<string>;
       getGitLog: (cwd: string, limit: number) => Promise<GitCommit[]>;
