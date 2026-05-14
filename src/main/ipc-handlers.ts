@@ -1243,6 +1243,70 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // Per-line blame (T-027). Parses `git blame --line-porcelain` —
+  // every line is preceded by a header block of "<key> <value>" lines
+  // (author, author-time, summary, etc.), then a content line prefixed
+  // with a tab. Headers are only re-emitted in full the first time a
+  // SHA is seen in the output; subsequent occurrences carry just the
+  // SHA + ranges, so we cache per SHA as we go.
+  ipcMain.handle(IPC_CHANNELS.GIT_BLAME_FILE, (_, cwd: string, filePath: string): import('../shared/types').GitBlameLine[] => {
+    if (!cwd || !filePath) return [];
+    try {
+      const out = execFileSync('git', ['blame', '--line-porcelain', '--', filePath], {
+        cwd, timeout: 30000, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024,
+      });
+      const lines = out.split('\n');
+      const cache = new Map<string, { author: string; authorTime: string; summary: string }>();
+      const result: import('../shared/types').GitBlameLine[] = [];
+      let i = 0;
+      while (i < lines.length) {
+        const headerLine = lines[i];
+        if (!headerLine) { i++; continue; }
+        // Header: "<sha> <orig-line> <final-line> [num-lines]"
+        const headerMatch = headerLine.match(/^([0-9a-f]{40})\s+\d+\s+(\d+)(?:\s+\d+)?$/);
+        if (!headerMatch) { i++; continue; }
+        const sha = headerMatch[1];
+        const finalLine = parseInt(headerMatch[2], 10);
+        let author = cache.get(sha)?.author ?? '';
+        let authorTime = cache.get(sha)?.authorTime ?? '';
+        let summary = cache.get(sha)?.summary ?? '';
+        let authorTz = '';
+        i++;
+        while (i < lines.length && !lines[i].startsWith('\t')) {
+          const headerKv = lines[i];
+          if (headerKv.startsWith('author ')) author = headerKv.slice(7);
+          else if (headerKv.startsWith('author-time ')) authorTime = headerKv.slice(12);
+          else if (headerKv.startsWith('author-tz ')) authorTz = headerKv.slice(10);
+          else if (headerKv.startsWith('summary ')) summary = headerKv.slice(8);
+          i++;
+        }
+        cache.set(sha, { author, authorTime, summary });
+        // Skip the tab-prefixed content line itself.
+        if (i < lines.length && lines[i].startsWith('\t')) i++;
+        // Convert author-time (epoch seconds) + tz to ISO.
+        let iso = '';
+        if (authorTime) {
+          const epoch = parseInt(authorTime, 10);
+          if (!Number.isNaN(epoch)) iso = new Date(epoch * 1000).toISOString();
+        }
+        result.push({
+          lineNumber: finalLine,
+          sha,
+          shortSha: sha.slice(0, 7),
+          author,
+          authorTime: iso,
+          summary,
+        });
+        // Suppress unused-var warning; tz is captured for future use
+        // but not surfaced yet.
+        void authorTz;
+      }
+      return result;
+    } catch {
+      return [];
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.GIT_APPLY_PATCH, async (_, cwd: string, patch: string, opts?: { reverse?: boolean }): Promise<{ ok: boolean; error?: string }> => {
     if (!cwd || !patch) return { ok: false, error: 'Empty patch' };
     return await new Promise((resolve) => {

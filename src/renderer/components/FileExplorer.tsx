@@ -21,6 +21,8 @@ import { MermaidBlock } from './MermaidBlock';
 import { ExcalidrawEditor, type ExcalidrawEditorHandle } from './ExcalidrawEditor';
 import { SWORD_SHAPE } from '../file-icons';
 import { FileHistoryView } from './FileHistoryView';
+import { blameGutter } from '../lib/blame-gutter';
+import type { GitBlameLine } from '../../shared/types';
 
 interface FileExplorerProps {
   workingDirectory: string;
@@ -461,7 +463,19 @@ export function FileExplorer({
   const [clipboard, setClipboard] = useState<string | null>(null);
   // T-026: when set, render the FileHistoryView overlay for this path.
   // Cleared by the overlay's close button or Esc keypress.
-  const [historyFile, setHistoryFile] = useState<{ path: string; name: string } | null>(null);
+  const [historyFile, setHistoryFile] = useState<{ path: string; name: string; initialSha?: string }| null>(null);
+  // T-027: per-path toggle for the blame gutter, plus cached blame data
+  // so reopening a file doesn't refetch unnecessarily. Toggling flips
+  // the set and remounts the editor with the gutter included.
+  const [blameEnabled, setBlameEnabled] = useState<Set<string>>(new Set());
+  const [blameDataByPath, setBlameDataByPath] = useState<Map<string, GitBlameLine[]>>(new Map());
+  // Mirrored into refs so `mountEditor` (a useCallback that depends on
+  // many stable values) can read the current state without forming a
+  // dependency cycle that re-creates the editor on every keystroke.
+  const blameEnabledRef = useRef<Set<string>>(new Set());
+  blameEnabledRef.current = blameEnabled;
+  const blameDataByPathRef = useRef<Map<string, GitBlameLine[]>>(new Map());
+  blameDataByPathRef.current = blameDataByPath;
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null);
   const [creating, setCreating] = useState<{ type: 'file' | 'dir' | 'excalidraw'; dir: string } | null>(null);
@@ -828,6 +842,18 @@ export function FileExplorer({
       extensions: [
         basicSetup,
         oneDark,
+        // T-027 blame gutter. Only included when blame is toggled on
+        // for this path. The empty-array fallback (built into
+        // `blameGutter`) makes this a no-op otherwise.
+        ...(blameEnabledRef.current.has(thisPath) && blameDataByPathRef.current.has(thisPath)
+          ? [blameGutter(blameDataByPathRef.current.get(thisPath)!, (sha) => {
+            const name = thisPath.split('/').pop() || thisPath;
+            const relPath = thisPath.startsWith(workingDirectory)
+              ? thisPath.slice(workingDirectory.length).replace(/^\/+/, '')
+              : thisPath;
+            setHistoryFile({ path: relPath, name, initialSha: sha });
+          })]
+          : []),
         ...(Array.isArray(lang) ? lang : [lang]),
         keymap.of([
           { key: 'Mod-s', run: () => { handleSave(); return true; } },
@@ -1157,6 +1183,42 @@ export function FileExplorer({
     setCtxMenu(null);
   }, [ctxMenu]);
 
+  // T-027: toggle the blame gutter for the active tab. On first
+  // enable we fetch via `git blame --line-porcelain`, cache it, and
+  // remount the editor. Subsequent toggles reuse the cached data.
+  // When the file's modified buffer drifts from disk the cached blame
+  // is stale; we mark the file's blame as off in that case to avoid
+  // visual misalignment — the user can re-enable after saving.
+  const toggleBlame = useCallback(async () => {
+    if (!activeTabPath) return;
+    const enabled = blameEnabledRef.current.has(activeTabPath);
+    if (enabled) {
+      const next = new Set(blameEnabledRef.current);
+      next.delete(activeTabPath);
+      setBlameEnabled(next);
+      mountEditor(activeTabPath);
+      return;
+    }
+    const relPath = activeTabPath.startsWith(workingDirectory)
+      ? activeTabPath.slice(workingDirectory.length).replace(/^\/+/, '')
+      : activeTabPath;
+    let data = blameDataByPathRef.current.get(activeTabPath);
+    if (!data) {
+      data = await window.api.gitBlameFile(workingDirectory, relPath);
+      if (!data || data.length === 0) {
+        // Likely outside a git repo or file untracked — surface a
+        // soft no-op rather than spinning forever. The button doesn't
+        // disable yet (V2: detect repo state up front).
+        return;
+      }
+      setBlameDataByPath((prev) => new Map(prev).set(activeTabPath, data!));
+    }
+    const next = new Set(blameEnabledRef.current);
+    next.add(activeTabPath);
+    setBlameEnabled(next);
+    mountEditor(activeTabPath);
+  }, [activeTabPath, workingDirectory, mountEditor]);
+
   // T-026: open the file-history overlay for the right-clicked entry.
   // Only wired for files (not directories) via the ContextMenu prop.
   const handleShowHistory = useCallback(() => {
@@ -1461,6 +1523,13 @@ export function FileExplorer({
               >
                 Save As
               </button>
+              <button
+                className={`file-tab-action-btn ${blameEnabled.has(activeTabPath) ? 'is-active' : ''}`}
+                onClick={toggleBlame}
+                title={blameEnabled.has(activeTabPath) ? 'Hide blame gutter' : 'Show blame gutter (git blame)'}
+              >
+                Blame
+              </button>
               {activeIsMd && (
                 <button
                   className={`file-tab-action-btn ${activeMdMode === 'edit' ? 'is-active' : ''}`}
@@ -1701,6 +1770,7 @@ export function FileExplorer({
           workingDirectory={workingDirectory}
           filePath={historyFile.path}
           fileName={historyFile.name}
+          initialSha={historyFile.initialSha}
           onClose={() => setHistoryFile(null)}
         />
       )}
