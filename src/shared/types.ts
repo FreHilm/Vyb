@@ -315,6 +315,7 @@ export const IPC_CHANNELS = {
   GIT_BLAME_FILE: 'git:blameFile',
   GIT_GET_SIGN_COMMITS: 'git:getSignCommits',
   GIT_SET_SIGN_COMMITS: 'git:setSignCommits',
+  GIT_COMMIT_SIGNATURES: 'git:commitSignatures',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',

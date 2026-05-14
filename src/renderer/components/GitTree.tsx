@@ -393,6 +393,18 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
     } finally {
       setLoading(false);
     }
+    // Lazy signature lookup (T-042 fix). Kicked off after the main
+    // tree renders so gpg verification doesn't block the initial
+    // load. Results merge into commit state when ready; if no commits
+    // are signed (the common case) the map comes back empty and
+    // nothing changes.
+    window.api.gitCommitSignatures(workingDirectory, COMMIT_LIMIT).then((sigs) => {
+      const count = Object.keys(sigs).length;
+      if (count === 0) return;
+      setCommits((prev) => prev.map((c) => sigs[c.sha]
+        ? { ...c, sigStatus: sigs[c.sha].sigStatus, sigSigner: sigs[c.sha].sigSigner }
+        : c));
+    }).catch(() => { /* best-effort */ });
   }, [workingDirectory]);
 
   // Push/Pull/Fetch buttons live in the panel-wide toolbar (see
