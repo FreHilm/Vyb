@@ -822,20 +822,28 @@ export function App() {
         return;
       }
 
-      // Close every overlay for the receiving profile's parent view so the
-      // agent terminal becomes visible. Files uses the close-requested dance
-      // to respect unsaved changes. Parallel sub-views are untouched.
-      const dropParent = (prev: Set<string>): Set<string> => {
-        if (!prev.has(target)) return prev;
-        const next = new Set(prev);
-        next.delete(target);
-        return next;
-      };
-      setKanbanViews(dropParent);
-      setFilesViews(dropParent);
-      setWebViews(dropParent);
+      // If the receiving view has split-pane enabled, the agent is
+      // already visible on the left — closing the Kanban / Files /
+      // Web overlay would just blank the right pane and flash a
+      // jarring "where did my board go?" moment. Leave the right
+      // pane as-is and only focus the agent so input lands there.
+      // When split isn't on, fall back to the old behavior: hide
+      // every overlay so the full agent surface comes forward.
+      const targetIsSplit = splitViews.has(target);
+      if (!targetIsSplit) {
+        const dropParent = (prev: Set<string>): Set<string> => {
+          if (!prev.has(target)) return prev;
+          const next = new Set(prev);
+          next.delete(target);
+          return next;
+        };
+        setKanbanViews(dropParent);
+        setFilesViews(dropParent);
+        setWebViews(dropParent);
+      }
       // Drop back to the parent view so the user immediately sees the agent
-      // they just dispatched to.
+      // they just dispatched to. Parallel sub-view selection also resets so
+      // the typed message lands in the parent agent terminal.
       setSelectedParallelId(null);
       setEditorOpen(false);
       setSettingsOpen(false);
