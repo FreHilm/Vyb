@@ -829,7 +829,10 @@ export function App() {
       // pane as-is and only focus the agent so input lands there.
       // When split isn't on, fall back to the old behavior: hide
       // every overlay so the full agent surface comes forward.
-      const targetIsSplit = splitViews.has(target);
+      // Read the live split state via the ref — the listener was
+      // mounted with empty deps so `splitViews` from the closure
+      // would always be the initial empty Set, defeating the check.
+      const targetIsSplit = splitViewsRef.current.has(target);
       if (!targetIsSplit) {
         const dropParent = (prev: Set<string>): Set<string> => {
           if (!prev.has(target)) return prev;
@@ -974,6 +977,15 @@ export function App() {
   useEffect(() => {
     profilesRef.current = profiles;
   }, [profiles]);
+
+  // Same shim for splitViews — the Ordna task listener is mounted once
+  // (with `[]` deps), so a direct `splitViews.has(target)` inside the
+  // listener would always read the initial empty Set. The ref tracks
+  // the live state instead.
+  const splitViewsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    splitViewsRef.current = splitViews;
+  }, [splitViews]);
 
   // Mirror the selected parallel agent to the main process so it can suppress
   // notifications for the sub-agent the user is currently looking at.
