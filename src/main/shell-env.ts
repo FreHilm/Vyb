@@ -25,10 +25,32 @@ let inflight: Promise<Record<string, string>> | null = null;
 const START_MARKER = '__AGENTDISPATCH_SHELL_ENV_START__';
 const END_MARKER = '__AGENTDISPATCH_SHELL_ENV_END__';
 
+function isExecutableFile(p: string): boolean {
+  if (!p) return false;
+  try {
+    const st = fs.statSync(p);
+    if (!st.isFile()) return false;
+    return (st.mode & 0o111) !== 0;
+  } catch {
+    return false;
+  }
+}
+
 function defaultShell(): string {
-  if (process.env.SHELL) return process.env.SHELL;
   if (os.platform() === 'win32') return process.env.COMSPEC || 'cmd.exe';
-  return '/bin/zsh';
+  // Validate the OS-supplied path is actually an executable file —
+  // a chsh mishap or /etc/shells typo can leave $SHELL pointing at a
+  // directory (e.g. `/opt/homebrew/Cellar/bash` instead of the
+  // `.../5.2.2/bin/bash` binary inside it), at which point a naive
+  // spawn fails with EACCES. Fall through the candidate list when
+  // the OS-supplied value isn't usable.
+  const candidates: string[] = [];
+  if (process.env.SHELL) candidates.push(process.env.SHELL);
+  candidates.push('/bin/zsh', '/bin/bash', '/bin/sh');
+  for (const c of candidates) {
+    if (isExecutableFile(c)) return c;
+  }
+  return '/bin/sh';
 }
 
 function parseEnvBlock(block: string): Record<string, string> {
@@ -116,7 +138,11 @@ export async function resolveShellEnv(): Promise<Record<string, string>> {
 
   inflight = (async () => {
     const shell = defaultShell();
-    if (!fs.existsSync(shell)) {
+    // defaultShell already validates executability; this is just a
+    // last-ditch guard against an edge case where the chosen binary
+    // is removed between resolution and spawn.
+    if (!isExecutableFile(shell)) {
+      console.warn(`[shell-env] no usable shell found; falling back to process.env`);
       const fallback = { ...(process.env as Record<string, string>) };
       resolved = fallback;
       return fallback;

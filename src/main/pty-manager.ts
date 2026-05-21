@@ -33,21 +33,42 @@ function supplementPath(currentPath: string): string {
   return currentPath;
 }
 
+// True when `p` is a regular file with at least one executable bit
+// set. Used to reject $SHELL values that point at a directory or a
+// non-executable — both observed in the wild on a user whose
+// /etc/shells had a typo and ended up with `chsh -s
+// /opt/homebrew/Cellar/bash` (a directory, not the bash binary
+// inside it). Without this check, `fs.existsSync()` returned true
+// for the directory and node-pty's spawn failed with EACCES,
+// closing the terminal silently.
+export function isExecutableFile(p: string): boolean {
+  if (!p) return false;
+  try {
+    const st = fs.statSync(p);
+    if (!st.isFile()) return false;
+    return (st.mode & 0o111) !== 0;
+  } catch {
+    return false;
+  }
+}
+
 // Resolve the best login shell to spawn for a plain shell-terminal
 // (no agent command). Picks the user's actual $SHELL first so bash
 // users get bash, fish users get fish, etc. — historically this was
 // hardcoded to `/bin/zsh`, which silently broke pre-Catalina macs
 // (no zsh installed) and is surprising for anyone deliberately
-// running another shell. Falls back to zsh, then bash if zsh is
-// missing.
-function loginShellPath(envShell?: string): string {
+// running another shell. Falls back to zsh, then bash, then sh.
+// Crucially each candidate is validated as an actual executable
+// file, not just `existsSync` — directories and non-executables
+// would pass an existence check but break spawn().
+export function loginShellPath(envShell?: string): string {
   if (os.platform() === 'win32') return 'powershell.exe';
   const candidates: string[] = [];
   if (envShell) candidates.push(envShell);
   if (process.env.SHELL) candidates.push(process.env.SHELL);
   candidates.push('/bin/zsh', '/bin/bash', '/bin/sh');
   for (const c of candidates) {
-    try { if (c && fs.existsSync(c)) return c; } catch { /* ignore */ }
+    if (isExecutableFile(c)) return c;
   }
   return '/bin/sh'; // unreachable in practice — /bin/sh ships everywhere
 }
@@ -157,13 +178,42 @@ export class PtyManager {
       }
     }
 
-    const ptyProcess = pty.spawn(spawnCmd, spawnArgs, {
-      name: 'xterm-256color',
-      cols,
-      rows,
-      cwd,
-      env: spawnEnv,
-    });
+    let ptyProcess: pty.IPty;
+    try {
+      ptyProcess = pty.spawn(spawnCmd, spawnArgs, {
+        name: 'xterm-256color',
+        cols,
+        rows,
+        cwd,
+        env: spawnEnv,
+      });
+    } catch (err) {
+      // Synchronous spawn failure — common when the resolved binary
+      // is a directory, missing the executable bit, or the cwd is
+      // unreadable. Previously this dropped through silently and the
+      // renderer just closed the pane ("flickered and died"). Now we
+      // synthesize a red error banner into the renderer's terminal
+      // view first via the onData callback, then emit onExit with a
+      // distinctive negative code so the renderer can keep the pane
+      // open and show context.
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[pty] spawn failed: cmd="${spawnCmd}" args=${JSON.stringify(spawnArgs)} :: ${msg}`);
+      const banner = [
+        '',
+        '\x1b[1;31m✖ Failed to start terminal\x1b[0m',
+        `  command: ${spawnCmd} ${spawnArgs.join(' ')}`,
+        `  reason:  ${msg}`,
+        '',
+        '\x1b[2mCheck $SHELL points at an actual executable (not a directory)',
+        'and that the binary exists + has its executable bit set.\x1b[0m',
+        '',
+      ].join('\r\n');
+      this.onData(profileId, banner);
+      // -1 is the convention for "we never got a process going" so
+      // the renderer can distinguish it from a normal exit code.
+      this.onExit(profileId, -1);
+      return;
+    }
 
     ptyProcess.onData((data) => {
       this.onData(profileId, data);
