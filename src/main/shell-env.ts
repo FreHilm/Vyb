@@ -69,20 +69,31 @@ async function runShellAndCaptureEnv(shell: string): Promise<Record<string, stri
       }
     }, 10000);
 
-    child.on('close', () => {
+    child.on('close', (code) => {
       clearTimeout(timer);
       const start = stdout.indexOf(START_MARKER);
       const end = stdout.indexOf(END_MARKER);
       if (start < 0 || end <= start) {
+        // Markers missing — the user's rc files probably crashed, hung,
+        // or short-circuited before our `env` call. Log so the issue
+        // is at least visible in `npm start`'s console; we'll still
+        // fall back to process.env with PATH supplements applied
+        // downstream in pty-manager.ts.
+        console.warn(`[shell-env] capture from "${shell}" failed (exit ${code}); falling back to process.env`);
         resolve({});
         return;
       }
       const block = stdout.slice(start + START_MARKER.length, end);
-      resolve(parseEnvBlock(block));
+      const parsed = parseEnvBlock(block);
+      if (Object.keys(parsed).length === 0) {
+        console.warn(`[shell-env] captured empty env from "${shell}" (markers matched but body parsed to nothing)`);
+      }
+      resolve(parsed);
     });
 
-    child.on('error', () => {
+    child.on('error', (err) => {
       clearTimeout(timer);
+      console.warn(`[shell-env] failed to spawn "${shell}":`, err.message);
       resolve({});
     });
   });

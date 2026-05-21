@@ -4,12 +4,15 @@ import * as fs from 'fs';
 import { Profile } from '../shared/types';
 import { getResolvedShellEnv } from './shell-env';
 
-// Final fallback PATH if the user's interactive shell didn't resolve cleanly.
-// Electron launched from Finder/dock inherits a minimal PATH from launchd
-// that is missing tool-prefix dirs the user has in their ~/.zshrc.
-function fallbackPath(): string {
-  let p = process.env.PATH || '';
-  if (os.platform() === 'win32') return p;
+// Common per-user binary dirs that should be on PATH regardless of
+// whether the user's interactive shell env capture worked. Electron
+// launched from Finder/dock inherits a minimal PATH from launchd
+// missing these. We always supplement so a bash user whose rc file
+// resolution stumbled doesn't end up with PTYs that can't find
+// `node`, `npx`, `claude`, etc. Cheap: each candidate is a single
+// existsSync; entries already in PATH are skipped.
+function supplementPath(currentPath: string): string {
+  if (os.platform() === 'win32') return currentPath;
   const home = os.homedir();
   const candidates = [
     `${home}/.local/bin`,
@@ -22,11 +25,31 @@ function fallbackPath(): string {
     '/opt/homebrew/bin',
     '/opt/homebrew/sbin',
   ];
+  const existing = new Set(currentPath.split(':').filter(Boolean));
   try {
-    const extra = candidates.filter((c) => fs.existsSync(c) && !p.includes(c));
-    if (extra.length > 0) p = extra.join(':') + ':' + p;
-  } catch { /* keep p as-is */ }
-  return p;
+    const extra = candidates.filter((c) => fs.existsSync(c) && !existing.has(c));
+    if (extra.length > 0) return extra.join(':') + (currentPath ? ':' + currentPath : '');
+  } catch { /* keep currentPath as-is */ }
+  return currentPath;
+}
+
+// Resolve the best login shell to spawn for a plain shell-terminal
+// (no agent command). Picks the user's actual $SHELL first so bash
+// users get bash, fish users get fish, etc. — historically this was
+// hardcoded to `/bin/zsh`, which silently broke pre-Catalina macs
+// (no zsh installed) and is surprising for anyone deliberately
+// running another shell. Falls back to zsh, then bash if zsh is
+// missing.
+function loginShellPath(envShell?: string): string {
+  if (os.platform() === 'win32') return 'powershell.exe';
+  const candidates: string[] = [];
+  if (envShell) candidates.push(envShell);
+  if (process.env.SHELL) candidates.push(process.env.SHELL);
+  candidates.push('/bin/zsh', '/bin/bash', '/bin/sh');
+  for (const c of candidates) {
+    try { if (c && fs.existsSync(c)) return c; } catch { /* ignore */ }
+  }
+  return '/bin/sh'; // unreachable in practice — /bin/sh ships everywhere
 }
 
 interface PtyInstance {
@@ -71,14 +94,32 @@ export class PtyManager {
     let spawnCmd: string;
     let spawnArgs: string[];
 
+    // Build clean env for child processes. Prefer the env resolved from the
+    // user's interactive shell (zshrc/zshenv/.bash_profile/etc.) so PATH +
+    // tool managers (asdf/mise/nvm/rbenv/pyenv/...) are visible. Fall back
+    // to process.env if the resolution didn't run or returned empty.
+    const shellResolved = getResolvedShellEnv();
+    const baseEnv: Record<string, string> = shellResolved
+      ? { ...shellResolved }
+      : { ...(process.env as Record<string, string>) };
+    // ALWAYS layer the candidate per-user binary dirs over whatever PATH
+    // we ended up with. This used to only run on the fallback path, so a
+    // user whose shell env capture "succeeded" but came back missing
+    // /opt/homebrew/bin (common on bash setups where -l -i -c behaves
+    // differently than under zsh) silently ended up with terminals that
+    // couldn't find `node`, `npx`, `claude`. Cheap belt-and-suspenders.
+    baseEnv.PATH = supplementPath(baseEnv.PATH || '');
+
     if (agentCmd) {
       // Split command into cmd + args and spawn directly
       const parts = agentCmd.split(/\s+/);
       spawnCmd = parts[0];
       spawnArgs = parts.slice(1);
     } else {
-      // No command — open an interactive shell
-      spawnCmd = os.platform() === 'win32' ? 'powershell.exe' : '/bin/zsh';
+      // No command — open the user's preferred login shell rather than
+      // hardcoded zsh. Bash / fish / other-shell users now get their
+      // actual shell.
+      spawnCmd = loginShellPath(baseEnv.SHELL);
       spawnArgs = [];
     }
 
@@ -86,15 +127,6 @@ export class PtyManager {
     if (cwd.startsWith('~')) {
       cwd = cwd.replace(/^~/, os.homedir());
     }
-
-    // Build clean env for child processes. Prefer the env resolved from the
-    // user's interactive shell (zshrc/zshenv/etc.) so PATH and tool managers
-    // (asdf/mise/nvm/rbenv/pyenv/...) are visible. Fall back to process.env
-    // if the resolution didn't run or hadn't completed.
-    const shellResolved = getResolvedShellEnv();
-    const baseEnv: Record<string, string> = shellResolved
-      ? { ...shellResolved }
-      : { ...(process.env as Record<string, string>), PATH: fallbackPath() };
 
     const spawnEnv: Record<string, string> = {
       ...baseEnv,
