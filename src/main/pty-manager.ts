@@ -118,9 +118,15 @@ export class PtyManager {
     } else {
       // No command — open the user's preferred login shell rather than
       // hardcoded zsh. Bash / fish / other-shell users now get their
-      // actual shell.
+      // actual shell. `-l` makes it a *login* shell, matching what
+      // Terminal.app does on macOS: bash sources .bash_profile /
+      // .profile / .bash_login; zsh sources .zprofile + .zshrc. This
+      // is critical for bash users — without -l, bash starts as a
+      // non-login interactive shell that skips .bash_profile, and any
+      // PATH / prompt setup that lives only there isn't applied,
+      // which on some configs makes the shell exit immediately.
       spawnCmd = loginShellPath(baseEnv.SHELL);
-      spawnArgs = [];
+      spawnArgs = spawnCmd === '/bin/sh' ? [] : ['-l'];
     }
 
     let cwd = profile.workingDirectory || os.homedir();
@@ -164,6 +170,14 @@ export class PtyManager {
     });
 
     ptyProcess.onExit(({ exitCode }) => {
+      // Surface non-zero exits so users diagnosing "my terminal closed
+      // immediately" can see the underlying cause in `npm start`'s
+      // console. 127 = command-not-found (PATH issue), 126 = found
+      // but not executable, 2 = bash syntax error in rc files,
+      // negative / signal codes = killed.
+      if (exitCode !== 0) {
+        console.warn(`[pty] ${profileId} exited code=${exitCode} cmd="${spawnCmd}" args=${JSON.stringify(spawnArgs)}`);
+      }
       this.onExit(profileId, exitCode);
     });
 
