@@ -44,6 +44,9 @@ interface FileExplorerProps {
   formatOnSave?: boolean;
   /** T-046: include the sticky-scroll plugin in the editor. */
   stickyScroll?: boolean;
+  /** Show dotfiles in the file tree. Filter happens renderer-side
+   * so toggling is live — no IPC round-trip, no tree reload. */
+  showHiddenFiles?: boolean;
   /** T-047: callback for Cmd+= / Cmd+- / Cmd+0. `delta === 0` is
    * the reset path; otherwise the value gets added to the current
    * setting and clamped to [8, 32] by the caller. */
@@ -283,6 +286,7 @@ function FileTreeNode({
   onDropItem,
   onDragEndItem,
   gitDecorations,
+  showHiddenFiles,
 }: {
   entry: FileEntry;
   depth: number;
@@ -300,6 +304,7 @@ function FileTreeNode({
   onDropItem: (e: React.DragEvent, entry: FileEntry) => void;
   onDragEndItem: () => void;
   gitDecorations: Map<string, string>;
+  showHiddenFiles: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileEntry[]>([]);
@@ -411,7 +416,9 @@ function FileTreeNode({
         {gitBadge && <span className="file-tree-git-badge" title={`git: ${gitStatus}`}>{gitBadge}</span>}
       </div>
       {expanded &&
-        children.map((child) => (
+        children
+          .filter((child) => showHiddenFiles || !child.name.startsWith('.'))
+          .map((child) => (
           <FileTreeNode
             key={child.path}
             entry={child}
@@ -430,6 +437,7 @@ function FileTreeNode({
             onDropItem={onDropItem}
             onDragEndItem={onDragEndItem}
             gitDecorations={gitDecorations}
+            showHiddenFiles={showHiddenFiles}
           />
         ))}
     </>
@@ -445,6 +453,7 @@ export function FileExplorer({
   onPendingOpenHandled,
   formatOnSave = false,
   stickyScroll: stickyScrollEnabled = true,
+  showHiddenFiles = true,
   onAdjustEditorFontSize,
 }: FileExplorerProps) {
   const [rootEntries, setRootEntries] = useState<FileEntry[]>([]);
@@ -2044,7 +2053,9 @@ export function FileExplorer({
               />
             </div>
           )}
-          {rootEntries.map((entry) => (
+          {rootEntries
+            .filter((entry) => showHiddenFiles || !entry.name.startsWith('.'))
+            .map((entry) => (
             <FileTreeNode
               key={entry.path}
               entry={entry}
@@ -2063,6 +2074,7 @@ export function FileExplorer({
               onDropItem={handleDropItem}
               onDragEndItem={handleDragEndItem}
               gitDecorations={gitDecorations}
+              showHiddenFiles={showHiddenFiles}
             />
           ))}
         </div>

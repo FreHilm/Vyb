@@ -2018,6 +2018,7 @@ export function App() {
                   onPendingOpenHandled={() => setPendingFileOpen(null)}
                   formatOnSave={settings.formatOnSave === true}
                   stickyScroll={settings.editorStickyScroll !== false}
+                  showHiddenFiles={settings.showHiddenFiles !== false}
                   onAdjustEditorFontSize={adjustEditorFontSize}
                 />
               );

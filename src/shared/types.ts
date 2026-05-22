@@ -122,6 +122,10 @@ export interface AppSettings {
    * removed — the file tab already shows the filename and the
    * "Reveal in tree" button covers the path-jump use case.) */
   editorStickyScroll: boolean;
+  /** Show dotfile / hidden entries in the file tree. Default on so
+   * `.gitignore`, `.env`, `.vscode/`, etc. are visible. Toggling
+   * off hides anything whose name starts with a dot. */
+  showHiddenFiles: boolean;
   /** T-047: editor font size in pixels. Cmd+= / Cmd+- / Cmd+0 in
    * a focused CodeMirror buffer adjust this; Settings → Appearance
    * has a manual input. Default 13 — matches the previous hard-
@@ -252,6 +256,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showAuthorAvatars: true,
   formatOnSave: false,
   editorStickyScroll: true,
+  showHiddenFiles: true,
   editorFontSize: 13,
   webDefaultUrl: 'https://duckduckgo.com/',
   webUrls: {},

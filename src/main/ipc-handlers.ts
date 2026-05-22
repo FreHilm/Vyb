@@ -3312,8 +3312,11 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.FILE_LIST_DIR, (_, dirPath: string): FileEntry[] => {
     try {
       const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      // Dotfiles (.gitignore, .env, .vscode/, etc.) are listed —
+      // users working on projects need them visible. Sort puts
+      // directories first, then alphabetical; hidden entries fall
+      // naturally at the top of each group because '.' < any letter.
       return entries
-        .filter((e) => !e.name.startsWith('.'))
         .map((e) => ({
           name: e.name,
           path: path.join(dirPath, e.name),

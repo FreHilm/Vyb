@@ -198,6 +198,7 @@ export function SettingsDialog({
   const [showAuthorAvatars, setShowAuthorAvatars] = useState(settings.showAuthorAvatars !== false);
   const [formatOnSave, setFormatOnSave] = useState(settings.formatOnSave === true);
   const [editorStickyScroll, setEditorStickyScroll] = useState(settings.editorStickyScroll !== false);
+  const [showHiddenFiles, setShowHiddenFiles] = useState(settings.showHiddenFiles !== false);
   const [webDefaultUrl, setWebDefaultUrl] = useState(settings.webDefaultUrl || 'https://duckduckgo.com/');
   const [pullStrategy, setPullStrategy] = useState<'merge' | 'rebase' | 'ask'>(settings.pullStrategy ?? 'merge');
   const [pushTagsStrategy, setPushTagsStrategy] = useState<'off' | 'reachable' | 'all'>(settings.pushTagsStrategy ?? 'off');
@@ -300,6 +301,7 @@ export function SettingsDialog({
       showAuthorAvatars,
       formatOnSave,
       editorStickyScroll,
+      showHiddenFiles,
       webDefaultUrl: webDefaultUrl.trim() || 'https://duckduckgo.com/',
       pullStrategy,
       pushTagsStrategy,
@@ -467,6 +469,23 @@ export function SettingsDialog({
                 Pins the current function / class declaration to the
                 top of the editor while scrolling. Up to 3 nested
                 scopes. Takes effect on next file open.
+              </span>
+
+              <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                <span className="field-label">Show hidden files</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={showHiddenFiles}
+                    onChange={(e) => setShowHiddenFiles(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+              <span className="field-hint">
+                Shows dotfiles (`.gitignore`, `.env`, `.vscode/`,
+                `.git/`, etc.) in the file tree. Toggling updates
+                the tree live — no reload needed.
               </span>
 
               {functionWebEnabled && (
