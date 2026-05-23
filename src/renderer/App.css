@@ -56,7 +56,6 @@
 .app-sidebar-compact .sidebar-header-actions,
 .app-sidebar-compact .folder-name,
 .app-sidebar-compact .folder-count,
-.app-sidebar-compact .folder-toggle,
 .app-sidebar-compact .folder-delete-btn,
 .app-sidebar-compact .folder-config-btn,
 .app-sidebar-compact .profile-info,
@@ -75,25 +74,61 @@
 .app-sidebar-compact .sidebar-header {
   display: none;
 }
-/* The first folder-header would otherwise render as an orphaned
-   1 px line right at the top of the (now-headerless) sidebar.
-   `:first-child` inside the sidebar list catches it. */
-.app-sidebar-compact .sidebar-folder:first-child > .sidebar-folder-header {
-  display: none;
-}
-/* Folder header in compact mode becomes a thin horizontal divider —
-   still clickable to expand/collapse the folder, no chip/count/name. */
+/* Previously hid the first folder-header in compact mode because it
+   looked like an orphaned 1 px line. Restored: clicking the divider
+   now toggles the folder open/closed (handled in Sidebar.tsx via an
+   onClick on the header element), so the line is functional rather
+   than purely decorative. */
+/* Folder header in compact mode: a thin horizontal divider with the
+   folder-toggle chevron sitting centered on top of it. The line itself
+   is painted as a `::before` pseudo so the chevron's background can
+   visually "break" through it, mimicking the gap-around-pill look of
+   common section dividers. */
 .app-sidebar-compact .sidebar-folder-header {
-  height: 1px;
+  height: 14px;
   padding: 0;
-  margin: 8px 12px;
-  background: var(--c-surface1);
+  margin: 4px 12px;
+  background: transparent;
   border-radius: 0;
   cursor: pointer;
   gap: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
 }
-.app-sidebar-compact .sidebar-folder-header:hover {
+.app-sidebar-compact .sidebar-folder-header::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--c-surface1);
+  pointer-events: none;
+}
+.app-sidebar-compact .sidebar-folder-header:hover::before {
   background: var(--c-blue);
+}
+/* Tiny chevron centered on the divider. Its background matches the
+   sidebar surface so the line appears to break around it. The
+   rotate-on-open is already driven by inline style in Sidebar.tsx
+   (transform: rotate(90deg) when folder.isOpen). */
+.app-sidebar-compact .folder-toggle {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  background: var(--c-mantle);
+  color: var(--c-overlay1);
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+}
+.app-sidebar-compact .sidebar-folder-header:hover .folder-toggle {
+  color: var(--c-text);
 }
 /* Kill the folder-child indent in compact mode so every icon column-aligns
    regardless of nesting depth. These rules need to match the specificity

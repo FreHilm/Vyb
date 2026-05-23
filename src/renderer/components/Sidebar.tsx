@@ -590,6 +590,19 @@ export function Sidebar({
                 className={`sidebar-folder-header ${
                   dropTarget === `folder:${folder.id}` ? 'drop-into' : ''
                 } ${dropTarget === folder.id ? 'drop-before' : ''}`}
+                // Clicking the header itself toggles the folder
+                // collapsed/expanded — same effect as the chevron button.
+                // In compact mode the chevron + name + config button are
+                // all `display: none`, so the divider becomes the only
+                // clickable surface and this is the only way to expand.
+                // We guard with `e.target === e.currentTarget` so clicks
+                // on the chevron, name span, or config button (in
+                // expanded mode) don't get a double-toggle.
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) {
+                    handleToggleFolder(folder.id);
+                  }
+                }}
                 draggable
                 onDragStart={handleDragStart({
                   type: 'folder',
