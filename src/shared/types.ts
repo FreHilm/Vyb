@@ -322,6 +322,21 @@ export const IPC_CHANNELS = {
   SHELL_OPEN_FORK: 'shell:openFork',
   SHELL_OPEN_EXTERNAL: 'shell:openExternal',
   SHELL_OPEN_URL: 'shell:openUrl',
+  /** Embed DevTools for a target `<webview>` (by webContentsId) into a
+   * second `<webview>` (host) so the DevTools panel renders inline
+   * inside the in-app browser instead of opening a separate window. */
+  WEBVIEW_OPEN_DEVTOOLS: 'webview:openDevTools',
+  WEBVIEW_CLOSE_DEVTOOLS: 'webview:closeDevTools',
+  /** Register a webview's webContentsId so the main process attaches a
+   * context-menu listener to it. Idempotent per target. */
+  WEBVIEW_REGISTER_CONTEXT_MENU: 'webview:registerContextMenu',
+  /** Renderer-bound: main fires this when the user picks "Inspect
+   * Element" from the context menu. Payload: `{ targetId, x, y }`. */
+  WEBVIEW_INSPECT_REQUEST: 'webview:inspectRequest',
+  /** Renderer asks main to call inspectElement(x, y) on the target
+   * webContents — used after the embedded DevTools host has been
+   * wired up so the inspector highlights the right element. */
+  WEBVIEW_INSPECT_AT: 'webview:inspectAt',
   DIALOG_SELECT_DIRECTORY: 'dialog:selectDirectory',
   DIALOG_SELECT_FILE: 'dialog:selectFile',
   DIALOG_CREATE_TEMP_DIR: 'dialog:createTempDir',

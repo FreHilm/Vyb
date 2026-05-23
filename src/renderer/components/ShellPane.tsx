@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 // ClipboardAddon removed — it intercepts Escape key, breaking vi/vim
 import '@xterm/xterm/css/xterm.css';
 import { AppSettings } from '../../shared/types';
@@ -21,6 +22,10 @@ interface ShellPaneProps {
   navFocusedPane: { pane: 'agent' | 'shell'; shellIndex: number };
   onShellCountChange?: (count: number) => void;
   initialShellCount: number;
+  /** Mirrors the agent pane's behaviour: when true, clicked URLs in
+   * shell output open in the in-app Web tab; when false they go to
+   * the OS browser via shell.openExternal. */
+  webEnabled?: boolean;
 }
 
 interface ShellInfo {
@@ -42,7 +47,14 @@ export function ShellPane({
   navFocusedPane,
   onShellCountChange,
   initialShellCount,
+  webEnabled = false,
 }: ShellPaneProps) {
+  // Mirror webEnabled into a ref so the WebLinksAddon click handler
+  // (captured once at terminal-creation time) always reads the latest
+  // value instead of the snapshot it had when the addon was attached.
+  // Same pattern as TerminalPane.
+  const webEnabledRef = useRef(webEnabled);
+  webEnabledRef.current = webEnabled;
   const [shells, setShells] = useState<ShellInfo[]>([]);
   const [widths, setWidths] = useState<number[]>([]);
   const terminalsRef = useRef<Map<string, { terminal: Terminal; fitAddon: FitAddon; webglAddon?: WebglAddon }>>(new Map());
@@ -141,6 +153,20 @@ export function ShellPane({
 
       const fitAddon = new FitAddon();
       terminal.loadAddon(fitAddon);
+
+      // URL click handler — same routing as the agent terminal. When the
+      // Web tab feature is enabled, the click dispatches a window event
+      // that App.tsx picks up to focus the in-app browser and navigate;
+      // otherwise we fall back to shell.openExternal via window.api.
+      terminal.loadAddon(
+        new WebLinksAddon((_event, uri) => {
+          if (webEnabledRef.current) {
+            window.dispatchEvent(new CustomEvent('open-url-in-browser', { detail: { url: uri } }));
+          } else {
+            window.api.openUrl(uri);
+          }
+        }),
+      );
 
       const termEl = document.createElement('div');
       termEl.className = 'shell-instance';

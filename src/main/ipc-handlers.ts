@@ -1,4 +1,4 @@
-import { app, ipcMain, shell, dialog, BrowserWindow, Notification } from 'electron';
+import { app, ipcMain, shell, dialog, BrowserWindow, Notification, webContents, Menu } from 'electron';
 import { exec, execSync, execFile, execFileSync, spawn } from 'child_process';
 import { promisify } from 'util';
 import * as os from 'os';
@@ -532,6 +532,122 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
   ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_URL, (_, url: string) => {
     shell.openExternal(url);
+  });
+
+  // Embed the target webview's DevTools panel inside a second webview
+  // (the "host"). Both are <webview> tags in the renderer; the renderer
+  // hands us their webContents IDs after each fires `dom-ready`.
+  // Electron renders the DevTools UI into whatever WebContents you pass
+  // to `setDevToolsWebContents`, then `openDevTools({ mode: 'detach' })`
+  // is needed to tell it to use the assigned host rather than spawning
+  // a separate window.
+  ipcMain.handle(IPC_CHANNELS.WEBVIEW_OPEN_DEVTOOLS, (_, targetId: number, _hostId: number): boolean => {
+    const target = webContents.fromId(targetId);
+    if (!target) return false;
+    try {
+      // Detach-mode DevTools — opens a separate, always-on-top child
+      // window. Earlier attempt: embed via `setDevToolsWebContents`
+      // into a second <webview> in the renderer. That approach is
+      // unreliable on current Electron because the API requires the
+      // host webContents to have done no navigation, but a renderer
+      // <webview> tag with no `src` either fails to bootstrap or
+      // fires `did-attach` before the connection can be established.
+      // Detach mode is the documented, supported path that actually
+      // shows the target's DOM/Console reliably.
+      if (target.isDevToolsOpened()) {
+        target.devToolsWebContents?.focus();
+      } else {
+        target.openDevTools({ mode: 'detach' });
+      }
+      return true;
+    } catch (err) {
+      console.error('[devtools] failed to open:', err);
+      return false;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.WEBVIEW_CLOSE_DEVTOOLS, (_, targetId: number): boolean => {
+    const target = webContents.fromId(targetId);
+    if (!target) return false;
+    try {
+      if (target.isDevToolsOpened()) target.closeDevTools();
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  // Track which webContents we've already wired so re-registers after
+  // a navigation (renderer calls register on every dom-ready) don't
+  // stack duplicate listeners. The Set entries are cleaned up when the
+  // webContents is destroyed by the listener above.
+  const contextMenuRegistered = new Set<number>();
+  ipcMain.handle(IPC_CHANNELS.WEBVIEW_REGISTER_CONTEXT_MENU, (_, targetId: number): boolean => {
+    if (contextMenuRegistered.has(targetId)) return true;
+    const target = webContents.fromId(targetId);
+    if (!target) return false;
+    contextMenuRegistered.add(targetId);
+    target.on('destroyed', () => contextMenuRegistered.delete(targetId));
+    target.on('context-menu', (_evt, params) => {
+      // Inspect lives in the renderer because we need to open the
+      // embedded DevTools host before calling inspectElement —
+      // otherwise Electron opens DevTools in a separate window.
+      const sendInspect = () => {
+        const host = target.hostWebContents ?? target;
+        host.send(IPC_CHANNELS.WEBVIEW_INSPECT_REQUEST, {
+          targetId,
+          x: params.x,
+          y: params.y,
+        });
+      };
+
+      const menu = Menu.buildFromTemplate([
+        {
+          label: 'Back',
+          enabled: target.canGoBack(),
+          click: () => { try { target.goBack(); } catch { /* ignore */ } },
+        },
+        {
+          label: 'Reload',
+          accelerator: 'CmdOrCtrl+R',
+          click: () => { try { target.reload(); } catch { /* ignore */ } },
+        },
+        { type: 'separator' },
+        {
+          label: 'Copy',
+          accelerator: 'CmdOrCtrl+C',
+          enabled: params.editFlags.canCopy && !!params.selectionText,
+          click: () => { try { target.copy(); } catch { /* ignore */ } },
+        },
+        {
+          label: 'Paste',
+          accelerator: 'CmdOrCtrl+V',
+          enabled: params.editFlags.canPaste,
+          click: () => { try { target.paste(); } catch { /* ignore */ } },
+        },
+        { type: 'separator' },
+        {
+          label: 'Inspect Element',
+          accelerator: 'CmdOrCtrl+Shift+I',
+          click: sendInspect,
+        },
+      ]);
+      const owner = BrowserWindow.fromWebContents(target.hostWebContents ?? target);
+      if (owner) menu.popup({ window: owner, x: params.x, y: params.y });
+      else menu.popup();
+    });
+    return true;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.WEBVIEW_INSPECT_AT, (_, targetId: number, x: number, y: number): boolean => {
+    const target = webContents.fromId(targetId);
+    if (!target) return false;
+    try {
+      target.inspectElement(x, y);
+      return true;
+    } catch {
+      return false;
+    }
   });
 
   ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_EXTERNAL, (_, command: string, folderPath: string) => {

@@ -69,6 +69,20 @@ contextBridge.exposeInMainWorld('api', {
   openUrl: (url: string): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_URL, url),
 
+  openWebviewDevTools: (targetId: number, hostId: number): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WEBVIEW_OPEN_DEVTOOLS, targetId, hostId),
+  closeWebviewDevTools: (targetId: number): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WEBVIEW_CLOSE_DEVTOOLS, targetId),
+  registerWebviewContextMenu: (targetId: number): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WEBVIEW_REGISTER_CONTEXT_MENU, targetId),
+  webviewInspectAt: (targetId: number, x: number, y: number): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WEBVIEW_INSPECT_AT, targetId, x, y),
+  onWebviewInspectRequest: (cb: (p: { targetId: number; x: number; y: number }) => void): (() => void) => {
+    const handler = (_e: unknown, payload: { targetId: number; x: number; y: number }) => cb(payload);
+    ipcRenderer.on(IPC_CHANNELS.WEBVIEW_INSPECT_REQUEST, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.WEBVIEW_INSPECT_REQUEST, handler);
+  },
+
   openExternal: (command: string, folderPath: string): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_EXTERNAL, command, folderPath),
 

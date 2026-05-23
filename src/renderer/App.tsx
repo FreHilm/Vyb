@@ -95,6 +95,11 @@ declare global {
       openInVSCode: (folderPath: string) => Promise<void>;
       openInFork: (folderPath: string) => Promise<void>;
       openUrl: (url: string) => Promise<void>;
+      openWebviewDevTools: (targetId: number, hostId: number) => Promise<boolean>;
+      closeWebviewDevTools: (targetId: number) => Promise<boolean>;
+      registerWebviewContextMenu: (targetId: number) => Promise<boolean>;
+      webviewInspectAt: (targetId: number, x: number, y: number) => Promise<boolean>;
+      onWebviewInspectRequest: (cb: (p: { targetId: number; x: number; y: number }) => void) => () => void;
       openExternal: (command: string, folderPath: string) => Promise<void>;
       createShellTerminal: (terminalId: string, cwd: string) => Promise<void>;
       onShellExited: (
@@ -2190,6 +2195,7 @@ export function App() {
                     workingDirectory={p.workingDirectory}
                     hidden={!isVisible}
                     settings={settings}
+                    webEnabled={settings.functionWebEnabled !== false}
                     onAllClosed={() => {
                       if (!activeProfileId) return;
                       setShellOpenSet((prev) => {

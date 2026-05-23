@@ -3817,10 +3817,24 @@ select option {
 .file-editor-empty {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: var(--c-overlay0);
-  font-size: 14px;
+  gap: 14px;
+  /* Tint that blends into the editor's --c-base background so the empty
+     state is hinted at but never competes with real content. Surface1
+     is the next layer up from base/mantle — distinguishable from black
+     without reading as a real UI element. */
+  color: color-mix(in srgb, var(--c-surface1) 80%, var(--c-base));
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  user-select: none;
+  pointer-events: none;
+}
+.file-editor-empty-icon {
+  width: 96px;
+  height: 96px;
+  opacity: 0.85;
 }
 
 .file-tree-pane {
@@ -4827,6 +4841,12 @@ select option {
   height: 100%;
   border: 0;
   background: var(--c-base);
+}
+
+/* Active state for the DevTools toggle in the toolbar. */
+.web-viewer-btn.is-active {
+  background: var(--c-surface0);
+  color: var(--c-blue);
 }
 
 .kanban-iframe {

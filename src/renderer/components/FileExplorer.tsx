@@ -2296,7 +2296,26 @@ export function FileExplorer({
           }}
         />
         {!activeTabPath && (
-          <div className="file-editor-empty">Select a file to view</div>
+          <div className="file-editor-empty">
+            {/* Large doc-with-fold glyph. Stroke uses currentColor so the
+                .file-editor-empty color rule controls both the icon and
+                the caption — keeps them tinted as one subtle unit. */}
+            <svg
+              className="file-editor-empty-icon"
+              viewBox="0 0 64 64"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M14 6h26l12 12v38a2 2 0 0 1-2 2H14a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
+              <path d="M40 6v12h12" />
+              <path d="M20 30h24M20 38h24M20 46h16" />
+            </svg>
+            <span>Select a file to view</span>
+          </div>
         )}
       </div>
 

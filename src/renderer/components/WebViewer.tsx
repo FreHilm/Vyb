@@ -10,6 +10,8 @@ type WebviewLike = HTMLElement & {
   canGoBack: () => boolean;
   canGoForward: () => boolean;
   getURL: () => string;
+  /** Returns the underlying WebContents ID. Only valid after `dom-ready`. */
+  getWebContentsId: () => number;
 };
 
 interface Props {
@@ -64,7 +66,12 @@ export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, on
   const [committedUrl, setCommittedUrl] = useState(startUrl);
   const [canBack, setCanBack] = useState(false);
   const [canForward, setCanForward] = useState(false);
+  const [devtoolsOpen, setDevtoolsOpen] = useState(false);
   const webviewRef = useRef<WebviewLike | null>(null);
+  // Cached main-webview webContentsId. Captured after dom-ready so we
+  // can register the context-menu listener and route inbound inspect
+  // requests to the correct WebViewer instance.
+  const mainContentsIdRef = useRef<number | null>(null);
 
   // Bubble URL changes up so App.tsx can persist them to settings.webUrls
   // (and from there to disk on the next debounce). We skip the very first
@@ -107,17 +114,58 @@ export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, on
     el.addEventListener('did-navigate', sync as EventListener);
     el.addEventListener('did-navigate-in-page', sync as EventListener);
     el.addEventListener('did-finish-load', sync as EventListener);
+    // Register the main process's context-menu listener for this
+    // webview once its WebContents exists. Main dedups, so navigations
+    // that fire dom-ready again won't stack duplicate menus.
+    const onDomReady = () => {
+      try {
+        const id = el.getWebContentsId();
+        mainContentsIdRef.current = id;
+        window.api.registerWebviewContextMenu(id);
+      } catch { /* webview not ready yet */ }
+    };
+    el.addEventListener('dom-ready', onDomReady as EventListener);
     return () => {
       el.removeEventListener('did-navigate', sync as EventListener);
       el.removeEventListener('did-navigate-in-page', sync as EventListener);
       el.removeEventListener('did-finish-load', sync as EventListener);
+      el.removeEventListener('dom-ready', onDomReady as EventListener);
     };
+  }, []);
+
+  // Inbound "Inspect Element" requests from the main-process context
+  // menu. Each WebViewer filters by targetId so only the matching
+  // instance reacts. We ask main to open DevTools (idempotent — it
+  // focuses if already open) then call inspectAt to highlight the
+  // clicked node in the Elements panel.
+  useEffect(() => {
+    const off = window.api.onWebviewInspectRequest(async ({ targetId, x, y }) => {
+      if (targetId !== mainContentsIdRef.current) return;
+      // Open (or focus) DevTools first so inspectElement has somewhere
+      // to land — the hostId arg is unused now that DevTools detaches.
+      await window.api.openWebviewDevTools(targetId, 0);
+      setDevtoolsOpen(true);
+      window.api.webviewInspectAt(targetId, x, y);
+    });
+    return off;
   }, []);
 
   const submit = () => {
     const target = normalizeUrl(address);
     setAddress(target);
     if (webviewRef.current) webviewRef.current.src = target;
+  };
+
+  const toggleDevTools = async () => {
+    const id = mainContentsIdRef.current;
+    if (id == null) return;
+    if (devtoolsOpen) {
+      try { await window.api.closeWebviewDevTools(id); } catch { /* ignore */ }
+      setDevtoolsOpen(false);
+    } else {
+      try { await window.api.openWebviewDevTools(id, 0); } catch { /* ignore */ }
+      setDevtoolsOpen(true);
+    }
   };
 
   return (
@@ -180,19 +228,25 @@ export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, on
           spellCheck={false}
           placeholder="Search or enter a URL"
         />
+        <button
+          className={`web-viewer-btn${devtoolsOpen ? ' is-active' : ''}`}
+          onClick={toggleDevTools}
+          title={devtoolsOpen ? 'Close DevTools' : 'Open DevTools'}
+        >
+          {/* Wrench / inspector glyph — close enough to the standard
+              DevTools icon without dragging in another icon file. */}
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="2 4 5 7 2 10" />
+            <line x1="7" y1="11" x2="14" y2="11" />
+          </svg>
+        </button>
       </div>
       <webview
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ref={webviewRef as unknown as React.Ref<any>}
         src={committedUrl}
         className="web-viewer-frame"
-        // Persistent per-view partition: cookies, localStorage and
-        // service-worker caches survive between Vyb sessions, and are
-        // isolated per profile/parallel-agent so logins don't leak across
-        // workspaces.
         partition={webPartition(instanceKey)}
-        // `allowpopups` lets Cmd-click and target=_blank open within the
-        // webview instead of being silently swallowed.
         // @ts-expect-error - webview attribute typing in React
         allowpopups="true"
       />
