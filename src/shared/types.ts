@@ -152,7 +152,15 @@ export interface AppSettings {
     kanban?: boolean;
     web?: boolean;
     split?: boolean;
+    /** FileExplorer's "show only git-changed files" toggle, per profile. */
+    showChanged?: boolean;
   }>;
+  /** Per-profile snapshot of the FileExplorer's open file tabs. Paths
+   * are absolute. `activePath` is the tab that should be focused on
+   * restore (must appear in `paths`). Same per-viewKey shape as
+   * openFunctionTabs; parallel-agent keys (containing '|') are not
+   * persisted. */
+  fileExplorerTabs?: Record<string, { paths: string[]; activePath?: string }>;
 }
 
 export interface AgentConfig {
@@ -261,6 +269,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   webDefaultUrl: 'https://duckduckgo.com/',
   webUrls: {},
   openFunctionTabs: {},
+  fileExplorerTabs: {},
 };
 
 /** Resolve the command and args for a profile, looking up the agent config if set */

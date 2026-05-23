@@ -329,6 +329,18 @@ export function App() {
   // via `settings.openFunctionTabs` — parallel-agent keys are
   // session-bound and excluded from the persisted snapshot.
   const [splitViews, setSplitViews] = useState<Set<string>>(new Set());
+  // Per-view-key: when true, the FileExplorer's "show only git-changed
+  // files" toggle is on. Lifted from FileExplorer so each profile (and
+  // each parallel agent view) remembers the state and so we can persist
+  // it under settings.openFunctionTabs[key].showChanged alongside the
+  // rest of the pane state.
+  const [showChangedFilesViews, setShowChangedFilesViews] = useState<Set<string>>(new Set());
+  // Per-view-key snapshot of FileExplorer's open file tabs (absolute
+  // paths + currently active path). Lifted out of FileExplorer so each
+  // profile remembers its tabs across restarts via
+  // `settings.fileExplorerTabs`. Parallel-agent keys are excluded from
+  // persistence — see the parent comment on splitViews.
+  const [fileExplorerTabs, setFileExplorerTabs] = useState<Record<string, { paths: string[]; activePath?: string }>>({});
   const [agentSplitPercent, setAgentSplitPercent] = useState(50);
   // Parallel agents (Kanban-spawned worktree agents). Keyed by parallel agent id.
   const [parallelAgents, setParallelAgents] = useState<Map<string, ParallelAgent>>(new Map());
@@ -639,11 +651,13 @@ export function App() {
         const kanban = new Set<string>();
         const web = new Set<string>();
         const split = new Set<string>();
+        const showChanged = new Set<string>();
         for (const [key, state] of Object.entries(remembered)) {
           if (state?.files) files.add(key);
           if (state?.kanban) kanban.add(key);
           if (state?.web) web.add(key);
           if (state?.split) split.add(key);
+          if (state?.showChanged) showChanged.add(key);
         }
         if (files.size > 0) {
           setFilesViews(files);
@@ -658,6 +672,14 @@ export function App() {
           setWebRunning(new Set(web));
         }
         if (split.size > 0) setSplitViews(split);
+        if (showChanged.size > 0) setShowChangedFilesViews(showChanged);
+      }
+
+      // Open file-explorer tabs are persisted separately because the
+      // payload is larger than the boolean flags in openFunctionTabs.
+      // Parallel-agent keys are already filtered out at write time.
+      if (loaded.fileExplorerTabs && Object.keys(loaded.fileExplorerTabs).length > 0) {
+        setFileExplorerTabs(loaded.fileExplorerTabs);
       }
     });
 
@@ -1459,8 +1481,8 @@ export function App() {
   // burst of toggles only writes once.
   useEffect(() => {
     const profileIds = new Set(profiles.map((p) => p.id));
-    const acc: Record<string, { files?: boolean; kanban?: boolean; web?: boolean; split?: boolean }> = {};
-    const collect = (set: Set<string>, key: 'files' | 'kanban' | 'web' | 'split') => {
+    const acc: Record<string, { files?: boolean; kanban?: boolean; web?: boolean; split?: boolean; showChanged?: boolean }> = {};
+    const collect = (set: Set<string>, key: 'files' | 'kanban' | 'web' | 'split' | 'showChanged') => {
       for (const k of set) {
         // Parallel-agent view keys contain '|' — skip them so we
         // don't persist state for views that don't exist on next
@@ -1475,10 +1497,28 @@ export function App() {
     collect(kanbanViews, 'kanban');
     collect(webViews, 'web');
     collect(splitViews, 'split');
+    collect(showChangedFilesViews, 'showChanged');
     const current = settingsRef.current.openFunctionTabs || {};
     if (JSON.stringify(current) === JSON.stringify(acc)) return;
     savePaneSizes({ openFunctionTabs: acc });
-  }, [filesViews, kanbanViews, webViews, splitViews, profiles, savePaneSizes]);
+  }, [filesViews, kanbanViews, webViews, splitViews, showChangedFilesViews, profiles, savePaneSizes]);
+
+  // Persist the FileExplorer open-tab snapshot. Separate effect because
+  // the payload (arrays of absolute paths) is larger than the booleans
+  // tracked above and shouldn't pollute that change-detection diff.
+  useEffect(() => {
+    const profileIds = new Set(profiles.map((p) => p.id));
+    const acc: Record<string, { paths: string[]; activePath?: string }> = {};
+    for (const [k, v] of Object.entries(fileExplorerTabs)) {
+      if (k.includes('|')) continue;
+      if (!profileIds.has(k)) continue;
+      if (!v || !v.paths || v.paths.length === 0) continue;
+      acc[k] = v.activePath ? { paths: v.paths, activePath: v.activePath } : { paths: v.paths };
+    }
+    const current = settingsRef.current.fileExplorerTabs || {};
+    if (JSON.stringify(current) === JSON.stringify(acc)) return;
+    savePaneSizes({ fileExplorerTabs: acc });
+  }, [fileExplorerTabs, profiles, savePaneSizes]);
 
   /** Persist a Web tab's current URL back to settings.webUrls so it
    * survives a Vyb restart. Debounced via savePaneSizes. */
@@ -2025,6 +2065,33 @@ export function App() {
                   formatOnSave={settings.formatOnSave === true}
                   stickyScroll={settings.editorStickyScroll !== false}
                   showHiddenFiles={settings.showHiddenFiles !== false}
+                  showChangedOnly={showChangedFilesViews.has(key)}
+                  onShowChangedOnlyChange={(next) => {
+                    setShowChangedFilesViews((prev) => {
+                      const cur = prev.has(key);
+                      if (cur === next) return prev;
+                      const out = new Set(prev);
+                      if (next) out.add(key); else out.delete(key);
+                      return out;
+                    });
+                  }}
+                  initialTabs={fileExplorerTabs[key]}
+                  onTabsChange={(paths, activePath) => {
+                    setFileExplorerTabs((prev) => {
+                      const next: { paths: string[]; activePath?: string } | undefined =
+                        paths.length === 0
+                          ? undefined
+                          : activePath
+                            ? { paths, activePath }
+                            : { paths };
+                      const cur = prev[key];
+                      if (JSON.stringify(cur) === JSON.stringify(next)) return prev;
+                      const out = { ...prev };
+                      if (next === undefined) delete out[key];
+                      else out[key] = next;
+                      return out;
+                    });
+                  }}
                   onAdjustEditorFontSize={adjustEditorFontSize}
                 />
               );

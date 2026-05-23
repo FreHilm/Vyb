@@ -3578,6 +3578,14 @@ select option {
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+  /* Establish a low-z stacking context so CodeMirror's wide search
+     panel (and any other internal overlay it spawns) stays behind the
+     `.git-changes-panel` overlay, which is `position: absolute;
+     z-index: 50` and sits on the right edge. Without this, the editor
+     panel and the search bar render in the same flat layer as the git
+     panel, and the find bar paints over the git panel content. */
+  position: relative;
+  z-index: 1;
 }
 
 /* File tab bar */
@@ -4366,12 +4374,24 @@ select option {
    changed lines green and render removed lines as a red block widget.
    `mergeControls: false` already hid the accept/reject icons in the
    gutter so we don't need to suppress them here. */
-.cm-editor .cm-changedLine,
-.cm-editor .cm-deletedChunk {
-  background-color: color-mix(in srgb, var(--c-green) 14%, transparent) !important;
+/* Soft per-line tint for changed/added lines. Kept low so the
+   underlying syntax-highlighted text stays readable — earlier 14% was
+   bright enough to wash out oneDark's keyword colors against the
+   light Catppuccin green. */
+.cm-editor .cm-changedLine {
+  background-color: color-mix(in srgb, var(--c-green) 8%, transparent) !important;
 }
+/* Per-word "inside the changed line" highlight. Slightly brighter than
+   the line background so the actual edits stand out, but well below
+   the previous 30% which made the text borderline unreadable. The
+   default merge theme also paints a thick green underline under each
+   token via `text-decoration` — we override it to a faint dotted line
+   so the change is hinted at without overpowering the syntax colors. */
 .cm-editor .cm-changedText {
-  background-color: color-mix(in srgb, var(--c-green) 30%, transparent) !important;
+  background-color: color-mix(in srgb, var(--c-green) 12%, transparent) !important;
+  text-decoration: none !important;
+  border-bottom: 1px dotted color-mix(in srgb, var(--c-green) 55%, transparent) !important;
+  background-image: none !important;
 }
 .cm-editor .cm-deletedChunk {
   background-color: color-mix(in srgb, var(--c-red) 16%, transparent) !important;

@@ -48,6 +48,19 @@ interface FileExplorerProps {
   /** Show dotfiles in the file tree. Filter happens renderer-side
    * so toggling is live — no IPC round-trip, no tree reload. */
   showHiddenFiles?: boolean;
+  /** Controlled "show only git-changed files" toggle — owned by App.tsx
+   * so the value can be persisted per-profile alongside the rest of the
+   * pane state (`settings.openFunctionTabs[key].showChanged`). */
+  showChangedOnly?: boolean;
+  onShowChangedOnlyChange?: (next: boolean) => void;
+  /** Tabs to restore on first mount. Consumed once — subsequent prop
+   * changes don't re-open files. Use the `onTabsChange` callback to keep
+   * the persisted snapshot in sync. */
+  initialTabs?: { paths: string[]; activePath?: string };
+  /** Fires whenever the open-tab list or active tab changes. App.tsx
+   * persists the result to `settings.fileExplorerTabs[key]` so the same
+   * tabs come back on next launch. */
+  onTabsChange?: (paths: string[], activePath: string | null) => void;
   /** T-047: callback for Cmd+= / Cmd+- / Cmd+0. `delta === 0` is
    * the reset path; otherwise the value gets added to the current
    * setting and clamped to [8, 32] by the caller. */
@@ -558,6 +571,10 @@ export function FileExplorer({
   formatOnSave = false,
   stickyScroll: stickyScrollEnabled = true,
   showHiddenFiles = true,
+  showChangedOnly: showChangedOnlyProp,
+  onShowChangedOnlyChange,
+  initialTabs,
+  onTabsChange,
   onAdjustEditorFontSize,
 }: FileExplorerProps) {
   const [rootEntries, setRootEntries] = useState<FileEntry[]>([]);
@@ -617,7 +634,18 @@ export function FileExplorer({
   // for "show me what changed" reviews without leaving the editor.
   // Off by default; not persisted across restarts — it's a
   // session-local view.
-  const [showChangedOnly, setShowChangedOnly] = useState(false);
+  // Controlled/uncontrolled hybrid: if the parent passes
+  // `showChangedOnly` we treat it as the source of truth (App.tsx
+  // persists per-profile to settings.openFunctionTabs[key].showChanged);
+  // otherwise we fall back to local state so the explorer still
+  // works standalone.
+  const [showChangedOnlyInternal, setShowChangedOnlyInternal] = useState(false);
+  const showChangedOnly = showChangedOnlyProp ?? showChangedOnlyInternal;
+  const setShowChangedOnly = useCallback((updater: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof updater === 'function' ? updater(showChangedOnly) : updater;
+    if (onShowChangedOnlyChange) onShowChangedOnlyChange(next);
+    if (showChangedOnlyProp === undefined) setShowChangedOnlyInternal(next);
+  }, [showChangedOnly, showChangedOnlyProp, onShowChangedOnlyChange]);
   // Mirrored so `mountEditor` (which closes over a stable deps array)
   // sees the current toggle without needing to be rebuilt.
   const showChangedOnlyRef = useRef(false);
@@ -1532,6 +1560,43 @@ export function FileExplorer({
     setRevealRequest({ path: pendingOpenPath.path, nonce: pendingOpenPath.nonce });
     onPendingOpenHandled?.();
   }, [hidden, pendingOpenPath, openInTab, onPendingOpenHandled]);
+
+  // Restore tabs once on first mount. We capture the prop into a ref
+  // up front so later parent re-renders (which can keep handing us
+  // fresh-but-equal objects) don't re-trigger the restore.
+  const initialTabsRef = useRef(initialTabs);
+  const restoredTabsRef = useRef(false);
+  useEffect(() => {
+    if (restoredTabsRef.current) return;
+    const initial = initialTabsRef.current;
+    if (!initial || !initial.paths || initial.paths.length === 0) return;
+    restoredTabsRef.current = true;
+    const restored: FileTab[] = initial.paths.map((p) => ({ path: p, name: fileName(p) }));
+    setTabs(restored);
+    const target = initial.activePath && initial.paths.includes(initial.activePath)
+      ? initial.activePath
+      : initial.paths[0];
+    // Defer one frame so the editor's host div is in the DOM before
+    // mountEditor tries to attach. Without this, the very first
+    // restored buffer would be skipped (mountEditor early-returns when
+    // `editorRef.current` is still null).
+    requestAnimationFrame(() => { mountEditor(target); });
+  }, [mountEditor]);
+
+  // Emit the open-tab list whenever it changes so App.tsx can persist
+  // it. Fires on activeTabPath flips too, so the next launch can land
+  // on the same active file. Skip the restore-driven initial fire so
+  // the persisted snapshot doesn't get nuked-then-rewritten on every
+  // app launch.
+  const lastEmittedTabsRef = useRef<string>('');
+  useEffect(() => {
+    if (!onTabsChange) return;
+    const paths = tabs.map((t) => t.path);
+    const key = JSON.stringify({ paths, activePath: activeTabPath ?? null });
+    if (key === lastEmittedTabsRef.current) return;
+    lastEmittedTabsRef.current = key;
+    onTabsChange(paths, activeTabPath);
+  }, [tabs, activeTabPath, onTabsChange]);
 
   const closeTab = useCallback((filePath: string) => {
     if (modifiedSet.has(filePath)) {
