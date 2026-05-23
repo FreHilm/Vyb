@@ -287,6 +287,7 @@ function FileTreeNode({
   onDragEndItem,
   gitDecorations,
   showHiddenFiles,
+  changedPathsFilter,
 }: {
   entry: FileEntry;
   depth: number;
@@ -305,6 +306,9 @@ function FileTreeNode({
   onDragEndItem: () => void;
   gitDecorations: Map<string, string>;
   showHiddenFiles: boolean;
+  /** When non-null, only paths in this Set are rendered. Drives the
+   * "show only git-changed files" filter in the toolbar. */
+  changedPathsFilter: Set<string> | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileEntry[]>([]);
@@ -321,6 +325,16 @@ function FileTreeNode({
       loadChildren();
     }
   }, [refreshKey, expanded, entry.isDirectory, loadChildren]);
+
+  // Auto-expand directories when the "show changed only" filter is
+  // active so every visible folder is fanned out — otherwise the
+  // user would still have to click each one to see its content,
+  // which defeats the point of the view.
+  useEffect(() => {
+    if (changedPathsFilter && entry.isDirectory && changedPathsFilter.has(entry.path)) {
+      setExpanded(true);
+    }
+  }, [changedPathsFilter, entry.isDirectory, entry.path]);
 
   // External reveal request — expand ancestor directories on the path to
   // the target, and scroll the matching leaf row into view. Nonce-gated so
@@ -363,6 +377,14 @@ function FileTreeNode({
     e.preventDefault();
     onContextMenu(e, entry);
   };
+
+  // Skip this row entirely when the filter is on and we're not on
+  // the changed-path set. Kept here (after all hooks) so the hook
+  // call order stays stable across renders — moving this earlier
+  // crashes React with a rules-of-hooks violation.
+  if (changedPathsFilter && !changedPathsFilter.has(entry.path)) {
+    return null;
+  }
 
   const isSelected = entry.path === selectedPath;
   const isRenaming = entry.path === renamingPath;
@@ -438,6 +460,7 @@ function FileTreeNode({
             onDragEndItem={onDragEndItem}
             gitDecorations={gitDecorations}
             showHiddenFiles={showHiddenFiles}
+            changedPathsFilter={changedPathsFilter}
           />
         ))}
     </>
@@ -507,6 +530,13 @@ export function FileExplorer({
   // to short status code (M/A/D/?/R). Refreshed periodically and
   // whenever the user invokes a tree refresh.
   const [gitDecorations, setGitDecorations] = useState<Map<string, string>>(new Map());
+  // When true, the file tree filters to only files that appear in
+  // gitDecorations (modified / added / deleted / untracked /
+  // renamed) plus the folder chain needed to reach them. Useful
+  // for "show me what changed" reviews without leaving the editor.
+  // Off by default; not persisted across restarts — it's a
+  // session-local view.
+  const [showChangedOnly, setShowChangedOnly] = useState(false);
   // T-026: when set, render the FileHistoryView overlay for this path.
   // Cleared by the overlay's close button or Esc keypress.
   const [historyFile, setHistoryFile] = useState<{ path: string; name: string; initialSha?: string }| null>(null);
@@ -1520,6 +1550,34 @@ export function FileExplorer({
     mountEditor(activeTabPath);
   }, [activeTabPath, workingDirectory, mountEditor]);
 
+  // Derived set of paths that should remain visible when
+  // `showChangedOnly` is on: every changed file from gitDecorations
+  // plus every ancestor folder up to workingDirectory. Folders that
+  // contain no changes (and aren't on the path to any change) get
+  // filtered out by FileTreeNode. Returns `null` when the filter is
+  // off — FileTreeNode treats null as "show everything".
+  const changedPathsFilter = useMemo<Set<string> | null>(() => {
+    if (!showChangedOnly) return null;
+    const base = workingDirectory.replace(/\/+$/, '');
+    const set = new Set<string>();
+    for (const p of gitDecorations.keys()) {
+      set.add(p);
+      // Walk up the path, adding each ancestor folder until we hit
+      // the working directory root. Without this, the tree filter
+      // would hide the parent dirs and the file would be unreachable.
+      let cursor = p;
+      while (true) {
+        const idx = cursor.lastIndexOf('/');
+        if (idx <= 0) break;
+        cursor = cursor.slice(0, idx);
+        if (cursor === base) break;
+        if (set.has(cursor)) break;
+        set.add(cursor);
+      }
+    }
+    return set;
+  }, [showChangedOnly, gitDecorations, workingDirectory]);
+
   // T-026: open the file-history overlay for the right-clicked entry.
   // Only wired for files (not directories) via the ContextMenu prop.
   const handleShowHistory = useCallback(() => {
@@ -2039,8 +2097,19 @@ export function FileExplorer({
       <ResizeHandle direction="horizontal" onResize={handleTreeResize} />
       <div className="file-tree-pane" style={{ width: treeWidth }}>
         <div className="file-tree-header">
-          <span>Files</span>
+          <span>Files{showChangedOnly && gitDecorations.size > 0 ? ` · ${gitDecorations.size} changed` : ''}</span>
           <div className="file-tree-actions">
+            <button
+              className={`file-tree-action-btn${showChangedOnly ? ' is-active' : ''}`}
+              onClick={() => setShowChangedOnly((v) => !v)}
+              title={showChangedOnly ? 'Show all files' : 'Show only files changed in git'}
+            >
+              {/* Diff / git glyph — two diagonal slashes through a doc */}
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 2h7l3 3v9H3z" />
+                <path d="M5 7h6M5 10h4" />
+              </svg>
+            </button>
             <button
               className="file-tree-action-btn"
               onClick={() => setCreating({ type: 'file', dir: workingDirectory })}
@@ -2102,6 +2171,11 @@ export function FileExplorer({
               />
             </div>
           )}
+          {showChangedOnly && gitDecorations.size === 0 && (
+            <div className="file-tree-empty">
+              No git changes in this working tree.
+            </div>
+          )}
           {rootEntries
             .filter((entry) => showHiddenFiles || !entry.name.startsWith('.'))
             .map((entry) => (
@@ -2124,6 +2198,7 @@ export function FileExplorer({
               onDragEndItem={handleDragEndItem}
               gitDecorations={gitDecorations}
               showHiddenFiles={showHiddenFiles}
+              changedPathsFilter={changedPathsFilter}
             />
           ))}
         </div>

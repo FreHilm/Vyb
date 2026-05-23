@@ -4346,6 +4346,17 @@ select option {
   color: var(--c-blue);
 }
 
+/* Shown inside .file-tree-list when the "show changed only" filter is
+   on but the working tree has no modifications — keeps the pane from
+   looking broken/empty. */
+.file-tree-empty {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: var(--c-subtext0);
+  text-align: center;
+  font-style: italic;
+}
+
 /* DnD: highlight a tree row that's a valid drop target. */
 .file-tree-drop-target {
   background: color-mix(in srgb, var(--c-blue) 22%, transparent) !important;
