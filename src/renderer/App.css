@@ -68,13 +68,18 @@
 .app-sidebar-compact .flame-indicator {
   display: none !important;
 }
+/* Drop the whole header strip in compact mode. Its only contents
+   (title + action buttons) are already display:none above, but the
+   bar itself still claimed 32 px of background-tinted space at the
+   top of the sidebar. Removing it collapses that empty band. */
 .app-sidebar-compact .sidebar-header {
-  padding: 0;
-  justify-content: center;
+  display: none;
 }
-.app-sidebar-compact .sidebar-header-actions {
-  width: 100%;
-  justify-content: center;
+/* The first folder-header would otherwise render as an orphaned
+   1 px line right at the top of the (now-headerless) sidebar.
+   `:first-child` inside the sidebar list catches it. */
+.app-sidebar-compact .sidebar-folder:first-child > .sidebar-folder-header {
+  display: none;
 }
 /* Folder header in compact mode becomes a thin horizontal divider —
    still clickable to expand/collapse the folder, no chip/count/name. */

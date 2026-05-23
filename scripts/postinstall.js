@@ -28,6 +28,32 @@ function patchElectronAppForDev() {
   try {
     execSync(`/usr/libexec/PlistBuddy -c 'Set :CFBundleName Vyb' '${plist}'`);
     execSync(`/usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Vyb' '${plist}'`);
+    // TCC (macOS privacy) usage strings. Vyb runs `git status` and
+    // friends from inside the user's project — which on most setups
+    // lives under ~/Documents, ~/Desktop, or ~/Downloads. macOS now
+    // gates folder access per-app and shows a permission prompt the
+    // first time we read from those paths. Declaring the usage
+    // descriptions here lets macOS show a sensible reason in the
+    // prompt + lets a granted permission stick to this bundle.
+    // `:Add` fails if the key already exists, so each one is in its
+    // own try-block.
+    const usage = [
+      ['NSDocumentsFolderUsageDescription', 'Vyb reads files from your project directory to provide git status, file tree, and editor functionality.'],
+      ['NSDesktopFolderUsageDescription', 'Vyb reads files from your project directory to provide git status, file tree, and editor functionality.'],
+      ['NSDownloadsFolderUsageDescription', 'Vyb reads files from your project directory to provide git status, file tree, and editor functionality.'],
+      ['NSRemovableVolumesUsageDescription', 'Vyb reads files from your project directory when it lives on an external volume.'],
+      ['NSNetworkVolumesUsageDescription', 'Vyb reads files from your project directory when it lives on a network share.'],
+    ];
+    for (const [key, value] of usage) {
+      try {
+        execSync(`/usr/libexec/PlistBuddy -c 'Add :${key} string ${JSON.stringify(value)}' '${plist}'`);
+      } catch {
+        // Key exists — overwrite via Set.
+        try {
+          execSync(`/usr/libexec/PlistBuddy -c 'Set :${key} ${JSON.stringify(value)}' '${plist}'`);
+        } catch { /* best-effort */ }
+      }
+    }
   } catch {
     // non-macOS or non-PlistBuddy environment — fine
   }

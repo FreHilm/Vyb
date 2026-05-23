@@ -43,6 +43,21 @@ const config: ForgeConfig = {
     // can't live inside the main asar without colliding with the app's
     // React 19. Resolved at runtime via process.resourcesPath.
     extraResource: ['./vendor'],
+    // macOS TCC (privacy) usage strings. macOS gates folder access
+    // per-app; the first time `git status` (or any file read) hits
+    // ~/Documents, ~/Desktop, ~/Downloads, the OS prompts. Without
+    // these strings the prompt shows generic text and the grant
+    // doesn't always stick. With them macOS knows we have a
+    // legitimate reason and the user's choice persists for the
+    // signed bundle. Mirror in scripts/postinstall.js so dev mode
+    // gets the same treatment.
+    extendInfo: {
+      NSDocumentsFolderUsageDescription: 'Vyb reads files from your project directory to provide git status, file tree, and editor functionality.',
+      NSDesktopFolderUsageDescription: 'Vyb reads files from your project directory to provide git status, file tree, and editor functionality.',
+      NSDownloadsFolderUsageDescription: 'Vyb reads files from your project directory to provide git status, file tree, and editor functionality.',
+      NSRemovableVolumesUsageDescription: 'Vyb reads files from your project directory when it lives on an external volume.',
+      NSNetworkVolumesUsageDescription: 'Vyb reads files from your project directory when it lives on a network share.',
+    },
   },
   rebuildConfig: {},
   makers: [
