@@ -14,6 +14,19 @@ export function ResizeHandle({ direction, onResize }: ResizeHandleProps) {
       startPos.current =
         direction === 'horizontal' ? e.clientX : e.clientY;
 
+      // Transparent fullscreen overlay sits above `<webview>` for the
+      // duration of the drag. Without it, mouse events get captured
+      // by the webview's own renderer process as soon as the cursor
+      // crosses into web content — the host window's mousemove
+      // listener stops firing and the resize stalls until the cursor
+      // re-enters host-rendered DOM. The overlay intercepts those
+      // events first so they bubble up to our handler normally.
+      const cursor = direction === 'horizontal' ? 'col-resize' : 'row-resize';
+      const overlay = document.createElement('div');
+      overlay.setAttribute('data-resize-overlay', '');
+      overlay.style.cssText = `position:fixed;inset:0;z-index:99999;cursor:${cursor};background:transparent;`;
+      document.body.appendChild(overlay);
+
       const handleMouseMove = (ev: MouseEvent) => {
         const current =
           direction === 'horizontal' ? ev.clientX : ev.clientY;
@@ -27,10 +40,10 @@ export function ResizeHandle({ direction, onResize }: ResizeHandleProps) {
         window.removeEventListener('mouseup', handleMouseUp);
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
+        overlay.remove();
       };
 
-      document.body.style.cursor =
-        direction === 'horizontal' ? 'col-resize' : 'row-resize';
+      document.body.style.cursor = cursor;
       document.body.style.userSelect = 'none';
 
       window.addEventListener('mousemove', handleMouseMove);

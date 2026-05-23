@@ -5,7 +5,7 @@ import rehypeRaw from 'rehype-raw';
 import { EditorView, keymap } from '@codemirror/view';
 import { EditorState, EditorSelection, type Extension } from '@codemirror/state';
 import { undo, redo } from '@codemirror/commands';
-import { openSearchPanel } from '@codemirror/search';
+import { openSearchPanel, findNext } from '@codemirror/search';
 import { javascript } from '@codemirror/lang-javascript';
 import { json } from '@codemirror/lang-json';
 import { css } from '@codemirror/lang-css';
@@ -705,6 +705,55 @@ export function FileExplorer({
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [hidden, revealActiveInTree]);
+
+  // Live "as-you-type" search in the CodeMirror Find / Find&Replace
+  // panel. CodeMirror's default behavior only highlights matches —
+  // you still have to press Enter to jump the selection to one.
+  // Listen for input events on the search panel's input and call
+  // `findNext` so the editor cursor lands on the first match
+  // immediately. Skip when the query is empty (don't snap selection
+  // away from where the user was). Debounced so a fast typer
+  // doesn't trigger findNext on every keystroke; the highlight
+  // update from CodeMirror's own listener still happens live.
+  useEffect(() => {
+    if (hidden) return;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const handler = (e: Event) => {
+      const target = e.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      if (target.name !== 'search') return; // CodeMirror's search field
+      if (!target.closest('.cm-search')) return;
+      // Only act for THIS FileExplorer's editor — other CodeMirror
+      // instances on the page (ReadmeViewer's edit mode, the
+      // FileHistoryView's diff renderer, etc.) have their own state.
+      const editorDom = target.closest('.cm-editor');
+      const view = viewRef.current;
+      if (!view || !editorDom || view.dom !== editorDom) return;
+      const input = target;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (!input.isConnected) return;
+        const value = input.value;
+        if (!value) return; // empty query = no-op
+        findNext(view);
+        // findNext steals focus and triggers the search panel's
+        // own selection-change handler, which calls .select() on
+        // the input — selecting the full query text. Without
+        // restoring focus + cursor, the user's next keystroke
+        // overwrites everything they've typed so far. Put focus
+        // back on the input with the cursor at the end so typing
+        // appends.
+        input.focus();
+        const end = value.length;
+        try { input.setSelectionRange(end, end); } catch { /* ignore */ }
+      }, 80);
+    };
+    document.addEventListener('input', handler, true);
+    return () => {
+      document.removeEventListener('input', handler, true);
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
+  }, [hidden]);
 
   // happens on every event; open-tab content gets the silent-reload /
   // conflict-banner treatment via handleExternalFileChange.

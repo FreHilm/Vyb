@@ -405,9 +405,14 @@ export function App() {
       // and any DOM inside `.xterm` belongs to it.
       if (el.classList.contains('xterm-helper-textarea')) return false;
       if (el.closest('.xterm')) return false;
-      // Skip CodeMirror (contentEditable). CodeMirror has its own keymap that
-      // owns Cmd+C/V/X — we must NOT preventDefault on it.
-      if (el.closest('.cm-editor')) return false;
+      // Skip CodeMirror's editor surface (contentEditable). CodeMirror
+      // has its own keymap that owns Cmd+C/V/X for the editor body —
+      // we must NOT preventDefault on it. EXCEPTION: the search /
+      // replace panel `.cm-panel` mounts inside `.cm-editor` and
+      // contains plain `<input>` elements that CM does NOT have any
+      // keymap for. Without this carve-out, Cmd+C/V/X in the Find /
+      // Find&Replace input fields silently no-op.
+      if (el.closest('.cm-editor') && !el.closest('.cm-panel')) return false;
       // Skip Excalidraw — it routes clipboard through native 'copy' /
       // 'paste' / 'cut' DOM events on its hidden helper textarea, not
       // through the input/textarea value path. The dedicated Excalidraw
