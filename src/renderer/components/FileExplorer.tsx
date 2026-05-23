@@ -2238,10 +2238,10 @@ export function FileExplorer({
       <ResizeHandle direction="horizontal" onResize={handleTreeResize} />
       <div className="file-tree-pane" style={{ width: treeWidth }}>
         <div className="file-tree-header">
-          <span>Files{showChangedOnly && gitDecorations.size > 0 ? ` · ${gitDecorations.size} changed` : ''}</span>
-          <div className="file-tree-actions">
+          <div className="file-tree-title">
+            <span>Files</span>
             <button
-              className={`file-tree-action-btn${showChangedOnly ? ' is-active' : ''}`}
+              className={`file-tree-action-btn file-tree-title-toggle${showChangedOnly ? ' is-active' : ''}`}
               onClick={() => setShowChangedOnly((v) => !v)}
               title={showChangedOnly ? 'Show all files' : 'Show only files changed in git'}
             >
@@ -2251,6 +2251,8 @@ export function FileExplorer({
                 <path d="M5 7h6M5 10h4" />
               </svg>
             </button>
+          </div>
+          <div className="file-tree-actions">
             <button
               className="file-tree-action-btn"
               onClick={() => setCreating({ type: 'file', dir: workingDirectory })}

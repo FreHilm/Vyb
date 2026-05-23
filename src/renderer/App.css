@@ -4339,6 +4339,20 @@ select option {
 }
 .readme-edit-host .cm-editor { height: 100%; }
 
+/* "FILES" label + adjacent diff-toggle button. Mounted on the left side
+   of the header (alongside the right-side new-file actions cluster). */
+.file-tree-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+/* The diff toggle when rendered inline next to the title is smaller and
+   sits lower-key than the right-side action buttons — slightly less
+   padding so it nests visually against the label. */
+.file-tree-title-toggle {
+  padding: 1px 3px !important;
+}
+
 /* When the toggle is in edit mode, dim the icon-button background to
    show it's the active state. */
 .file-tree-action-btn.is-active {
