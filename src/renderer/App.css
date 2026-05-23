@@ -4377,6 +4377,40 @@ select option {
   display: none !important;
 }
 
+/* Scrollbar minimap-style change track. Sits on the editor's right
+   edge while the unified diff view is active. Each marker is
+   absolutely positioned by line-ratio; clicking jumps to that line. */
+.cm-editor .cm-change-markers {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  width: 6px;
+  height: 100%;
+  pointer-events: none;
+  z-index: 4;
+}
+.cm-editor .cm-change-marker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  min-height: 3px;
+  border-radius: 2px;
+  pointer-events: auto;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.cm-editor .cm-change-marker:hover {
+  opacity: 1;
+  transform: scaleX(1.4);
+  transform-origin: right center;
+}
+.cm-editor .cm-change-marker-add {
+  background: var(--c-green);
+}
+.cm-editor .cm-change-marker-del {
+  background: var(--c-red);
+}
+
 /* Shown inside .file-tree-list when the "show changed only" filter is
    on but the working tree has no modifications — keeps the pane from
    looking broken/empty. */

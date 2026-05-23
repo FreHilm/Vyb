@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { EditorView, keymap } from '@codemirror/view';
+import { EditorView, ViewPlugin, type ViewUpdate, keymap } from '@codemirror/view';
 import { EditorState, EditorSelection, type Extension } from '@codemirror/state';
 import { undo, redo } from '@codemirror/commands';
 import { openSearchPanel, findNext } from '@codemirror/search';
@@ -14,7 +14,7 @@ import { python } from '@codemirror/lang-python';
 import { markdown } from '@codemirror/lang-markdown';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { basicSetup } from 'codemirror';
-import { unifiedMergeView } from '@codemirror/merge';
+import { unifiedMergeView, getChunks } from '@codemirror/merge';
 import { EditMenuAction, FileEntry } from '../../shared/types';
 import { FileIcon } from '../file-icons';
 import { ResizeHandle } from './ResizeHandle';
@@ -116,6 +116,86 @@ function getLanguageExtension(filename: string): Extension {
 function parentDir(filePath: string): string {
   return filePath.replace(/\/[^/]+$/, '');
 }
+
+// Scrollbar change ticks. Renders a fixed track on the editor's right
+// edge with one green tick per added/changed chunk and one red tick per
+// deletion, so the user can spot diffs at a glance and jump to them
+// (clicking a tick scrolls the line into view). The plugin reads the
+// merge state's chunk list via `getChunks` and no-ops outside merge
+// mode — safe to include unconditionally alongside `unifiedMergeView`.
+class ChangeMarkersView {
+  dom: HTMLDivElement;
+  view: EditorView;
+  constructor(view: EditorView) {
+    this.view = view;
+    this.dom = document.createElement('div');
+    this.dom.className = 'cm-change-markers';
+    this.dom.addEventListener('click', this.onClick);
+    view.dom.appendChild(this.dom);
+    this.render();
+  }
+  onClick = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const lineAttr = target?.dataset?.line;
+    if (!lineAttr) return;
+    const line = Number(lineAttr);
+    const doc = this.view.state.doc;
+    if (!Number.isFinite(line) || line < 1 || line > doc.lines) return;
+    const pos = doc.line(line).from;
+    this.view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+    this.view.focus();
+  };
+  update(u: ViewUpdate) {
+    // Chunks only change with doc edits — selection/scroll updates
+    // are noise here. The percentage layout survives viewport resize
+    // unchanged, so no re-render needed for that either.
+    if (u.docChanged) this.render();
+  }
+  render() {
+    const result = getChunks(this.view.state);
+    if (!result || !result.chunks.length) {
+      this.dom.innerHTML = '';
+      return;
+    }
+    const doc = this.view.state.doc;
+    const totalLines = Math.max(1, doc.lines);
+    const out: string[] = [];
+    for (const chunk of result.chunks) {
+      const fromB = Math.min(chunk.fromB, doc.length);
+      const toB = Math.min(chunk.toB, doc.length);
+      const startLine = doc.lineAt(fromB).number;
+      const endLine = doc.lineAt(toB).number;
+      const top = ((startLine - 1) / totalLines) * 100;
+      const heightPct = Math.max(
+        0.4,
+        ((endLine - startLine + 1) / totalLines) * 100,
+      );
+      const hasInsert = chunk.fromB !== chunk.toB;
+      const hasDelete = chunk.fromA !== chunk.toA;
+      if (hasInsert) {
+        out.push(
+          `<div class="cm-change-marker cm-change-marker-add" data-line="${startLine}" style="top:${top}%;height:${heightPct}%"></div>`,
+        );
+      }
+      if (hasDelete) {
+        // Pure deletion has no extent in the current doc → render a
+        // short fixed-height red tick at the deletion's surrounding
+        // line so it's still visible / clickable.
+        const delHeight = hasInsert ? heightPct : 0.6;
+        out.push(
+          `<div class="cm-change-marker cm-change-marker-del" data-line="${startLine}" style="top:${top}%;height:${delHeight}%"></div>`,
+        );
+      }
+    }
+    this.dom.innerHTML = out.join('');
+  }
+  destroy() {
+    this.dom.removeEventListener('click', this.onClick);
+    this.dom.remove();
+  }
+}
+
+const changeMarkersPlugin = ViewPlugin.fromClass(ChangeMarkersView);
 
 function fileName(filePath: string): string {
   return filePath.split('/').pop() || '';
@@ -1155,7 +1235,7 @@ export function FileExplorer({
         // toggle is on *and* we got a baseline back from git — an
         // untracked file with no HEAD entry renders normally.
         ...(showChangedOnlyRef.current && baseline !== null
-          ? [unifiedMergeView({ original: baseline, mergeControls: false })]
+          ? [unifiedMergeView({ original: baseline, mergeControls: false }), changeMarkersPlugin]
           : []),
         // T-027 blame gutter. Only included when blame is toggled on
         // for this path. The empty-array fallback (built into
