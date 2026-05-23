@@ -148,6 +148,7 @@ declare global {
       gitRebaseInteractive: (cwd: string, base: string, todoLines: string[]) => Promise<GitRebaseResult>;
       getGitChangedFiles: (cwd: string) => Promise<{ path: string; added: number; deleted: number; status: string; staged: boolean }[]>;
       getGitFileDiff: (cwd: string, filePath: string, staged?: boolean) => Promise<string>;
+      getGitFileAtHead: (cwd: string, filePath: string) => Promise<string | null>;
       getGitLog: (cwd: string, limit: number) => Promise<GitCommit[]>;
       getGitRefs: (cwd: string) => Promise<GitRef[]>;
       gitCheckoutCommit: (cwd: string, sha: string) => Promise<GitCheckoutResult>;

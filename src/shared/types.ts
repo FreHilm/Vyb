@@ -329,6 +329,10 @@ export const IPC_CHANNELS = {
   GIT_FETCH: 'git:fetch',
   GIT_CHANGED_FILES: 'git:changedFiles',
   GIT_FILE_DIFF: 'git:fileDiff',
+  /** Returns the contents of `filePath` at HEAD as a string, or null if
+   * the file isn't tracked at HEAD. Used to drive the unified inline
+   * diff view in the file editor. */
+  GIT_FILE_AT_HEAD: 'git:fileAtHead',
   GIT_LOG: 'git:log',
   GIT_LIST_REFS: 'git:listRefs',
   GIT_CHECKOUT_COMMIT: 'git:checkoutCommit',

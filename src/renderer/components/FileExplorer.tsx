@@ -14,6 +14,7 @@ import { python } from '@codemirror/lang-python';
 import { markdown } from '@codemirror/lang-markdown';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { basicSetup } from 'codemirror';
+import { unifiedMergeView } from '@codemirror/merge';
 import { EditMenuAction, FileEntry } from '../../shared/types';
 import { FileIcon } from '../file-icons';
 import { ResizeHandle } from './ResizeHandle';
@@ -537,6 +538,16 @@ export function FileExplorer({
   // Off by default; not persisted across restarts — it's a
   // session-local view.
   const [showChangedOnly, setShowChangedOnly] = useState(false);
+  // Mirrored so `mountEditor` (which closes over a stable deps array)
+  // sees the current toggle without needing to be rebuilt.
+  const showChangedOnlyRef = useRef(false);
+  showChangedOnlyRef.current = showChangedOnly;
+  // Cached `git show HEAD:<path>` snapshots, keyed by absolute path.
+  // Populated lazily before mounting the editor when the toggle is on
+  // so the unified diff view has its baseline available synchronously
+  // on remount. `null` means "tracked but lookup failed / new file" —
+  // we still flag the entry to avoid refetching on every remount.
+  const gitBaselinesRef = useRef<Map<string, string | null>>(new Map());
   // T-026: when set, render the FileHistoryView overlay for this path.
   // Cleared by the overlay's close button or Esc keypress.
   const [historyFile, setHistoryFile] = useState<{ path: string; name: string; initialSha?: string }| null>(null);
@@ -1113,11 +1124,39 @@ export function FileExplorer({
     const lang = getLanguageExtension(fileName(filePath));
     const thisPath = filePath;
 
+    // When the "show changed only" filter is on, fetch the file's
+    // HEAD baseline once per path and feed it to CodeMirror's
+    // `unifiedMergeView`. `git show` failure (untracked file, no
+    // HEAD, binary blob) -> null cached; the merge view is skipped
+    // and the file renders as a normal editor. The cache is
+    // invalidated on a manual tree refresh below.
+    let baseline: string | null = null;
+    if (showChangedOnlyRef.current) {
+      if (!gitBaselinesRef.current.has(thisPath)) {
+        const relPath = thisPath.startsWith(workingDirectory)
+          ? thisPath.slice(workingDirectory.length).replace(/^\/+/, '')
+          : thisPath;
+        try {
+          const fromHead = await window.api.getGitFileAtHead(workingDirectory, relPath);
+          gitBaselinesRef.current.set(thisPath, fromHead);
+        } catch {
+          gitBaselinesRef.current.set(thisPath, null);
+        }
+      }
+      baseline = gitBaselinesRef.current.get(thisPath) ?? null;
+    }
+
     const state = EditorState.create({
       doc: content,
       extensions: [
         basicSetup,
         oneDark,
+        // Inline diff view against HEAD. Only enabled when both the
+        // toggle is on *and* we got a baseline back from git — an
+        // untracked file with no HEAD entry renders normally.
+        ...(showChangedOnlyRef.current && baseline !== null
+          ? [unifiedMergeView({ original: baseline, mergeControls: false })]
+          : []),
         // T-027 blame gutter. Only included when blame is toggled on
         // for this path. The empty-array fallback (built into
         // `blameGutter`) makes this a no-op otherwise.
@@ -1513,6 +1552,28 @@ export function FileExplorer({
     if (ctxMenu?.entry) setClipboard(ctxMenu.entry.path);
     setCtxMenu(null);
   }, [ctxMenu]);
+
+  // When the "show changed only" toggle flips while a file is open,
+  // remount the editor so the unified merge view is attached
+  // (`unifiedMergeView` is a fixed mount-time extension — easier to
+  // remount than to live-reconfigure). Skip when no file is open or
+  // when we're on a non-text view (image / markdown view mode) that
+  // doesn't host CodeMirror.
+  useEffect(() => {
+    if (!activeTabPath) return;
+    if (isImageFile(fileName(activeTabPath))) return;
+    if (isMdFile(fileName(activeTabPath)) && mdViewModeRef.current.get(activeTabPath) === 'view') return;
+    mountEditor(activeTabPath);
+    // mountEditor is stable; activeTabPath bounce is intentional only on toggle.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showChangedOnly]);
+
+  // Invalidate the baseline cache whenever the file tree refreshes
+  // (e.g. after a commit or external git op) so re-opening a file
+  // re-fetches its HEAD content. Cheap — the map is small.
+  useEffect(() => {
+    gitBaselinesRef.current.clear();
+  }, [refreshKey]);
 
   // T-027: toggle the blame gutter for the active tab. On first
   // enable we fetch via `git blame --line-porcelain`, cache it, and

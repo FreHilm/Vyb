@@ -4346,6 +4346,37 @@ select option {
   color: var(--c-blue);
 }
 
+/* Inline diff (unifiedMergeView) styling — kicks in only when "show
+   changed only" is toggled on and the active file has a HEAD baseline.
+   The current doc keeps oneDark's normal background; we just tint
+   changed lines green and render removed lines as a red block widget.
+   `mergeControls: false` already hid the accept/reject icons in the
+   gutter so we don't need to suppress them here. */
+.cm-editor .cm-changedLine,
+.cm-editor .cm-deletedChunk {
+  background-color: color-mix(in srgb, var(--c-green) 14%, transparent) !important;
+}
+.cm-editor .cm-changedText {
+  background-color: color-mix(in srgb, var(--c-green) 30%, transparent) !important;
+}
+.cm-editor .cm-deletedChunk {
+  background-color: color-mix(in srgb, var(--c-red) 16%, transparent) !important;
+  border-left: 2px solid var(--c-red);
+  padding: 2px 0 2px 6px;
+  color: var(--c-text);
+  font-family: var(--cm-editor-font-family, ui-monospace, monospace);
+}
+.cm-editor .cm-deletedText {
+  background-color: color-mix(in srgb, var(--c-red) 30%, transparent) !important;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--c-red) 70%, transparent);
+}
+/* Hide the deleted-block gutter rail so the red region reads as a pure
+   ghost block — the green side keeps its real line numbers. */
+.cm-editor .cm-deletedLineGutter {
+  display: none !important;
+}
+
 /* Shown inside .file-tree-list when the "show changed only" filter is
    on but the working tree has no modifications — keeps the pane from
    looking broken/empty. */

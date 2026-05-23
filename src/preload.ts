@@ -142,6 +142,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.GIT_CHANGED_FILES, cwd),
   getGitFileDiff: (cwd: string, filePath: string, staged?: boolean): Promise<string> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_FILE_DIFF, cwd, filePath, staged),
+  getGitFileAtHead: (cwd: string, filePath: string): Promise<string | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_FILE_AT_HEAD, cwd, filePath),
   gitStage: (cwd: string, filePath: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_STAGE, cwd, filePath),
 

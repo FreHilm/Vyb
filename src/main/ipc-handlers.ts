@@ -1422,6 +1422,25 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     });
   });
 
+  // Returns the file's contents at HEAD, or null if it isn't tracked
+  // at HEAD (a brand-new file has no baseline). Drives the unified
+  // diff view in the file editor — CodeMirror's `unifiedMergeView`
+  // needs the original text, not a unified-diff blob.
+  ipcMain.handle(IPC_CHANNELS.GIT_FILE_AT_HEAD, (_, cwd: string, filePath: string): string | null => {
+    const escaped = filePath.replace(/"/g, '\\"');
+    try {
+      return execSync(`git show HEAD:"${escaped}"`, {
+        cwd,
+        timeout: 5000,
+        encoding: 'utf-8',
+        maxBuffer: 10 * 1024 * 1024,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch {
+      return null;
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.GIT_FILE_DIFF, (_, cwd: string, filePath: string, staged?: boolean): string => {
     const run = (cmd: string): string => {
       try {
