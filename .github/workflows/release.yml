@@ -14,6 +14,14 @@ on:
     tags:
       - 'v*.*.*'
 
+# GITHUB_TOKEN defaults to read-only on repos created after Feb 2023.
+# The GitHub publisher needs to create + edit releases (POST/PATCH
+# /repos/.../releases) and upload assets, both of which require write
+# access to the `contents` scope. Declared at the workflow level so all
+# three matrix jobs inherit it.
+permissions:
+  contents: write
+
 jobs:
   release:
     runs-on: ${{ matrix.os }}
@@ -64,6 +72,39 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH
 
+      # Diagnostic — prints which signing identities codesign can see
+      # right after the import + what value our config will look for.
+      # If the configured identity string doesn't match any line in the
+      # find-identity output (extra whitespace, missing team ID, copied
+      # with quotes, etc.) signing silently falls back to ad-hoc and
+      # notarization rejects the whole bundle.
+      - name: Verify signing identity
+        if: matrix.os == 'macos-latest'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          echo "=== Identities visible to codesign ==="
+          security find-identity -v -p codesigning
+          echo
+          echo "=== Configured APPLE_SIGNING_IDENTITY ==="
+          if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "ERROR: APPLE_SIGNING_IDENTITY secret is empty — signing will fall back to ad-hoc."
+            exit 1
+          fi
+          printf '%s\n' "$APPLE_SIGNING_IDENTITY"
+          echo
+          echo "=== Matching cert in keychain ==="
+          if security find-identity -v -p codesigning | grep -F "$APPLE_SIGNING_IDENTITY"; then
+            echo "OK: identity matches a keychain entry."
+          else
+            echo "ERROR: APPLE_SIGNING_IDENTITY does not match any identity above."
+            echo "Most common mistake: the secret value includes the surrounding quotes from"
+            echo "  security find-identity output. The value should be the bare string:"
+            echo "  Developer ID Application: Your Name (TEAMID)"
+            echo "with no leading/trailing quotes or whitespace."
+            exit 1
+          fi
+
       - name: Publish
         env:
           # Used by the GitHub publisher to push artifacts to a Release.
@@ -73,4 +114,8 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # forge.config.ts passes this to osxSign as `keychain` so
+          # codesign uses the temp keychain we imported the cert into.
+          # Empty on non-macOS runners is harmless (signing block skipped).
+          MAC_KEYCHAIN_PATH: ${{ runner.temp }}/vyb-build.keychain-db
         run: npm run publish

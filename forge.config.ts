@@ -11,14 +11,17 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 
-// macOS signing + notarization only run when the env vars are present
-// (i.e. inside CI or when explicitly exported locally). Lets
-// `npm run make` continue to produce unsigned local builds during
-// development without failing the signer.
+// macOS signing + notarization only run when all four env vars are
+// present. APPLE_SIGNING_IDENTITY is required — without it
+// electron-osx-sign silently falls back to ad-hoc, the binaries
+// upload to notarytool unsigned, and notarization rejects the whole
+// bundle. Better to skip signing entirely than to ship an
+// ad-hoc-signed app that fails notarization.
 const macSigningEnabled =
   !!process.env.APPLE_ID &&
   !!process.env.APPLE_PASSWORD &&
-  !!process.env.APPLE_TEAM_ID;
+  !!process.env.APPLE_TEAM_ID &&
+  !!process.env.APPLE_SIGNING_IDENTITY;
 
 // Modules that are externalized in vite.main.config.ts and need to be
 // copied into the packaged app's node_modules so require() finds them.
@@ -48,6 +51,14 @@ const config: ForgeConfig = {
       unpack: '**/node_modules/node-pty/**/{*.node,spawn-helper}',
     },
     name: 'Vyb',
+    // The product name (capitalized) controls the .app bundle name on
+    // macOS and the installer's display name on Windows/Linux. The
+    // executable inside MUST be lowercase for the Linux makers
+    // (electron-installer-debian / -redhat compute the binary path
+    // from package.json `name` which is "vyb"). Without this, the .deb
+    // / .rpm makers fail with "could not find the Electron app binary
+    // at .../vyb" because the actual binary is named Vyb.
+    executableName: 'vyb',
     icon: './build/icon',
     // Ship vendor/ alongside the asar (at <app>/Contents/Resources/vendor/).
     // Holds the isolated @frehilm/ordna-cli dep tree (Ink + React 18) that
@@ -77,14 +88,19 @@ const config: ForgeConfig = {
       ? {
         osxSign: {
           identity: process.env.APPLE_SIGNING_IDENTITY,
+          // Explicit keychain path so codesign uses the temp keychain
+          // we imported the cert into, not the runner's default
+          // login.keychain. Without this, codesign may not find the
+          // cert + private key reliably even though `security
+          // find-identity` lists them.
+          keychain: process.env.MAC_KEYCHAIN_PATH,
+          // Per-file options use the v2 @electron/osx-sign API
+          // (camelCase, no `entitlements-inherit` — v2 uses the same
+          // entitlements for the bundle and inherited helpers).
           optionsForFile: () => ({
-            // Hardened runtime is required for notarization. The
-            // entitlements file relaxes a few sandbox restrictions
-            // that node-pty / child agent CLIs need.
             hardenedRuntime: true,
             entitlements: 'build/entitlements.mac.plist',
-            'entitlements-inherit': 'build/entitlements.mac.plist',
-            'signature-flags': 'library',
+            signatureFlags: ['library'],
           }),
         },
         osxNotarize: {
