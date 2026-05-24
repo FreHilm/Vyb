@@ -108,6 +108,7 @@ declare global {
       selectDirectory: () => Promise<string | null>;
       selectFile: () => Promise<string | null>;
       createTempDir: () => Promise<string>;
+      pathExists: (p: string) => Promise<boolean>;
       loadSettings: () => Promise<AppSettings>;
       saveSettings: (settings: AppSettings) => Promise<void>;
       onOpenSettings: (callback: () => void) => () => void;
@@ -355,6 +356,12 @@ export function App() {
   // confirm-dialog asking whether to discard the agent's work or save
   // it as a WIP commit on its branch.
   const [stopParallelTarget, setStopParallelTarget] = useState<string | null>(null);
+  // When the user selects a profile whose working directory no longer
+  // exists on disk, this holds the profileId so the modal below can
+  // prompt for relocate / delete / cancel. The selection is deferred
+  // until the modal resolves so we don't try to spawn an agent in a
+  // missing directory.
+  const [missingDirProfileId, setMissingDirProfileId] = useState<string | null>(null);
   // Track parallel agents whose `completed` state has been seen by the user (for soft-delete)
   const inspectedParallelRef = useRef<Set<string>>(new Set());
   const [changesVisible, setChangesVisible] = useState(false);
@@ -700,12 +707,28 @@ export function App() {
       if (restored.size > 0) setShellOpenSet(restored);
     });
 
-    Promise.all([window.api.getProfiles(), window.api.loadSettings()]).then(([loadedProfiles, loadedSettings]) => {
+    Promise.all([window.api.getProfiles(), window.api.loadSettings()]).then(async ([loadedProfiles, loadedSettings]) => {
       setProfiles(loadedProfiles);
       if (loadedProfiles.length > 0) {
         const lastId = loadedSettings.lastActiveProfileId;
-        const restored = lastId && loadedProfiles.some((p) => p.id === lastId);
-        setActiveProfileId(restored ? lastId : loadedProfiles[0].id);
+        const lastProfile = lastId ? loadedProfiles.find((p) => p.id === lastId) : null;
+        if (lastProfile) {
+          const ok = await window.api.pathExists(lastProfile.workingDirectory).catch(() => true);
+          if (ok) {
+            setActiveProfileId(lastProfile.id);
+          } else {
+            // Working directory disappeared between sessions. Pop the
+            // locate/delete modal up front so the user resolves it
+            // before anything else tries to use the bad path. We
+            // intentionally don't auto-activate the profile — that
+            // would trigger the auto-init effect and try to spawn the
+            // agent in the missing directory. The user can pick
+            // another profile or resolve the dialog first.
+            setMissingDirProfileId(lastProfile.id);
+          }
+        } else {
+          setActiveProfileId(loadedProfiles[0].id);
+        }
       }
     });
 
@@ -1246,8 +1269,26 @@ export function App() {
     [profiles, initialized],
   );
 
+  // Lazy check: before selecting a profile, verify its working
+  // directory still exists. If it doesn't, defer the selection and
+  // open the locate/delete modal — the actual selection then happens
+  // either when the user picks a new folder (continues with the new
+  // path) or is cancelled (no-op). Always returns true for an existing
+  // path so callers can use it as an inline guard.
+  const verifyProfileDir = useCallback(async (profileId: string): Promise<boolean> => {
+    const p = profiles.find((x) => x.id === profileId);
+    if (!p) return false;
+    const ok = await window.api.pathExists(p.workingDirectory).catch(() => true);
+    if (!ok) {
+      setMissingDirProfileId(profileId);
+      return false;
+    }
+    return true;
+  }, [profiles]);
+
   const handleSelectProfile = useCallback(
-    (profileId: string) => {
+    async (profileId: string) => {
+      if (!(await verifyProfileDir(profileId))) return;
       // User-initiated selection clears the stopped flag — reinit will proceed
       stoppedRef.current.delete(profileId);
       setActiveProfileId(profileId);
@@ -1259,7 +1300,7 @@ export function App() {
         return next;
       });
     },
-    [initializeProfile],
+    [initializeProfile, verifyProfileDir],
   );
 
   // Auto-init active profile — debounced so rapid keyboard nav doesn't init every profile
@@ -1809,7 +1850,8 @@ export function App() {
 
   // Keyboard profile navigation — only updates visual selection.
   // The auto-init effect (2s debounce) handles terminal initialization.
-  const navSelectProfile = useCallback((profileId: string) => {
+  const navSelectProfile = useCallback(async (profileId: string) => {
+    if (!(await verifyProfileDir(profileId))) return;
     stoppedRef.current.delete(profileId);
     setActiveProfileId(profileId);
     window.api.setActiveProfile(profileId);
@@ -1819,7 +1861,7 @@ export function App() {
       next.delete(profileId);
       return next;
     });
-  }, []);
+  }, [verifyProfileDir]);
 
   const navActive = useKeyNav({
     settings,
@@ -2313,6 +2355,70 @@ export function App() {
           profilesWithoutIcons={profiles.filter((p) => !p.icon).length}
         />
       )}
+      {/* Missing working-directory dialog. Triggered by the lazy
+          verifyProfileDir check on selection (or at app boot when
+          restoring lastActiveProfileId). The user can relocate the
+          folder (updates profile.workingDirectory + re-runs the
+          selection that triggered the modal), delete the profile,
+          or cancel and leave things untouched. */}
+      {missingDirProfileId && (() => {
+        const target = profiles.find((p) => p.id === missingDirProfileId);
+        if (!target) return null;
+        const close = () => setMissingDirProfileId(null);
+        const relocate = async () => {
+          const picked = await window.api.selectDirectory();
+          if (!picked) return; // user cancelled the native picker
+          const updated = profiles.map((p) =>
+            p.id === target.id ? { ...p, workingDirectory: picked } : p,
+          );
+          await window.api.saveProfiles(updated);
+          setProfiles(updated);
+          setMissingDirProfileId(null);
+          // Run the normal selection path on the now-valid profile so
+          // the agent terminal spins up against the new directory.
+          setActiveProfileId(target.id);
+          initializeProfile(target.id);
+        };
+        const deleteIt = async () => {
+          setMissingDirProfileId(null);
+          await handleDeleteProfile(target.id);
+        };
+        return (
+          <div className="modal-overlay" onClick={close}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>Project folder not found</h3>
+              </div>
+              <div className="modal-body">
+                <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 8 }}>
+                  The working directory for <strong>{target.name}</strong> doesn&apos;t exist on disk:
+                </p>
+                <pre style={{
+                  fontSize: 12,
+                  background: 'var(--c-mantle)',
+                  padding: '6px 8px',
+                  borderRadius: 4,
+                  border: '1px solid var(--c-surface0)',
+                  color: 'var(--c-overlay1)',
+                  margin: 0,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                }}>{target.workingDirectory}</pre>
+                <p style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--c-overlay0)', marginTop: 10 }}>
+                  Did you move it to a new location, or should this profile be removed?
+                </p>
+              </div>
+              <div className="modal-footer">
+                <button className="cancel-btn" onClick={close}>Cancel</button>
+                <div className="modal-footer-right">
+                  <button className="delete-btn" onClick={deleteIt}>Delete profile</button>
+                  <button className="save-btn" onClick={relocate}>Locate folder…</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {stopParallelTarget && (() => {
         const target = parallelAgents.get(stopParallelTarget);
         const closeDialog = () => setStopParallelTarget(null);

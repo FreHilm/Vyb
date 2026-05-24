@@ -144,6 +144,25 @@
   justify-content: center;
   gap: 0;
 }
+/* Brighter active state in compact mode — at the standard 6% tint the
+   selected row reads barely different from a hovered one. We boost the
+   status-color mix (kept in the --flame-color custom property by
+   ProfileItem) so green/blue/yellow stays visible at a glance when
+   the labels are hidden. Falls back to surface1 if the property isn't
+   set (e.g. offline status — no flame color assigned). */
+.app-sidebar-compact .profile-item.active {
+  background: color-mix(in srgb, var(--flame-color, var(--c-blue)) 38%, var(--c-surface1));
+}
+.app-sidebar-compact .profile-item.active:hover {
+  background: color-mix(in srgb, var(--flame-color, var(--c-blue)) 48%, var(--c-surface1));
+}
+/* Override the 6% .active-working tint in compact mode so it doesn't
+   compete with / dilute the brighter .active fill above. The animated
+   flame indicators still convey activity; the row background is now
+   just for "this profile is selected". */
+.app-sidebar-compact .profile-item.active.active-working {
+  background: color-mix(in srgb, var(--flame-color, var(--c-blue)) 38%, var(--c-surface1));
+}
 .app-sidebar-compact .parallel-agent-row {
   padding: 4px 0;
   justify-content: center;

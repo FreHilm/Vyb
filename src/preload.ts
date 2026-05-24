@@ -113,6 +113,9 @@ contextBridge.exposeInMainWorld('api', {
   createTempDir: (): Promise<string> =>
     ipcRenderer.invoke(IPC_CHANNELS.DIALOG_CREATE_TEMP_DIR),
 
+  pathExists: (p: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FS_PATH_EXISTS, p),
+
   loadSettings: (): Promise<AppSettings> =>
     ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_LOAD),
 

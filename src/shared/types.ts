@@ -340,6 +340,10 @@ export const IPC_CHANNELS = {
   DIALOG_SELECT_DIRECTORY: 'dialog:selectDirectory',
   DIALOG_SELECT_FILE: 'dialog:selectFile',
   DIALOG_CREATE_TEMP_DIR: 'dialog:createTempDir',
+  /** Returns true if the absolute path exists on disk. Used to detect
+   * agent profiles whose working directory has been moved/deleted so
+   * the user can be prompted to relocate or remove the profile. */
+  FS_PATH_EXISTS: 'fs:pathExists',
   SETTINGS_LOAD: 'settings:load',
   SETTINGS_SAVE: 'settings:save',
   SETTINGS_OPEN_DIALOG: 'settings:openDialog',

@@ -711,6 +711,15 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'vyb-agent-'));
   });
 
+  ipcMain.handle(IPC_CHANNELS.FS_PATH_EXISTS, (_, p: string): boolean => {
+    if (!p) return false;
+    try {
+      return fs.existsSync(p);
+    } catch {
+      return false;
+    }
+  });
+
   ipcMain.on(IPC_CHANNELS.PROFILE_SET_ACTIVE, (_, profileId: string | null) => {
     activeProfileId = profileId;
   });
