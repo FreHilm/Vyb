@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
 import { setupIpcHandlers, cleanupIpcHandlers } from './main/ipc-handlers';
 import { resolveShellEnv } from './main/shell-env';
+import { startAutoUpdater } from './main/auto-update';
 import { IPC_CHANNELS, EditMenuAction, EditMenuState } from './shared/types';
 
 if (started) {
@@ -274,6 +275,9 @@ app.on('ready', async () => {
   // Resolve the user's shell PATH/env (zshrc/zshenv etc.) before any PTY
   // spawns — Electron processes get a minimal PATH from launchd otherwise.
   await resolveShellEnv();
+
+  // Kick off the auto-updater. No-ops in dev (unpackaged) builds.
+  startAutoUpdater();
 
   // Handle local-file:// protocol to serve icons from disk
   protocol.handle('local-file', (request) => {

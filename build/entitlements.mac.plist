@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <!-- Required for Electron's V8 JIT under hardened runtime. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <!-- node-pty spawns child processes (the agent CLIs, shells, etc.). -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <!-- File access — Vyb reads/writes the user's chosen project dirs. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <!-- Network access for in-app browser + agent CLIs hitting APIs. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <!-- Local-loopback HTTP server for the Ordna hook receiver. -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+  </dict>
+</plist>

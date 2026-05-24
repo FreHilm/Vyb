@@ -1,0 +1,76 @@
+# Release pipeline.
+#
+# Trigger: push a tag of the form v*.*.* (e.g. v1.0.0). Each runner
+# builds its platform's installer, signs/notarizes where applicable,
+# and uploads to the same draft GitHub Release via Forge's publisher.
+#
+# After all three jobs succeed, edit the draft release on GitHub
+# (add release notes), then click "Publish release" to ship it.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Linux build deps
+        if: matrix.os == 'ubuntu-latest'
+        # rpmbuild = MakerRpm; fakeroot/dpkg = MakerDeb. The squirrel
+        # maker needs mono on Linux, but we don't build Windows from
+        # this runner so that's irrelevant.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm fakeroot dpkg
+
+      - name: Install
+        run: npm ci
+
+      # macOS signing identity import. The certificate is stored as a
+      # base64-encoded p12 in repo secrets; we decode it into a
+      # temporary keychain that's destroyed when the job finishes.
+      - name: Import macOS signing certificate
+        if: matrix.os == 'macos-latest'
+        env:
+          MAC_CERTIFICATE_BASE64: ${{ secrets.MAC_CERTIFICATE_BASE64 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          CERT_PATH=$RUNNER_TEMP/vyb-cert.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/vyb-build.keychain-db
+          echo -n "$MAC_CERTIFICATE_BASE64" | base64 --decode -o $CERT_PATH
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security import $CERT_PATH -P "$MAC_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+      - name: Publish
+        env:
+          # Used by the GitHub publisher to push artifacts to a Release.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS-only — the forge config gates signing on these being set.
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: npm run publish
