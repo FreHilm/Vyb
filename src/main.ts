@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, ipcMain, protocol, net, nativeImage } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, protocol, net, nativeImage, shell } from 'electron';
 import path from 'node:path';
 import * as fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -236,6 +236,26 @@ const createWindow = () => {
 
   setupIpcHandlers(mainWindow);
   buildMenu();
+
+  // Defensive guard: block any top-level navigation away from the app
+  // shell. A stray `<a href="other.md">` click in any future markdown
+  // / html render that forgets to call e.preventDefault() would
+  // otherwise replace the entire renderer with a raw file:// page and
+  // destroy the React tree. The renderer's own handlers route legit
+  // link clicks (`open-file-in-explorer`, `openUrl`) before this
+  // would ever fire; this is a last-resort safety net.
+  const initialUrl = MAIN_WINDOW_VITE_DEV_SERVER_URL ?? '';
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (initialUrl && url.startsWith(initialUrl)) return; // dev-server HMR
+    event.preventDefault();
+    // Soft fallback: relative or file URLs probably wanted to go to
+    // the file viewer; everything else opens in the OS browser. This
+    // matches the renderer's intentional routing for the cases the
+    // handler does catch.
+    if (/^https?:\/\//i.test(url)) {
+      shell.openExternal(url).catch((): void => undefined);
+    }
+  });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);

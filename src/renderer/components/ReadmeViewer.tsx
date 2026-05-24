@@ -11,6 +11,7 @@ import { FileEntry } from '../../shared/types';
 import { FileIcon } from '../file-icons';
 import { ResizeHandle } from './ResizeHandle';
 import { MermaidBlock } from './MermaidBlock';
+import { ErrorBoundary } from './ErrorBoundary';
 
 interface ReadmeViewerProps {
   workingDirectory: string;
@@ -652,15 +653,9 @@ export function ReadmeViewer({ workingDirectory }: ReadmeViewerProps) {
       return;
     }
 
-    // Relative .md link — navigate within viewer
-    if (href.endsWith('.md') || href.endsWith('.mdx')) {
-      const dir = currentFile.replace(/\/[^/]+$/, '');
-      const resolved = `${dir}/${href}`.replace(/\/\.\//g, '/');
-      loadFile(resolved, true);
-      return;
-    }
-
-    // Anchor link (#section) — scroll to it
+    // Anchor link (#section) — scroll within the current document.
+    // Handled before the file-link branch so anchors don't try to
+    // resolve as paths.
     if (href.startsWith('#')) {
       const id = href.slice(1).toLowerCase();
       const el = viewerRef.current?.querySelector(`[id="${id}"], [id="${id.replace(/ /g, '-')}"]`);
@@ -668,18 +663,20 @@ export function ReadmeViewer({ workingDirectory }: ReadmeViewerProps) {
       return;
     }
 
-    // Other relative files — try to open as markdown, fall back to external
+    // Any other relative link — route to the File viewer rather than
+    // navigating inside the readme. App.tsx listens for this event,
+    // ensures the Files tab is open + active for this view, and
+    // pushes the resolved path through `pendingFileOpen`. Works for
+    // .md, .ts, images, anything readable. The path is resolved
+    // against the current document's directory.
     if (!href.includes('://')) {
       const dir = currentFile.replace(/\/[^/]+$/, '');
       const resolved = `${dir}/${href}`.replace(/\/\.\//g, '/');
-      // Check if it's a readable file
-      window.api.readFile(resolved).then((content) => {
-        if (content !== null && (resolved.endsWith('.md') || resolved.endsWith('.txt'))) {
-          loadFile(resolved, true);
-        }
-      });
+      window.dispatchEvent(
+        new CustomEvent('open-file-in-explorer', { detail: { path: resolved } }),
+      );
     }
-  }, [currentFile, loadFile]);
+  }, [currentFile]);
 
   const tree = (
     <>
@@ -890,11 +887,20 @@ export function ReadmeViewer({ workingDirectory }: ReadmeViewerProps) {
           className="readme-content"
           style={{ zoom } as React.CSSProperties}
         >
-          <Markdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeRaw]}
-            components={markdownComponents}
-          >{content}</Markdown>
+          {/* Local boundary — a broken markdown file (e.g. malformed
+              raw HTML through rehype-raw, or a custom component
+              throwing on unexpected content) used to unmount the
+              entire React tree and leave the user staring at a grey
+              `<body>`. Now it just renders inline. `key={currentFile}`
+              resets the boundary's error state when the user navigates
+              to a different file. */}
+          <ErrorBoundary label={`readme:${currentFile}`} key={currentFile}>
+            <Markdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeRaw]}
+              components={markdownComponents}
+            >{content}</Markdown>
+          </ErrorBoundary>
         </div>
       </div>
       {tree}

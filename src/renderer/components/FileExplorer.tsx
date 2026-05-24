@@ -22,6 +22,7 @@ import { MermaidBlock } from './MermaidBlock';
 import { ExcalidrawEditor, type ExcalidrawEditorHandle } from './ExcalidrawEditor';
 import { SWORD_SHAPE } from '../file-icons';
 import { FileHistoryView } from './FileHistoryView';
+import { ErrorBoundary } from './ErrorBoundary';
 import { blameGutter } from '../lib/blame-gutter';
 import { stickyScroll } from '../lib/sticky-scroll';
 import type { GitBlameLine } from '../../shared/types';
@@ -2252,14 +2253,50 @@ export function FileExplorer({
             Editor host stays in the DOM (just hidden) so toggling back to
             edit can re-mount it without React tearing down the parent. */}
         {activeMdShowing && activeTabPath && (
-          <div className="file-md-content readme-content">
-            <Markdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeRaw]}
-              components={markdownComponents}
-            >
-              {mdContent.get(activeTabPath) ?? ''}
-            </Markdown>
+          <div
+            className="file-md-content readme-content"
+            // Intercept link clicks. Without this, clicking any
+            // relative link inside the rendered markdown bubbles up
+            // to Electron's default action, which is to navigate the
+            // entire BrowserWindow to that URL (file://...) — that
+            // destroys the React app and shows the raw target file
+            // as a plain page. Same logic as ReadmeViewer.
+            onClick={(e) => {
+              const a = (e.target as HTMLElement).closest('a');
+              if (!a) return;
+              e.preventDefault();
+              const href = a.getAttribute('href');
+              if (!href) return;
+              if (href.startsWith('http://') || href.startsWith('https://')) {
+                window.api.openUrl(href);
+                return;
+              }
+              if (href.startsWith('#')) {
+                const id = href.slice(1).toLowerCase();
+                const el = (e.currentTarget as HTMLElement).querySelector(
+                  `[id="${id}"], [id="${id.replace(/ /g, '-')}"]`,
+                );
+                if (el) (el as HTMLElement).scrollIntoView({ behavior: 'smooth' });
+                return;
+              }
+              if (!href.includes('://')) {
+                const dir = activeTabPath.replace(/\/[^/]+$/, '');
+                const resolved = `${dir}/${href}`.replace(/\/\.\//g, '/');
+                window.dispatchEvent(
+                  new CustomEvent('open-file-in-explorer', { detail: { path: resolved } }),
+                );
+              }
+            }}
+          >
+            <ErrorBoundary label={`md:${activeTabPath}`} key={activeTabPath}>
+              <Markdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw]}
+                components={markdownComponents}
+              >
+                {mdContent.get(activeTabPath) ?? ''}
+              </Markdown>
+            </ErrorBoundary>
           </div>
         )}
         {/* Excalidraw editor — same swap-with-CodeMirror pattern as the md
