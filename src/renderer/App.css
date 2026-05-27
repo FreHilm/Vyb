@@ -23,28 +23,31 @@
   user-select: none;
 }
 
-/* App-menu button (Windows/Linux only). Pinned to the left of the
-   centered title; must opt out of the title bar's drag region so it's
-   clickable. */
-.titlebar-menu-btn {
+/* Windows/Linux in-app menu bar. Absolutely positioned at the left so the
+   centered profile name/path stays centered regardless of menu width. */
+.titlebar-menu {
   position: absolute;
   left: 8px;
-  -webkit-app-region: no-drag;
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 26px;
-  padding: 0;
-  background: none;
-  border: none;
-  border-radius: 5px;
-  color: var(--c-subtext0);
-  cursor: pointer;
+  gap: 2px;
+  -webkit-app-region: no-drag;
 }
+
+.titlebar-menu-btn {
+  background: transparent;
+  border: none;
+  color: var(--c-text);
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  line-height: 1;
+}
+
 .titlebar-menu-btn:hover {
   background: var(--c-surface0);
-  color: var(--c-text);
 }
 
 .titlebar-name {

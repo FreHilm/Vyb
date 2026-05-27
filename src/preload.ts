@@ -486,8 +486,11 @@ contextBridge.exposeInMainWorld('api', {
   setEditMenuState: (state: EditMenuState): void =>
     ipcRenderer.send(IPC_CHANNELS.EDIT_MENU_STATE, state),
 
-  popupAppMenu: (x: number, y: number): void =>
-    ipcRenderer.send(IPC_CHANNELS.MENU_POPUP, x, y),
+  popupMenu: (label: string, x: number, y: number): void =>
+    ipcRenderer.send(IPC_CHANNELS.MENU_POPUP, { label, x, y }),
+
+  setTitleBarOverlay: (color: string, symbolColor: string): void =>
+    ipcRenderer.send(IPC_CHANNELS.TITLEBAR_SET_OVERLAY, { color, symbolColor }),
 
   onEditMenuAction: (callback: (action: EditMenuAction) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, action: EditMenuAction) =>

@@ -177,6 +177,18 @@ export function applyTheme(
     root.style.setProperty('--flame-length', `${length}px`);
     root.style.setProperty('--flame-speed', `${speed}`);
   }
+
+  // Keep the native window-control overlay (Windows/Linux min/max/close) in
+  // sync with the theme. Without this it keeps the hardcoded Catppuccin colors
+  // set at window creation, so the buttons read as purple against a grey theme.
+  // `base` → button background, `text` → symbol color (both grayscale when the
+  // user picks a neutral hue). No-op on macOS — guarded in the main process.
+  const bgRes = resolveHSL(find('base'), baseHue, darkness, textLightness);
+  const txtRes = resolveHSL(find('text'), baseHue, darkness, textLightness);
+  window.api?.setTitleBarOverlay?.(
+    hslToHex(bgRes.h, bgRes.s, bgRes.l),
+    hslToHex(txtRes.h, txtRes.s, txtRes.l),
+  );
 }
 
 export function getTerminalTheme(baseHue: number, darkness: number, textLightness: number) {

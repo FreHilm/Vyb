@@ -133,6 +133,15 @@ function parentDir(filePath: string): string {
   return filePath.replace(/\/[^/]+$/, '');
 }
 
+// Normalize a path to forward slashes for comparison. Git always reports
+// forward-slash paths, but the file tree's entry paths come from Node's
+// `path.join`, which uses backslashes on Windows. Without normalizing both
+// sides, git-decoration and "show changed only" lookups never match on
+// Windows (mixed `C:\repo/src/foo.ts` keys vs `C:\repo\src\foo.ts` entries).
+function toPosix(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
 // Scrollbar change ticks. Renders a fixed track on the editor's right
 // edge with one green tick per added/changed chunk and one red tick per
 // deletion, so the user can spot diffs at a glance and jump to them
@@ -428,7 +437,7 @@ function FileTreeNode({
   // user would still have to click each one to see its content,
   // which defeats the point of the view.
   useEffect(() => {
-    if (changedPathsFilter && entry.isDirectory && changedPathsFilter.has(entry.path)) {
+    if (changedPathsFilter && entry.isDirectory && changedPathsFilter.has(toPosix(entry.path))) {
       setExpanded(true);
     }
   }, [changedPathsFilter, entry.isDirectory, entry.path]);
@@ -479,7 +488,7 @@ function FileTreeNode({
   // the changed-path set. Kept here (after all hooks) so the hook
   // call order stays stable across renders — moving this earlier
   // crashes React with a rules-of-hooks violation.
-  if (changedPathsFilter && !changedPathsFilter.has(entry.path)) {
+  if (changedPathsFilter && !changedPathsFilter.has(toPosix(entry.path))) {
     return null;
   }
 
@@ -488,9 +497,9 @@ function FileTreeNode({
   const dropTargetDir = entry.isDirectory ? entry.path : parentDir(entry.path);
   const isDropTarget = dragHover === dropTargetDir;
 
-  // T-043: git decoration for this row. Map keys are absolute paths
-  // (same shape as entry.path), so the lookup is a single get.
-  const gitStatus = !entry.isDirectory ? gitDecorations.get(entry.path) : undefined;
+  // T-043: git decoration for this row. Map keys are forward-slash absolute
+  // paths; normalize entry.path so the lookup matches on Windows too.
+  const gitStatus = !entry.isDirectory ? gitDecorations.get(toPosix(entry.path)) : undefined;
   const gitClass = gitStatus ? ` git-${gitStatus}` : '';
   const gitBadge = gitStatus
     ? (gitStatus === 'modified' ? 'M'
@@ -777,11 +786,11 @@ export function FileExplorer({
         const changed = await window.api.getGitChangedFiles(workingDirectory);
         if (cancelled) return;
         const map = new Map<string, string>();
-        const base = workingDirectory.replace(/\/+$/, '');
+        // Key by forward-slash absolute paths. git's f.path is already
+        // forward-slash; the working dir may have backslashes on Windows,
+        // so normalize it too. Lookups (entry.path) are normalized to match.
+        const base = toPosix(workingDirectory).replace(/\/+$/, '');
         for (const f of changed) {
-          // git returns paths relative to repo root; we key by the
-          // absolute path so tree entries (which carry absolute
-          // paths) can look up without conversion.
           const abs = `${base}/${f.path}`;
           map.set(abs, f.status);
         }
@@ -1776,7 +1785,7 @@ export function FileExplorer({
   // off — FileTreeNode treats null as "show everything".
   const changedPathsFilter = useMemo<Set<string> | null>(() => {
     if (!showChangedOnly) return null;
-    const base = workingDirectory.replace(/\/+$/, '');
+    const base = toPosix(workingDirectory).replace(/\/+$/, '');
     const set = new Set<string>();
     for (const p of gitDecorations.keys()) {
       set.add(p);

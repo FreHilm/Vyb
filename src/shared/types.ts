@@ -471,6 +471,7 @@ export const IPC_CHANNELS = {
    * in-app menu button on Windows/Linux where the custom title bar
    * hides the native menu bar. */
   MENU_POPUP: 'menu:popup',
+  TITLEBAR_SET_OVERLAY: 'titlebar:setOverlay',
   PARALLEL_AGENT_SPAWN: 'parallel:spawn',
   PARALLEL_AGENT_DESTROY: 'parallel:destroy',
   PARALLEL_AGENT_LIST: 'parallel:list',

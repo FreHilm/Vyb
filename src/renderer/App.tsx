@@ -260,8 +260,9 @@ declare global {
       onParallelAgentChange: (callback: (agent: ParallelAgent) => void) => () => void;
       onParallelAgentExited: (callback: (agent: ParallelAgent) => void) => () => void;
       setEditMenuState: (state: EditMenuState) => void;
-      popupAppMenu: (x: number, y: number) => void;
       onEditMenuAction: (callback: (action: EditMenuAction) => void) => () => void;
+      popupMenu: (label: string, x: number, y: number) => void;
+      setTitleBarOverlay: (color: string, symbolColor: string) => void;
     };
   }
 }
@@ -1976,20 +1977,23 @@ export function App() {
       <div className="titlebar">
         {window.api.platform !== 'darwin' && (
           // Windows/Linux: the custom (frameless) title bar hides the
-          // native menu bar, so expose the app menu via this button.
-          // macOS keeps the system menu bar, so it's omitted there.
-          <button
-            className="titlebar-menu-btn"
-            title="Menu"
-            onClick={(e) => {
-              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              window.api.popupAppMenu(r.left, r.bottom);
-            }}
-          >
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-              <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
-            </svg>
-          </button>
+          // native menu bar, so render File/Edit/View buttons that pop
+          // the matching native submenu. macOS keeps the system menu bar.
+          <div className="titlebar-menu">
+            {['File', 'Edit', 'View'].map((label) => (
+              <button
+                key={label}
+                type="button"
+                className="titlebar-menu-btn"
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  window.api.popupMenu(label, r.left, r.bottom);
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         )}
         {activeProfile && (
           <>

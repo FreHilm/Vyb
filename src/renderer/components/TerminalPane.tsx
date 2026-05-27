@@ -44,10 +44,12 @@ export function escapePathForShell(p: string): string {
   return p.replace(/([ ()[\]{}$`!#&|;'"<>\\])/g, '\\$1');
 }
 
-// Smart key event handler for xterm.js — handles Option+arrows (word nav),
-// Cmd+C (copy), Cmd+V (paste) before xterm's default behavior.
+// Smart key event handler for xterm.js — handles Option+arrows (word nav)
+// and copy/paste (Cmd on macOS, Ctrl / Ctrl+Shift on Windows+Linux) before
+// xterm's default behavior.
 // Returns false = don't let xterm process. Returns true = let xterm process.
 export function makeTerminalKeyHandler(terminal: Terminal, sendInput: (data: string) => void) {
+  const isMac = window.api.platform === 'darwin';
   return (e: KeyboardEvent): boolean => {
     // Only react to keydown (ignore keyup, keypress)
     if (e.type !== 'keydown') return true;
@@ -88,18 +90,29 @@ export function makeTerminalKeyHandler(terminal: Terminal, sendInput: (data: str
       return false;
     }
 
-    // Cmd+C (macOS) / Ctrl+Shift+C (linux/win) → copy selection if any
-    if ((e.metaKey || (e.ctrlKey && e.shiftKey)) && (e.key === 'c' || e.key === 'C')) {
+    // Copy:  Cmd+C (macOS) / Ctrl+Shift+C (any) / plain Ctrl+C with a
+    // selection (Windows/Linux). On Win/Linux, plain Ctrl+C copies only
+    // when text is selected and otherwise falls through to SIGINT — exactly
+    // how Windows Terminal behaves, so Ctrl+C stays usable as interrupt.
+    const plainCtrl = !isMac && e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey;
+    if (
+      (e.metaKey || (e.ctrlKey && e.shiftKey) || plainCtrl) &&
+      (e.key === 'c' || e.key === 'C')
+    ) {
       const sel = terminal.getSelection();
       if (sel) {
         navigator.clipboard.writeText(sel);
+        terminal.clearSelection();
         return false;
       }
       // No selection — let the key through (Ctrl+C = SIGINT)
     }
 
-    // Cmd+V (macOS) / Ctrl+Shift+V (linux/win) → paste clipboard
-    if ((e.metaKey || (e.ctrlKey && e.shiftKey)) && (e.key === 'v' || e.key === 'V')) {
+    // Paste:  Cmd+V (macOS) / Ctrl+Shift+V (any) / plain Ctrl+V (Win/Linux)
+    if (
+      (e.metaKey || (e.ctrlKey && e.shiftKey) || plainCtrl) &&
+      (e.key === 'v' || e.key === 'V')
+    ) {
       navigator.clipboard.readText().then((text) => {
         if (text) sendInput(text);
       }).catch(() => { /* clipboard blocked */ });
