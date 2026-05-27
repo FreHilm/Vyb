@@ -260,6 +260,8 @@ declare global {
       onParallelAgentExited: (callback: (agent: ParallelAgent) => void) => () => void;
       setEditMenuState: (state: EditMenuState) => void;
       onEditMenuAction: (callback: (action: EditMenuAction) => void) => () => void;
+      popupMenu: (label: string, x: number, y: number) => void;
+      setTitleBarOverlay: (color: string, symbolColor: string) => void;
     };
   }
 }
@@ -1972,6 +1974,23 @@ export function App() {
       }}
     >
       <div className="titlebar">
+        {window.api.platform !== 'darwin' && (
+          <div className="titlebar-menu">
+            {['File', 'Edit', 'View'].map((label) => (
+              <button
+                key={label}
+                type="button"
+                className="titlebar-menu-btn"
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  window.api.popupMenu(label, r.left, r.bottom);
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         {activeProfile && (
           <>
             <span className="titlebar-name">{activeProfile.name}</span>

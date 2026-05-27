@@ -196,6 +196,44 @@ ipcMain.on(IPC_CHANNELS.EDIT_MENU_STATE, (_event, state: EditMenuState) => {
   buildMenu();
 });
 
+// Windows/Linux use a custom (hidden) title bar, so Electron never draws a
+// native menu bar — the menu set by buildMenu() exists but is invisible. The
+// renderer title bar renders File/Edit/View buttons and asks us to pop up the
+// matching top-level submenu at the button's location, reusing the exact same
+// (live, correctly-enabled) menu items the macOS menu bar uses.
+ipcMain.on(
+  IPC_CHANNELS.MENU_POPUP,
+  (_event, payload: { label: string; x: number; y: number }) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const appMenu = Menu.getApplicationMenu();
+    const item = appMenu?.items.find((i) => i.label === payload.label);
+    if (item?.submenu) {
+      item.submenu.popup({
+        window: mainWindow,
+        x: Math.round(payload.x),
+        y: Math.round(payload.y),
+      });
+    }
+  },
+);
+
+// Recolor the native window-control overlay (Windows/Linux) to match the
+// renderer's current theme. macOS uses 'hiddenInset' with no overlay, so
+// setTitleBarOverlay would throw there — skip it.
+ipcMain.on(
+  IPC_CHANNELS.TITLEBAR_SET_OVERLAY,
+  (_event, payload: { color: string; symbolColor: string }) => {
+    if (process.platform === 'darwin') return;
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    try {
+      mainWindow.setTitleBarOverlay({
+        color: payload.color,
+        symbolColor: payload.symbolColor,
+      });
+    } catch { /* overlay unsupported on this platform/config */ }
+  },
+);
+
 function openSettings() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC_CHANNELS.SETTINGS_OPEN_DIALOG);
@@ -219,7 +257,11 @@ const createWindow = () => {
     minWidth: 800,
     minHeight: 500,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
-    titleBarOverlay: !isMac ? { color: '#1e1e2e', symbolColor: '#cdd6f4', height: 38 } : undefined,
+    // Neutral grey defaults to avoid a purple flash before the renderer
+    // recolors the overlay to the live theme (TITLEBAR_SET_OVERLAY). The app's
+    // text is always grayscale, so grey symbols match every theme's steady
+    // state; the renderer fine-tunes the background tint on first paint.
+    titleBarOverlay: !isMac ? { color: '#1e1e1e', symbolColor: '#cdcdcd', height: 38 } : undefined,
     backgroundColor: '#1e1e2e',
     icon: appIcon,
     webPreferences: {

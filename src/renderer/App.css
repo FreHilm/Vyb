@@ -11,6 +11,7 @@
 /* Title Bar */
 .titlebar {
   grid-column: 1 / -1;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -20,6 +21,33 @@
   border-bottom: 1px solid var(--c-surface0);
   -webkit-app-region: drag;
   user-select: none;
+}
+
+/* Windows/Linux in-app menu bar. Absolutely positioned at the left so the
+   centered profile name/path stays centered regardless of menu width. */
+.titlebar-menu {
+  position: absolute;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-menu-btn {
+  background: transparent;
+  border: none;
+  color: var(--c-text);
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.titlebar-menu-btn:hover {
+  background: var(--c-surface0);
 }
 
 .titlebar-name {

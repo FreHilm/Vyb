@@ -1,6 +1,7 @@
 import * as pty from 'node-pty';
 import * as os from 'os';
 import * as fs from 'fs';
+import * as path from 'path';
 import { Profile } from '../shared/types';
 import { getResolvedShellEnv } from './shell-env';
 
@@ -12,8 +13,33 @@ import { getResolvedShellEnv } from './shell-env';
 // `node`, `npx`, `claude`, etc. Cheap: each candidate is a single
 // existsSync; entries already in PATH are skipped.
 function supplementPath(currentPath: string): string {
-  if (os.platform() === 'win32') return currentPath;
   const home = os.homedir();
+  // Windows GUI processes inherit the user's registry PATH, but per-user
+  // tool installers (the native `claude` installer drops `claude.exe` in
+  // %USERPROFILE%\.local\bin, npm puts shims in %APPDATA%\npm, scoop/bun/
+  // cargo have their own dirs) frequently aren't on it — leaving PTYs
+  // unable to resolve `claude`, `npx`, etc. exactly like the launchd
+  // problem on macOS. Supplement with `;` separators and case-insensitive
+  // dedupe (Windows paths are case-insensitive).
+  if (os.platform() === 'win32') {
+    const candidates = [
+      path.join(home, '.local', 'bin'),
+      process.env.APPDATA ? path.join(process.env.APPDATA, 'npm') : '',
+      path.join(home, '.bun', 'bin'),
+      path.join(home, '.cargo', 'bin'),
+      path.join(home, 'scoop', 'shims'),
+    ].filter(Boolean);
+    const existing = new Set(
+      currentPath.split(';').filter(Boolean).map((p) => p.toLowerCase()),
+    );
+    try {
+      const extra = candidates.filter(
+        (c) => fs.existsSync(c) && !existing.has(c.toLowerCase()),
+      );
+      if (extra.length > 0) return extra.join(';') + (currentPath ? ';' + currentPath : '');
+    } catch { /* keep currentPath as-is */ }
+    return currentPath;
+  }
   const candidates = [
     `${home}/.local/bin`,
     `${home}/.opencode/bin`,
@@ -31,6 +57,29 @@ function supplementPath(currentPath: string): string {
     if (extra.length > 0) return extra.join(':') + (currentPath ? ':' + currentPath : '');
   } catch { /* keep currentPath as-is */ }
   return currentPath;
+}
+
+// Resolve a bare command name (e.g. `claude`) to a full executable path on
+// Windows. node-pty's Windows backend doesn't reliably search the PATH from
+// the *passed* env when resolving the spawn target — so without this a
+// freshly-supplemented PATH wouldn't help. We replicate cmd.exe's lookup:
+// walk each PATH dir × each PATHEXT extension and return the first real file.
+// Commands that already carry a directory or extension are trusted as-is;
+// if nothing matches we return the original so spawn() fails with the banner.
+function resolveWindowsCommand(cmd: string, pathEnv: string): string {
+  if (!cmd || cmd.includes('\\') || cmd.includes('/') || path.extname(cmd)) {
+    return cmd;
+  }
+  const exts = (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean);
+  for (const dir of pathEnv.split(';').filter(Boolean)) {
+    for (const ext of exts) {
+      const candidate = path.join(dir, cmd + ext);
+      try {
+        if (fs.statSync(candidate).isFile()) return candidate;
+      } catch { /* keep looking */ }
+    }
+  }
+  return cmd;
 }
 
 // True when `p` is a regular file with at least one executable bit
@@ -129,13 +178,26 @@ export class PtyManager {
     // /opt/homebrew/bin (common on bash setups where -l -i -c behaves
     // differently than under zsh) silently ended up with terminals that
     // couldn't find `node`, `npx`, `claude`. Cheap belt-and-suspenders.
-    baseEnv.PATH = supplementPath(baseEnv.PATH || '');
+    //
+    // Windows stores the var as `Path` (any casing). Spreading process.env
+    // into a plain object loses Node's case-insensitive proxy, so we must
+    // locate the existing key and update *it* — writing a fresh `PATH` would
+    // leave a second, conflicting key and node-pty might read the stale one.
+    const pathKey =
+      Object.keys(baseEnv).find((k) => k.toLowerCase() === 'path') || 'PATH';
+    const resolvedPath = supplementPath(baseEnv[pathKey] || '');
+    baseEnv[pathKey] = resolvedPath;
 
     if (agentCmd) {
       // Split command into cmd + args and spawn directly
       const parts = agentCmd.split(/\s+/);
       spawnCmd = parts[0];
       spawnArgs = parts.slice(1);
+      // On Windows, resolve a bare command name to its full .exe/.cmd path
+      // against the supplemented PATH — node-pty won't do this lookup itself.
+      if (os.platform() === 'win32') {
+        spawnCmd = resolveWindowsCommand(spawnCmd, resolvedPath);
+      }
     } else {
       // No command — open the user's preferred login shell rather than
       // hardcoded zsh. Bash / fish / other-shell users now get their

@@ -467,6 +467,8 @@ export const IPC_CHANNELS = {
   ORDNA_EXITED: 'ordna:exited',
   EDIT_MENU_ACTION: 'editMenu:action',
   EDIT_MENU_STATE: 'editMenu:state',
+  MENU_POPUP: 'menu:popup',
+  TITLEBAR_SET_OVERLAY: 'titlebar:setOverlay',
   PARALLEL_AGENT_SPAWN: 'parallel:spawn',
   PARALLEL_AGENT_DESTROY: 'parallel:destroy',
   PARALLEL_AGENT_LIST: 'parallel:list',
