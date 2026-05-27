@@ -196,6 +196,22 @@ ipcMain.on(IPC_CHANNELS.EDIT_MENU_STATE, (_event, state: EditMenuState) => {
   buildMenu();
 });
 
+// Pop the application menu as a dropdown at the given window-relative
+// coordinates. The renderer's title-bar menu button calls this on
+// Windows/Linux where the custom (frameless) title bar means the
+// native menu bar can't render. macOS keeps the system menu bar, so
+// the button isn't shown there.
+ipcMain.on(IPC_CHANNELS.MENU_POPUP, (_event, x: number, y: number) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+  menu.popup({
+    window: mainWindow,
+    x: Math.round(x),
+    y: Math.round(y),
+  });
+});
+
 function openSettings() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC_CHANNELS.SETTINGS_OPEN_DIALOG);

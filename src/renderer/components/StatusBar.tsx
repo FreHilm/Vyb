@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { GitStatus, Profile } from '../../shared/types';
+import { toastError, errMessage } from '../lib/toast';
 
 interface StatusBarProps {
   profile: Profile | null;
@@ -68,6 +69,10 @@ export function StatusBar({ profile, onToggleChanges, onBranchClick }: StatusBar
       await window.api.gitFetch(profile.workingDirectory);
       const updated = await window.api.getGitStatus(profile.workingDirectory);
       setGit(updated);
+    } catch (err) {
+      // No remote, no network, auth prompt — surface it instead of the
+      // button just spinning then doing nothing.
+      toastError(`git fetch failed: ${errMessage(err)}`);
     } finally {
       setFetching(false);
     }

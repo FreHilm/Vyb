@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { toastError, errMessage } from '../lib/toast';
 
 interface UseDictationOptions {
   lang: string;
@@ -52,6 +53,7 @@ export function useDictation({ lang, mode, onTranscript }: UseDictationOptions) 
           }
         } catch (err) {
           console.error('Transcription failed:', err);
+          toastError(`Transcription failed: ${errMessage(err)}`);
         }
         setInterim('');
       };
@@ -60,6 +62,7 @@ export function useDictation({ lang, mode, onTranscript }: UseDictationOptions) 
       setInterim('Recording...');
     } catch (err) {
       console.error('Microphone access failed:', err);
+      toastError(`Microphone access failed: ${errMessage(err)}`);
       setListening(false);
     }
   }, [listening, lang, onTranscript]);

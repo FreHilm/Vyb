@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 type WebviewLike = HTMLElement & {
   src: string;
   reload: () => void;
+  stop: () => void;
   goBack: () => void;
   goForward: () => void;
   canGoBack: () => boolean;
@@ -67,6 +68,7 @@ export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, on
   const [canBack, setCanBack] = useState(false);
   const [canForward, setCanForward] = useState(false);
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
+  const [navLoading, setNavLoading] = useState(false);
   const webviewRef = useRef<WebviewLike | null>(null);
   // Cached main-webview webContentsId. Captured after dom-ready so we
   // can register the context-menu listener and route inbound inspect
@@ -111,6 +113,13 @@ export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, on
         // webview not fully initialised yet
       }
     };
+    // Loading indicator — driven by the webview's start/stop events so
+    // the user gets feedback between hitting Enter and the page
+    // committing (slow sites otherwise look frozen).
+    const onStart = () => setNavLoading(true);
+    const onStop = () => setNavLoading(false);
+    el.addEventListener('did-start-loading', onStart as EventListener);
+    el.addEventListener('did-stop-loading', onStop as EventListener);
     el.addEventListener('did-navigate', sync as EventListener);
     el.addEventListener('did-navigate-in-page', sync as EventListener);
     el.addEventListener('did-finish-load', sync as EventListener);
@@ -126,6 +135,8 @@ export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, on
     };
     el.addEventListener('dom-ready', onDomReady as EventListener);
     return () => {
+      el.removeEventListener('did-start-loading', onStart as EventListener);
+      el.removeEventListener('did-stop-loading', onStop as EventListener);
       el.removeEventListener('did-navigate', sync as EventListener);
       el.removeEventListener('did-navigate-in-page', sync as EventListener);
       el.removeEventListener('did-finish-load', sync as EventListener);
@@ -196,15 +207,23 @@ export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, on
         </button>
         <button
           className="web-viewer-btn"
-          onClick={() => webviewRef.current?.reload()}
-          title="Reload"
+          onClick={() => navLoading ? webviewRef.current?.stop() : webviewRef.current?.reload()}
+          title={navLoading ? 'Stop' : 'Reload'}
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 8a5 5 0 0 1 8.5-3.5L13 6" />
-            <polyline points="13 3 13 6 10 6" />
-            <path d="M13 8a5 5 0 0 1-8.5 3.5L3 10" />
-            <polyline points="3 13 3 10 6 10" />
-          </svg>
+          {navLoading ? (
+            // Spinning loader doubling as a stop button while the page loads.
+            <svg className="spinner-svg" width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5" strokeOpacity="0.25" />
+              <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 8a5 5 0 0 1 8.5-3.5L13 6" />
+              <polyline points="13 3 13 6 10 6" />
+              <path d="M13 8a5 5 0 0 1-8.5 3.5L3 10" />
+              <polyline points="3 13 3 10 6 10" />
+            </svg>
+          )}
         </button>
         <input
           className="web-viewer-address"

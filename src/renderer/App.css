@@ -11,6 +11,7 @@
 /* Title Bar */
 .titlebar {
   grid-column: 1 / -1;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -20,6 +21,30 @@
   border-bottom: 1px solid var(--c-surface0);
   -webkit-app-region: drag;
   user-select: none;
+}
+
+/* App-menu button (Windows/Linux only). Pinned to the left of the
+   centered title; must opt out of the title bar's drag region so it's
+   clickable. */
+.titlebar-menu-btn {
+  position: absolute;
+  left: 8px;
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: var(--c-subtext0);
+  cursor: pointer;
+}
+.titlebar-menu-btn:hover {
+  background: var(--c-surface0);
+  color: var(--c-text);
 }
 
 .titlebar-name {
@@ -6312,4 +6337,78 @@ select option {
   background: var(--c-surface0);
   color: var(--c-text);
   border-left-color: var(--c-yellow);
+}
+
+/* ── Toasts ──────────────────────────────────────────────────────── */
+.toast-container {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(380px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  color: var(--c-text);
+  font-size: 12.5px;
+  line-height: 1.45;
+  animation: toast-in 0.16s ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.toast-icon { flex-shrink: 0; margin-top: 1px; display: flex; }
+.toast-msg { flex: 1; word-break: break-word; }
+.toast-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--c-overlay0);
+  cursor: pointer;
+  padding: 2px;
+  margin: -2px -2px 0 0;
+  border-radius: 4px;
+  display: flex;
+}
+.toast-close:hover { color: var(--c-text); background: var(--c-surface1); }
+.toast-error .toast-icon { color: var(--c-red); }
+.toast-error { border-left: 3px solid var(--c-red); }
+.toast-success .toast-icon { color: var(--c-green); }
+.toast-success { border-left: 3px solid var(--c-green); }
+.toast-info .toast-icon { color: var(--c-blue); }
+.toast-info { border-left: 3px solid var(--c-blue); }
+
+/* ── Spinner ─────────────────────────────────────────────────────── */
+.spinner-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--c-overlay1);
+  font-size: 12.5px;
+}
+.spinner-svg { animation: spinner-rotate 0.7s linear infinite; }
+@keyframes spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+.spinner-label { color: var(--c-subtext0); }
+.spinner-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 80px;
+  padding: 24px;
 }

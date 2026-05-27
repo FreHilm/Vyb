@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { CommandBar } from './components/CommandBar';
+import { ToastContainer } from './components/ToastContainer';
 import { TerminalPane } from './components/TerminalPane';
 import { ShellPane } from './components/ShellPane';
 import { ProfileEditor } from './components/ProfileEditor';
@@ -259,6 +260,7 @@ declare global {
       onParallelAgentChange: (callback: (agent: ParallelAgent) => void) => () => void;
       onParallelAgentExited: (callback: (agent: ParallelAgent) => void) => () => void;
       setEditMenuState: (state: EditMenuState) => void;
+      popupAppMenu: (x: number, y: number) => void;
       onEditMenuAction: (callback: (action: EditMenuAction) => void) => () => void;
     };
   }
@@ -1972,6 +1974,23 @@ export function App() {
       }}
     >
       <div className="titlebar">
+        {window.api.platform !== 'darwin' && (
+          // Windows/Linux: the custom (frameless) title bar hides the
+          // native menu bar, so expose the app menu via this button.
+          // macOS keeps the system menu bar, so it's omitted there.
+          <button
+            className="titlebar-menu-btn"
+            title="Menu"
+            onClick={(e) => {
+              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              window.api.popupAppMenu(r.left, r.bottom);
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
+            </svg>
+          </button>
+        )}
         {activeProfile && (
           <>
             <span className="titlebar-name">{activeProfile.name}</span>
@@ -2454,6 +2473,7 @@ export function App() {
           </div>
         );
       })()}
+      <ToastContainer />
     </div>
   );
 }

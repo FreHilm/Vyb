@@ -132,10 +132,23 @@ export class PtyManager {
     baseEnv.PATH = supplementPath(baseEnv.PATH || '');
 
     if (agentCmd) {
-      // Split command into cmd + args and spawn directly
-      const parts = agentCmd.split(/\s+/);
-      spawnCmd = parts[0];
-      spawnArgs = parts.slice(1);
+      if (os.platform() === 'win32') {
+        // On Windows the agent CLIs (claude, codex, gemini, opencode)
+        // are installed as `.cmd` / `.ps1` shims by npm's global bin.
+        // node-pty → CreateProcess does NOT do PATHEXT resolution, so
+        // spawning "claude" directly fails with ENOENT even though it
+        // works when typed in a shell (which resolves claude.cmd via
+        // PATHEXT). Run the command through cmd.exe so the shim
+        // resolves — `/c` exits cmd when the agent exits, and cmd
+        // loads no profile so it doesn't pollute the agent's output.
+        spawnCmd = process.env.COMSPEC || 'cmd.exe';
+        spawnArgs = ['/c', agentCmd];
+      } else {
+        // Split command into cmd + args and spawn directly.
+        const parts = agentCmd.split(/\s+/);
+        spawnCmd = parts[0];
+        spawnArgs = parts.slice(1);
+      }
     } else {
       // No command — open the user's preferred login shell rather than
       // hardcoded zsh. Bash / fish / other-shell users now get their

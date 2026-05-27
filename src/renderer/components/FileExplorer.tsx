@@ -23,6 +23,8 @@ import { ExcalidrawEditor, type ExcalidrawEditorHandle } from './ExcalidrawEdito
 import { SWORD_SHAPE } from '../file-icons';
 import { FileHistoryView } from './FileHistoryView';
 import { ErrorBoundary } from './ErrorBoundary';
+import { Spinner } from './Spinner';
+import { toastError, errMessage } from '../lib/toast';
 import { blameGutter } from '../lib/blame-gutter';
 import { stickyScroll } from '../lib/sticky-scroll';
 import type { GitBlameLine } from '../../shared/types';
@@ -1130,7 +1132,16 @@ export function FileExplorer({
     }
     if (content === null) return;
     setSaving(true);
-    await window.api.saveFile(path, content);
+    try {
+      await window.api.saveFile(path, content);
+    } catch (err) {
+      // Disk full, permission denied, file removed underneath us, etc.
+      // Surface it — a silently-failed save is the worst case (user
+      // thinks their work is on disk when it isn't).
+      setSaving(false);
+      toastError(`Couldn't save ${fileName(path)}: ${errMessage(err)}`);
+      return;
+    }
     docCacheRef.current.set(path, content);
     savedContentRef.current.set(path, content);
     setModifiedSet((s) => { const n = new Set(s); n.delete(path); return n; });
@@ -2136,7 +2147,7 @@ export function FileExplorer({
               disabled={saving || !activeIsModified}
               title="Save (Cmd+S)"
             >
-              Save
+              {saving ? <Spinner label="Saving…" size={13} /> : 'Save'}
             </button>
             <button
               className="file-tab-action-btn"

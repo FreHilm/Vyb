@@ -467,6 +467,10 @@ export const IPC_CHANNELS = {
   ORDNA_EXITED: 'ordna:exited',
   EDIT_MENU_ACTION: 'editMenu:action',
   EDIT_MENU_STATE: 'editMenu:state',
+  /** Pop the native application menu as a dropdown — used by the
+   * in-app menu button on Windows/Linux where the custom title bar
+   * hides the native menu bar. */
+  MENU_POPUP: 'menu:popup',
   PARALLEL_AGENT_SPAWN: 'parallel:spawn',
   PARALLEL_AGENT_DESTROY: 'parallel:destroy',
   PARALLEL_AGENT_LIST: 'parallel:list',

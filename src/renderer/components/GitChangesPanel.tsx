@@ -5,6 +5,8 @@ import { BranchTree } from './BranchTree';
 import { SplitButton, type SplitButtonItem } from './SplitButton';
 import { ConflictResolver } from './ConflictResolver';
 import { buildPartialPatch } from '../lib/hunk-patch';
+import { Spinner } from './Spinner';
+import { toastError, errMessage } from '../lib/toast';
 
 interface GitChangedFile {
   path: string;
@@ -750,7 +752,7 @@ function CompareView({
       </div>
       <div className="git-compare-body">
         <div className="git-compare-files">
-          {loading && <div className="git-changes-loading">Loading…</div>}
+          {loading && <div className="git-changes-loading"><Spinner label="Loading…" /></div>}
           {!loading && files.length === 0 && (
             <div className="git-changes-empty">No differences</div>
           )}
@@ -776,7 +778,7 @@ function CompareView({
         </div>
         <div className="git-compare-diff">
           {diffLoading ? (
-            <div className="git-diff-empty">Loading diff…</div>
+            <div className="git-diff-empty"><Spinner label="Loading diff…" /></div>
           ) : selectedPath ? (
             <FileDiff diff={diff} mode={diffViewMode} />
           ) : (
@@ -1220,7 +1222,12 @@ export function GitChangesPanel({
     // The post-discard reload reconciles (e.g. if discard failed the file
     // reappears).
     setFiles((prev) => prev.filter((f) => f.path !== target.path || f.staged !== target.staged));
-    await window.api.gitDiscardFile(workingDirectory, target.path, target.status === 'untracked');
+    try {
+      await window.api.gitDiscardFile(workingDirectory, target.path, target.status === 'untracked');
+    } catch (err) {
+      toastError(`Couldn't discard ${target.path}: ${errMessage(err)}`);
+    }
+    // Reload reconciles either way — on failure the row reappears.
     await reloadFiles();
   }, [discardTarget, workingDirectory, reloadFiles]);
 
@@ -1741,7 +1748,7 @@ function ChangesView({
   return (
     <div className="git-changes-split">
       <div className="git-changes-list">
-        {loading && <div className="git-changes-loading">Loading...</div>}
+        {loading && <div className="git-changes-loading"><Spinner label="Loading changes…" /></div>}
         {!loading && files.length === 0 && (
           <div className="git-changes-empty">No changes</div>
         )}
@@ -1959,7 +1966,7 @@ function FileSection({
             {isOpen && (
               <div className="git-changes-diff-wrapper">
                 {diff === undefined ? (
-                  <div className="git-diff-empty">Loading diff...</div>
+                  <div className="git-diff-empty"><Spinner label="Loading diff…" /></div>
                 ) : (
                   <FileDiff
                     diff={diff}

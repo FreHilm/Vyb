@@ -6,6 +6,7 @@ import '@xterm/xterm/css/xterm.css';
 import { AppSettings } from '../../shared/types';
 import { getTerminalTheme } from '../theme';
 import { setupTerminalDrop, debouncedPtyResize, makeTerminalKeyHandler } from './TerminalPane';
+import { Spinner } from './Spinner';
 
 interface KanbanViewerProps {
   /** Opaque key for this Ordna instance — `${profileId}` for parent view,
@@ -64,7 +65,7 @@ export function KanbanViewer({ instanceKey, profileId, cwd, settings, hidden }: 
   if (loading) {
     return (
       <div className="kanban-viewer" style={wrapperStyle}>
-        <div className="kanban-loading">Starting Ordna…</div>
+        <div className="kanban-loading"><Spinner label="Starting Ordna…" center /></div>
       </div>
     );
   }
