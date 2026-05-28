@@ -125,6 +125,11 @@ export function loginShellPath(envShell?: string): string {
 interface PtyInstance {
   process: pty.IPty;
   profile: Profile;
+  /** True when this PTY is hosting the user's interactive shell directly
+   * (no agent command was set on the profile). Used by the Windows Ctrl+C
+   * helper to decide whether sending a console-ctrl event is safe — agent
+   * CLIs read `\x03` as a TUI key and a second signal can over-cancel. */
+  isShell: boolean;
 }
 
 export class PtyManager {
@@ -306,7 +311,7 @@ export class PtyManager {
       this.onExit(profileId, exitCode);
     });
 
-    this.ptys.set(profileId, { process: ptyProcess, profile });
+    this.ptys.set(profileId, { process: ptyProcess, profile, isShell: !agentCmd });
   }
 
   write(profileId: string, data: string): void {
@@ -314,6 +319,14 @@ export class PtyManager {
     if (instance) {
       instance.process.write(data);
     }
+  }
+
+  getPid(profileId: string): number | undefined {
+    return this.ptys.get(profileId)?.process.pid;
+  }
+
+  isShell(profileId: string): boolean {
+    return this.ptys.get(profileId)?.isShell ?? false;
   }
 
   resize(profileId: string, cols: number, rows: number): void {
