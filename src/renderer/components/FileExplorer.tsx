@@ -24,7 +24,12 @@ import { SWORD_SHAPE } from '../file-icons';
 import { FileHistoryView } from './FileHistoryView';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Spinner } from './Spinner';
-import { toastError, errMessage } from '../lib/toast';
+import { toastError, toastInfo, errMessage } from '../lib/toast';
+
+// Working directories we've already warned about being large/cloud-heavy,
+// so the toast fires at most once per path per session (not on every
+// Files-tab open or profile switch).
+const warnedLargeDirs = new Set<string>();
 import { blameGutter } from '../lib/blame-gutter';
 import { stickyScroll } from '../lib/sticky-scroll';
 import type { GitBlameLine } from '../../shared/types';
@@ -937,6 +942,21 @@ export function FileExplorer({
         if (p.absPath) handleExternalFileChange(p.absPath);
       });
     });
+
+    // One-time warning if this working directory is a home/cloud root or
+    // otherwise huge. The tree still works (lazy per level) but deep
+    // auto-refresh is disabled and scanning is slow — point the profile
+    // at a specific project folder for the best experience.
+    if (!warnedLargeDirs.has(workingDirectory)) {
+      window.api.isLargeDir(workingDirectory).then((large) => {
+        if (cancelled || !large) return;
+        if (warnedLargeDirs.has(workingDirectory)) return;
+        warnedLargeDirs.add(workingDirectory);
+        toastInfo(
+          'This working directory is very large (home or cloud-sync folder). The file tree may be slow and live auto-refresh is limited — point the profile at a specific project folder for best results.',
+        );
+      }).catch((): void => undefined);
+    }
 
     return () => {
       cancelled = true;

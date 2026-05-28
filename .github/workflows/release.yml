@@ -49,6 +49,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y rpm fakeroot dpkg
 
+      # Fail fast with a clear, actionable message if package-lock.json
+      # has drifted from package.json — otherwise `npm ci` rejects it
+      # with a cryptic wall of usage text. Drift usually sneaks in after
+      # a merge (the lockfile is a generated file that merges badly) or
+      # a hand-edit of package.json without re-running `npm install`.
+      # Linux only — it's platform-independent, no need to run 3×.
+      - name: Verify package-lock.json is in sync
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cp package-lock.json /tmp/lock.before
+          npm install --package-lock-only --no-audit --no-fund >/dev/null 2>&1
+          if ! diff -q /tmp/lock.before package-lock.json >/dev/null; then
+            echo "::error::package-lock.json is out of sync with package.json."
+            echo "Fix: run 'npm install' locally, commit the updated package-lock.json, and push."
+            diff /tmp/lock.before package-lock.json | head -40 || true
+            exit 1
+          fi
+          echo "package-lock.json is in sync."
+
       - name: Install
         run: npm ci
 

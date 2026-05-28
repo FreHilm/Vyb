@@ -3691,12 +3691,57 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     'out', '.cache', '.parcel-cache', 'coverage', '.nyc_output',
     '.idea', '.vscode', '.DS_Store',
   ]);
+  // Cloud-sync roots that routinely hold 100k+ files (often dataless
+  // placeholders). A recursive fs.watch over these enumerates the whole
+  // subtree on macOS and spikes memory into a fatal V8 allocation —
+  // never recurse into them.
+  const CLOUD_SYNC_DIRS = new Set([
+    'Dropbox', 'Google Drive', 'GoogleDrive', 'OneDrive', 'OneDrive - Personal',
+    'Creative Cloud Files', 'iCloud Drive', 'Library', 'Mobile Documents',
+    'Sync', 'pCloud Drive', 'Box', 'Box Sync', 'MEGA', 'Nextcloud',
+  ]);
   function watchPathIsNoise(rel: string): boolean {
     if (!rel) return false;
     for (const segment of rel.split(/[\\/]/)) {
       if (WATCH_IGNORE_SEGMENTS.has(segment)) return true;
     }
     return false;
+  }
+
+  // Bounded probe: is the tree small enough to safely watch recursively?
+  // We breadth-walk readdir (which lists names only — does NOT hydrate
+  // dataless cloud placeholders) skipping noise + cloud roots, and bail
+  // the moment we exceed a node cap or a time budget. Because we
+  // early-exit, even a 100k-file home dir costs only a few MB here —
+  // unlike fs.watch({recursive:true}) which would enumerate the whole
+  // thing and crash the process. Returns false → caller uses a cheap
+  // non-recursive (top-level only) watch instead.
+  const RECURSIVE_WATCH_MAX_NODES = 50000;
+  const RECURSIVE_WATCH_TIME_BUDGET_MS = 1500;
+  function treeFitsForRecursiveWatch(root: string): boolean {
+    const start = Date.now();
+    let count = 0;
+    const stack: string[] = [root];
+    while (stack.length) {
+      if (count > RECURSIVE_WATCH_MAX_NODES) return false;
+      if (Date.now() - start > RECURSIVE_WATCH_TIME_BUDGET_MS) return false;
+      const dir = stack.pop()!;
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        continue; // unreadable subdir — skip, keep probing
+      }
+      for (const e of entries) {
+        if (++count > RECURSIVE_WATCH_MAX_NODES) return false;
+        if (e.isDirectory()) {
+          if (WATCH_IGNORE_SEGMENTS.has(e.name)) continue;
+          if (CLOUD_SYNC_DIRS.has(e.name)) return false; // cloud root present → too risky
+          stack.push(path.join(dir, e.name));
+        }
+      }
+    }
+    return true;
   }
 
   ipcMain.handle(IPC_CHANNELS.FILE_WATCH_START, (_, cwd: string): string | null => {
@@ -3707,8 +3752,17 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       return null;
     }
     const id = `fw-${nextFileWatchId++}`;
+    // Only watch recursively when the tree is provably small enough.
+    // For oversized / cloud-heavy directories we fall back to a
+    // non-recursive watch: top-level changes still drive a refresh, and
+    // we avoid the FSEvents enumeration that crashes the process. The
+    // user can still expand + manually refresh deeper folders.
+    const recursive = treeFitsForRecursiveWatch(cwd);
+    if (!recursive) {
+      console.warn(`[file-watch] ${cwd} is large or contains cloud-sync roots — using non-recursive watch to avoid OOM`);
+    }
     try {
-      const watcher = fs.watch(cwd, { recursive: true, persistent: true }, (eventType, filename) => {
+      const watcher = fs.watch(cwd, { recursive, persistent: true }, (eventType, filename) => {
         const rel = (filename ?? '').toString();
         if (watchPathIsNoise(rel)) return;
         const abs = rel ? path.join(cwd, rel) : cwd;
@@ -3735,6 +3789,20 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     if (!watcher) return;
     try { watcher.close(); } catch { /* already closed */ }
     fileWatchers.delete(watchId);
+  });
+
+  // Reuses the same bounded probe the watcher uses: true means the
+  // directory is large/cloud-heavy enough that the file tree may be
+  // slow and deep auto-refresh is disabled. Drives a one-time renderer
+  // warning. Cheap — the probe early-exits.
+  ipcMain.handle(IPC_CHANNELS.FILE_DIR_IS_LARGE, (_, cwd: string): boolean => {
+    if (!cwd) return false;
+    try {
+      if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) return false;
+    } catch {
+      return false;
+    }
+    return !treeFitsForRecursiveWatch(cwd);
   });
 
   ipcMain.handle(IPC_CHANNELS.FILE_DELETE, (_, targetPath: string): boolean => {
