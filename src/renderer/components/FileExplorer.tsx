@@ -168,11 +168,49 @@ class ChangeMarkersView {
     const target = e.target as HTMLElement;
     const lineAttr = target?.dataset?.line;
     if (!lineAttr) return;
-    const line = Number(lineAttr);
+    const startLine = Number(lineAttr);
     const doc = this.view.state.doc;
-    if (!Number.isFinite(line) || line < 1 || line > doc.lines) return;
-    const pos = doc.line(line).from;
-    this.view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+    if (!Number.isFinite(startLine) || startLine < 1 || startLine > doc.lines) return;
+
+    // Look up the full chunk so we can decide whether to center it
+    // (fits in viewport) or top-anchor with context above (larger
+    // than the viewport). The marker only carries the start line.
+    const result = getChunks(this.view.state);
+    const startPos = doc.line(startLine).from;
+    let endPos = startPos;
+    if (result) {
+      const chunk = result.chunks.find((c) => {
+        const l = doc.lineAt(Math.min(c.fromB, doc.length)).number;
+        return l === startLine;
+      });
+      if (chunk) endPos = Math.min(chunk.toB, doc.length);
+    }
+
+    // The sticky scope bar at the top of the editor (sticky-scroll
+    // plugin) takes up roughly 3 line-heights. Leave that much extra
+    // space so the change isn't hidden behind it when we anchor at the
+    // top, and so a 1-line change centered still has context visible
+    // around it. There's no public API to query the live sticky-bar
+    // height, so we conservatively reserve 3 lines + a small pad.
+    const lineHeight = this.view.defaultLineHeight;
+    const viewportHeight = this.view.scrollDOM.clientHeight;
+    const stickyBuffer = lineHeight * 3 + 8;
+    const chunkLines = doc.lineAt(endPos).number - startLine + 1;
+    const chunkPx = chunkLines * lineHeight;
+
+    // Small/medium chunks (fit comfortably above the sticky bar) —
+    // center vertically. Large chunks — anchor the chunk start a few
+    // lines below the sticky bar so the change beginning is visible
+    // with context above it and the rest scrolls down naturally.
+    const fitsCentered = chunkPx < viewportHeight - stickyBuffer - lineHeight * 4;
+    const scrollEffect = fitsCentered
+      ? EditorView.scrollIntoView(startPos, { y: 'center' })
+      : EditorView.scrollIntoView(startPos, { y: 'start', yMargin: stickyBuffer });
+
+    this.view.dispatch({
+      selection: { anchor: startPos },
+      effects: scrollEffect,
+    });
     this.view.focus();
   };
   update(u: ViewUpdate) {

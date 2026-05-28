@@ -4474,32 +4474,43 @@ select option {
    underlying syntax-highlighted text stays readable — earlier 14% was
    bright enough to wash out oneDark's keyword colors against the
    light Catppuccin green. */
+/* Diff rows use hand-picked dark green/red instead of Catppuccin's
+   --c-green / --c-red — those vars are LIGHT mint/pink foreground
+   accents, and mixing them produces a row that's too bright for
+   syntax tokens (yellow/cyan/blue keywords) to keep contrast. These
+   HSL values match the GitHub / Claude diff palette: dark enough to
+   preserve foreground readability, saturated enough to identify
+   clearly as a green/red row. The 3 px left-edge accent still uses
+   the bright Catppuccin var — that's just a stripe, no contrast
+   penalty. */
 .cm-editor .cm-changedLine {
-  background-color: color-mix(in srgb, var(--c-green) 8%, transparent) !important;
+  background-color: hsl(135 35% 14%) !important;
+  box-shadow: inset 3px 0 0 var(--c-green);
 }
-/* Per-word "inside the changed line" highlight. Slightly brighter than
-   the line background so the actual edits stand out, but well below
-   the previous 30% which made the text borderline unreadable. The
-   default merge theme also paints a thick green underline under each
-   token via `text-decoration` — we override it to a faint dotted line
-   so the change is hinted at without overpowering the syntax colors. */
+/* Per-word edit — hand-tuned dark green that sits close to the row
+   tint so the inline change reads as a subtle inset rather than a
+   bright stripe. */
 .cm-editor .cm-changedText {
-  background-color: color-mix(in srgb, var(--c-green) 12%, transparent) !important;
+  background-color: hsl(135deg 34.43% 16.85%) !important;
   text-decoration: none !important;
-  border-bottom: 1px dotted color-mix(in srgb, var(--c-green) 55%, transparent) !important;
+  border-bottom: 1px solid hsl(135deg 23.2% 21.48%) !important;
   background-image: none !important;
+  border-radius: 2px;
 }
+/* Removed lines render as a ghost block between the surrounding rows.
+   Same dark-tint strategy in red. */
 .cm-editor .cm-deletedChunk {
-  background-color: color-mix(in srgb, var(--c-red) 16%, transparent) !important;
-  border-left: 2px solid var(--c-red);
+  background-color: hsl(0 35% 18%) !important;
+  box-shadow: inset 3px 0 0 var(--c-red);
   padding: 2px 0 2px 6px;
   color: var(--c-text);
   font-family: var(--cm-editor-font-family, ui-monospace, monospace);
 }
 .cm-editor .cm-deletedText {
-  background-color: color-mix(in srgb, var(--c-red) 30%, transparent) !important;
+  background-color: hsl(0 45% 30%) !important;
   text-decoration: line-through;
-  text-decoration-color: color-mix(in srgb, var(--c-red) 70%, transparent);
+  text-decoration-color: hsl(0 55% 50%);
+  border-radius: 2px;
 }
 /* Hide the deleted-block gutter rail so the red region reads as a pure
    ghost block — the green side keeps its real line numbers. */
@@ -4521,8 +4532,6 @@ select option {
 }
 .cm-editor .cm-change-marker {
   position: absolute;
-  left: 0;
-  right: 0;
   min-height: 3px;
   border-radius: 2px;
   pointer-events: auto;
@@ -4534,11 +4543,20 @@ select option {
   transform: scaleX(1.4);
   transform-origin: right center;
 }
+/* Split the 6 px track in half: adds on the left, deletes on the right.
+   A modification chunk (both add + delete at the same line) shows
+   both ticks side-by-side instead of one hiding the other — pure adds
+   and pure deletes still occupy their own half, so the visual is
+   unchanged for the common case. */
 .cm-editor .cm-change-marker-add {
   background: var(--c-green);
+  left: 0;
+  right: 50%;
 }
 .cm-editor .cm-change-marker-del {
   background: var(--c-red);
+  left: 50%;
+  right: 0;
 }
 
 /* Shown inside .file-tree-list when the "show changed only" filter is
