@@ -49,6 +49,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y rpm fakeroot dpkg
 
+      # Forge's GitHub publisher uses package.json `version` (not the
+      # git tag) to pick the target release. If we push v0.9.1 but
+      # package.json still says 0.9.0, artifacts silently upload to a
+      # v0.9.0 draft and the v0.9.1 draft stays empty. Fail fast here.
+      # Linux only — platform-independent, no need to run 3×.
+      - name: Verify package.json version matches tag
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "$PKG_VERSION" ]; then
+            echo "::error::tag $GITHUB_REF_NAME doesn't match package.json version $PKG_VERSION."
+            echo "Fix: bump package.json to $TAG (and run 'npm install' to sync the lockfile), commit, delete and re-create the tag on the new commit."
+            exit 1
+          fi
+          echo "tag $GITHUB_REF_NAME matches package.json version $PKG_VERSION."
+
       # Fail fast with a clear, actionable message if package-lock.json
       # has drifted from package.json — otherwise `npm ci` rejects it
       # with a cryptic wall of usage text. Drift usually sneaks in after
