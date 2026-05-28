@@ -218,6 +218,7 @@ declare global {
       resolveFilePath: (workingDir: string, token: string) => Promise<string | null>;
       watchDir: (cwd: string) => Promise<string | null>;
       unwatchDir: (watchId: string) => Promise<void>;
+      isLargeDir: (cwd: string) => Promise<boolean>;
       onFileWatchChange: (
         callback: (payload: { watchId: string; eventType: string; absPath: string; relPath: string }) => void,
       ) => () => void;

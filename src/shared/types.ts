@@ -446,6 +446,10 @@ export const IPC_CHANNELS = {
   FILE_WATCH_START: 'file:watchStart',
   FILE_WATCH_STOP: 'file:watchStop',
   FILE_WATCH_CHANGE: 'file:watchChange',
+  /** Returns true if a directory is too large / cloud-heavy to scan
+   * comfortably (home dir, Dropbox/Drive roots, 50k+ files). Drives a
+   * one-time warning when a profile points at such a directory. */
+  FILE_DIR_IS_LARGE: 'file:dirIsLarge',
   FILE_RENAME: 'file:rename',
   FILE_COPY: 'file:copy',
   FILE_CREATE_DIR: 'file:createDir',

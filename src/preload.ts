@@ -383,6 +383,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.FILE_WATCH_START, cwd),
   unwatchDir: (watchId: string): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_WATCH_STOP, watchId),
+  isLargeDir: (cwd: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_DIR_IS_LARGE, cwd),
   onFileWatchChange: (
     callback: (payload: { watchId: string; eventType: string; absPath: string; relPath: string }) => void,
   ): (() => void) => {
