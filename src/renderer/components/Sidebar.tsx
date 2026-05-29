@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { ProfileItem } from './ProfileItem';
+import { WorkspaceDropdown } from './WorkspaceDropdown';
 import {
   Profile,
   AgentStatus,
@@ -7,6 +8,7 @@ import {
   SidebarFolder,
   SidebarItem,
   ParallelAgent,
+  Workspace,
 } from '../../shared/types';
 
 interface SidebarProps {
@@ -33,6 +35,22 @@ interface SidebarProps {
   /** Profile IDs whose icon is currently being AI-generated. Each
    * matching ProfileItem shows a small spinner over its icon. */
   pendingIconGenerations?: Set<string>;
+  // Workspaces — the dropdown above the profile list scopes everything
+  // below it to the active workspace. Profiles / folders without an
+  // explicit workspaceId are treated as belonging to the first
+  // workspace (the migration-default).
+  workspaces: Workspace[];
+  activeWorkspaceId: string;
+  onSelectWorkspace: (workspaceId: string) => void;
+  onAddWorkspace: (name: string) => void;
+  onRenameWorkspace: (workspaceId: string, name: string) => void;
+  onDeleteWorkspace: (workspaceId: string) => void;
+  /** Move a profile (or a folder + every profile inside it) into the
+   * target workspace. Fired by the workspace-dropdown drop handler. */
+  onMoveToWorkspace: (
+    payload: { type: 'profile' | 'folder'; id: string },
+    targetWorkspaceId: string,
+  ) => void;
 }
 
 const PARALLEL_PHASE_COLORS: Record<string, string> = {
@@ -178,8 +196,8 @@ export function Sidebar({
   profiles,
   activeProfileId,
   statuses,
-  layout,
-  onLayoutChange,
+  layout: fullLayout,
+  onLayoutChange: notifyLayoutChange,
   onSelectProfile,
   onEditProfile,
   onAddProfile,
@@ -196,14 +214,110 @@ export function Sidebar({
   onRunParallel,
   onStopParallel,
   pendingIconGenerations,
+  workspaces,
+  activeWorkspaceId,
+  onSelectWorkspace,
+  onAddWorkspace,
+  onRenameWorkspace,
+  onDeleteWorkspace,
+  onMoveToWorkspace,
 }: SidebarProps) {
+  // Filter profiles + folders to the currently-active workspace.
+  // Entities without an explicit workspaceId are treated as belonging
+  // to the first workspace (pre-migration default), so legacy data
+  // shows up under the original "Default" workspace until the user
+  // explicitly moves it (future drag-and-drop).
+  const defaultWorkspaceId = workspaces[0]?.id ?? '';
+  const inActiveWorkspace = useCallback((wsId: string | undefined): boolean => {
+    const effective = wsId || defaultWorkspaceId;
+    return effective === activeWorkspaceId;
+  }, [activeWorkspaceId, defaultWorkspaceId]);
+
+  const visibleLayout = useMemo<SidebarLayout>(() => {
+    const profilesById = new Map(profiles.map((p) => [p.id, p]));
+    const visibleFolders = fullLayout.folders.filter((f) =>
+      inActiveWorkspace(f.workspaceId),
+    );
+    const visibleFolderIds = new Set(visibleFolders.map((f) => f.id));
+    const visibleItems = fullLayout.items.filter((item) => {
+      if (item.type === 'folder') return visibleFolderIds.has(item.folderId);
+      const p = profilesById.get(item.profileId);
+      return p ? inActiveWorkspace(p.workspaceId) : false;
+    });
+    return { items: visibleItems, folders: visibleFolders };
+  }, [fullLayout, profiles, inActiveWorkspace]);
+
+  // Alias so the rest of the component (DnD callbacks, render code)
+  // can keep referencing `layout` against the workspace-filtered view
+  // without needing to be rewritten end-to-end.
+  const layout = visibleLayout;
+
+  // DnD + folder operations inside the Sidebar produce a new layout
+  // for the VISIBLE (active-workspace) slice. We must merge it back
+  // into the full layout so the other workspaces' items + folders
+  // aren't dropped on save. Non-visible items keep their relative
+  // order; visible items take the new ordering the user just made.
+  // New folders created via this UI inherit the active workspace.
+  const onLayoutChange = useCallback((newVisible: SidebarLayout) => {
+    const profilesById = new Map(profiles.map((p) => [p.id, p]));
+    const newVisibleFolderIds = new Set(newVisible.folders.map((f) => f.id));
+    const nonVisibleFolders = fullLayout.folders.filter(
+      (f) => !inActiveWorkspace(f.workspaceId),
+    );
+    const nonVisibleItems = fullLayout.items.filter((item) => {
+      if (item.type === 'folder') {
+        const f = fullLayout.folders.find((x) => x.id === item.folderId);
+        return f ? !inActiveWorkspace(f.workspaceId) : false;
+      }
+      const p = profilesById.get(item.profileId);
+      return p ? !inActiveWorkspace(p.workspaceId) : false;
+    });
+    // Tag any brand-new folders (without workspaceId yet) with the
+    // currently-active workspace so they only show in this view.
+    const taggedFolders = newVisible.folders.map((f) =>
+      f.workspaceId ? f : { ...f, workspaceId: activeWorkspaceId },
+    );
+    // De-dupe in case a folder was duplicated across nonVisible+new
+    // (shouldn't happen but cheap to guard).
+    const mergedFolders = [
+      ...nonVisibleFolders.filter((f) => !newVisibleFolderIds.has(f.id)),
+      ...taggedFolders,
+    ];
+    notifyLayoutChange({
+      items: [...nonVisibleItems, ...newVisible.items],
+      folders: mergedFolders,
+    });
+  }, [fullLayout, profiles, inActiveWorkspace, activeWorkspaceId, notifyLayoutChange]);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [folderNameInput, setFolderNameInput] = useState('');
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const dragDataRef = useRef<DragData | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
-  const effective = buildEffectiveLayout(layout, profiles);
+  // Workspace-scoped profile list for the effective-layout build.
+  // Passing the FULL `profiles` here would make buildEffectiveLayout
+  // append every profile in every workspace as "unplaced" — so a fresh
+  // empty workspace would still display every profile from every
+  // other workspace as a flat list. We want zero profiles to render
+  // until they're explicitly moved into this workspace.
+  const visibleProfiles = useMemo(
+    () => profiles.filter((p) => inActiveWorkspace(p.workspaceId)),
+    [profiles, inActiveWorkspace],
+  );
+
+  // Per-workspace profile counts for the dropdown. Same membership
+  // rule as the visible filter — legacy profiles without an explicit
+  // workspaceId are credited to the first (Default) workspace.
+  const profileCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const w of workspaces) counts[w.id] = 0;
+    for (const p of profiles) {
+      const wsId = p.workspaceId || defaultWorkspaceId;
+      if (wsId in counts) counts[wsId] += 1;
+    }
+    return counts;
+  }, [profiles, workspaces, defaultWorkspaceId]);
+  const effective = buildEffectiveLayout(layout, visibleProfiles);
   const folderMap = new Map(effective.folders.map((f) => [f.id, f]));
   const profileMap = new Map(profiles.map((p) => [p.id, p]));
 
@@ -526,7 +640,16 @@ export function Sidebar({
         </div>
       )}
       <div className="sidebar-header">
-        <h2>Agents</h2>
+        <WorkspaceDropdown
+          workspaces={workspaces}
+          activeWorkspaceId={activeWorkspaceId}
+          onSelect={onSelectWorkspace}
+          onAdd={onAddWorkspace}
+          onRename={onRenameWorkspace}
+          onDelete={onDeleteWorkspace}
+          onMoveToWorkspace={onMoveToWorkspace}
+          profileCounts={profileCounts}
+        />
         <div className="sidebar-header-actions">
           <button
             className="add-profile-btn"

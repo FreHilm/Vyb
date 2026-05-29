@@ -99,8 +99,38 @@
    (title + action buttons) are already display:none above, but the
    bar itself still claimed 32 px of background-tinted space at the
    top of the sidebar. Removing it collapses that empty band. */
+/* Compact mode: keep the header visible but slim it down so it only
+   hosts the small workspace badge — the old "Agents" label and add
+   buttons are hidden via the rule above. Without showing the header
+   the workspace dropdown wouldn't render at all in compact mode. */
 .app-sidebar-compact .sidebar-header {
+  height: 22px;
+  padding: 0;
+  justify-content: center;
+  align-items: center;
+}
+/* Trim the empty band between the workspace pill and the first folder
+   divider below it in compact mode. */
+.app-sidebar-compact .sidebar-profiles {
+  padding-top: 0;
+  /* Hide the scrollbar's LAYOUT footprint in compact mode. A classic
+     scrollbar takes ~15 px on the right only when the list overflows,
+     which shifts the centered icon column left and breaks alignment
+     with the (non-scrolling) workspace pill in the header. Removing
+     its width keeps the icon column a constant width — centered and
+     aligned with the pill — whether or not the list scrolls. Wheel /
+     trackpad scrolling still works. Scoped to compact so the expanded
+     sidebar keeps its normal scrollbar (where left-aligned labels
+     don't care about the gutter). */
+  scrollbar-width: none; /* Firefox */
+}
+.app-sidebar-compact .sidebar-profiles::-webkit-scrollbar {
+  width: 0;
+  height: 0;
   display: none;
+}
+.app-sidebar-compact .sidebar-folder:first-child > .sidebar-folder-header {
+  margin-top: 2px;
 }
 /* Previously hid the first folder-header in compact mode because it
    looked like an orphaned 1 px line. Restored: clicking the divider
@@ -6432,4 +6462,237 @@ select option {
   justify-content: center;
   min-height: 80px;
   padding: 24px;
+}
+
+/* ── Workspace dropdown (replaces the old "Agents" h2 at the top of
+   the sidebar) ────────────────────────────────────────────────── */
+.workspace-dropdown {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.workspace-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  color: var(--c-subtext0);
+  font: inherit;
+  font-size: calc(var(--profile-font-size) - 2px);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.workspace-dropdown-trigger:hover { color: var(--c-text); }
+.workspace-dropdown-trigger.is-open { color: var(--c-text); }
+/* Lit up while a profile/folder is being dragged toward the dropdown,
+   signalling that this is a valid drop target. */
+.workspace-dropdown-trigger.is-drop-target {
+  color: var(--c-blue);
+  background: color-mix(in srgb, var(--c-blue) 12%, transparent);
+  border-radius: 4px;
+}
+.workspace-dropdown-name {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workspace-dropdown-chevron {
+  flex-shrink: 0;
+  transition: transform 0.12s ease;
+  color: var(--c-overlay0);
+}
+
+.workspace-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: -8px;
+  min-width: 220px;
+  max-width: 320px;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  border-radius: 7px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  padding: 4px;
+  /* Above the various floating panels (modals at 100, GitChanges
+     overlay at 50, command-bar nav popups at 150/200). Without this
+     the menu's right portion gets painted over by whichever
+     higher-z-index sibling overlaps it — which in compact mode looks
+     like a vertical "divider" slicing the menu in half. */
+  z-index: 1000;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.workspace-dropdown-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--c-text);
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  font-weight: 400;
+}
+.workspace-dropdown-row:hover { background: var(--c-surface1); }
+.workspace-dropdown-row.is-active { color: var(--c-blue); }
+/* Drop-target highlight on the workspace row the cursor is currently
+   over while dragging a profile / folder. Stronger blue tint than the
+   trigger so it's unmistakably the "release here" target. */
+.workspace-dropdown-row.is-drop-target {
+  background: color-mix(in srgb, var(--c-blue) 22%, var(--c-surface1));
+  outline: 1px dashed var(--c-blue);
+  outline-offset: -2px;
+}
+.workspace-dropdown-check {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--c-blue);
+}
+.workspace-dropdown-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* "(N)" profile-count suffix — muted so the workspace name reads as
+   the primary content and the count as secondary metadata. */
+.workspace-dropdown-count {
+  color: var(--c-overlay0);
+  font-variant-numeric: tabular-nums;
+}
+.workspace-dropdown-input {
+  flex: 1;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--c-text);
+  outline: none;
+}
+.workspace-dropdown-input:focus { border-color: var(--c-blue); }
+.workspace-dropdown-delete,
+.workspace-dropdown-rename {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--c-overlay0);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.workspace-dropdown-row:hover .workspace-dropdown-delete,
+.workspace-dropdown-row:hover .workspace-dropdown-rename { opacity: 1; }
+.workspace-dropdown-delete:hover { color: var(--c-red); background: var(--c-surface0); }
+.workspace-dropdown-rename:hover { color: var(--c-text); background: var(--c-surface0); }
+.workspace-dropdown-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--c-subtext0);
+}
+.workspace-dropdown-confirm-yes,
+.workspace-dropdown-confirm-no {
+  background: none;
+  border: 1px solid var(--c-surface1);
+  border-radius: 3px;
+  padding: 1px 6px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--c-text);
+}
+.workspace-dropdown-confirm-yes { color: var(--c-red); border-color: color-mix(in srgb, var(--c-red) 40%, var(--c-surface1)); }
+.workspace-dropdown-confirm-yes:hover { background: color-mix(in srgb, var(--c-red) 15%, transparent); }
+.workspace-dropdown-confirm-no:hover { background: var(--c-surface1); }
+.workspace-dropdown-sep {
+  height: 1px;
+  background: var(--c-surface1);
+  margin: 4px 4px;
+}
+.workspace-dropdown-new { color: var(--c-subtext0); }
+.workspace-dropdown-new:hover { color: var(--c-text); }
+
+/* Initial-letter badge — shown only in compact sidebar mode (CSS
+   below). Hidden in expanded mode by default. */
+.workspace-dropdown-initial { display: none; }
+
+/* Compact sidebar treatment: collapse the trigger to a short, wide
+   rounded-rectangle pill showing the first letter(s) of the active
+   workspace. A low pill rather than a tall circle keeps the header
+   slim. The menu itself stays full-sized — it's portaled to <body>
+   and positioned next to the pill, so workspace names + counts stay
+   fully readable. */
+.app-sidebar-compact .workspace-dropdown {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+.app-sidebar-compact .workspace-dropdown-name,
+.app-sidebar-compact .workspace-dropdown-chevron {
+  display: none;
+}
+/* Full-width trigger that centers the pill — avoids any shrink-wrap
+   left-bias and guarantees the pill sits on the same vertical axis
+   (x = half of the 64px column) as the round profile icons below. */
+.app-sidebar-compact .workspace-dropdown-trigger {
+  width: 100%;
+  height: auto;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0;
+}
+.app-sidebar-compact .workspace-dropdown-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--c-surface1);
+  color: var(--c-text);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.app-sidebar-compact .workspace-dropdown-trigger:hover .workspace-dropdown-initial {
+  background: color-mix(in srgb, var(--c-blue) 35%, var(--c-surface1));
+  color: var(--c-text);
+}
+.app-sidebar-compact .workspace-dropdown-trigger.is-open .workspace-dropdown-initial,
+.app-sidebar-compact .workspace-dropdown-trigger.is-drop-target .workspace-dropdown-initial {
+  background: var(--c-blue);
+  color: var(--c-base);
+}
+/* Anchor the dropdown menu to the badge rather than far-left so it
+   lands next to the icon (otherwise the default `left: -8px` would
+   try to put it outside the sidebar entirely). */
+.app-sidebar-compact .workspace-dropdown-menu {
+  left: 0;
 }

@@ -29,6 +29,55 @@ protocol.registerSchemesAsPrivileged([
 
 app.name = APP_NAME;
 
+// Isolate the dev build's data from the packaged app. Running
+// `npm start` and the installed Vyb at the same time would otherwise
+// BOTH read/write ~/Library/Application Support/Vyb — and an older
+// build (e.g. one predating workspaces) silently drops fields it
+// doesn't know about (workspaces[], per-profile workspaceId) when it
+// saves, corrupting the packaged app's data. Point dev at a separate
+// `Vyb (Dev)` directory so the two never share state. Packaged builds
+// are unaffected. Must run before any getPath('userData') read +
+// before the legacy migration below.
+if (!app.isPackaged) {
+  const appDataDir = app.getPath('appData');           // ~/Library/Application Support
+  const devDir = path.join(appDataDir, `${APP_NAME} (Dev)`);
+  const packagedDir = path.join(appDataDir, APP_NAME);  // the installed app's userData
+  try {
+    // One-time seed: if the dev dir doesn't have settings yet, copy
+    // the packaged app's user data into it so dev starts with the
+    // same profiles / workspaces / settings instead of from scratch.
+    // After this, the two are fully isolated — edits in dev never
+    // touch the packaged data and vice versa. We copy only user-data
+    // files, NOT Electron's Cache/Cookies/IndexedDB/etc. (those hold
+    // locks + partition state that shouldn't be shared).
+    const alreadySeeded = fs.existsSync(path.join(devDir, 'settings.json'));
+    fs.mkdirSync(devDir, { recursive: true });
+    if (!alreadySeeded && fs.existsSync(path.join(packagedDir, 'settings.json'))) {
+      const seedItems = [
+        'settings.json', 'profiles.json', 'layout.json', 'profile-memory.json',
+        'icons', 'parallel-agents', 'terminal-states', 'scrollback',
+      ];
+      let seeded = 0;
+      for (const name of seedItems) {
+        const src = path.join(packagedDir, name);
+        const dst = path.join(devDir, name);
+        if (!fs.existsSync(src) || fs.existsSync(dst)) continue;
+        try {
+          fs.cpSync(src, dst, { recursive: true });
+          seeded++;
+        } catch (e) {
+          console.error(`[Vyb] dev seed: failed to copy ${name}:`, e);
+        }
+      }
+      console.log(`[Vyb] dev mode — seeded ${seeded} item(s) from ${packagedDir}`);
+    }
+    app.setPath('userData', devDir);
+    console.log(`[Vyb] dev mode — using isolated userData: ${devDir}`);
+  } catch (err) {
+    console.error('[Vyb] failed to set dev userData dir:', err);
+  }
+}
+
 // Rebrand AgentDispatch → Vyb: a fresh app name moves userData to a new
 // directory, which would orphan the user's existing settings.json /
 // profiles.json / parallel-agents/ / icons/. Migrate per-file so we still
@@ -353,7 +402,6 @@ app.on('ready', async () => {
 });
 
 app.on('window-all-closed', () => {
-  cleanupIpcHandlers();
   app.quit();
 });
 
@@ -363,6 +411,24 @@ app.on('activate', () => {
   }
 });
 
-app.on('before-quit', () => {
+// Quit teardown. node-pty kills its PTYs synchronously but its
+// per-PTY exit watcher fires the exit callback ASYNCHRONOUSLY on a
+// worker thread (via a napi ThreadSafeFunction). If we let Electron
+// proceed straight into Node's graceful environment teardown, that
+// exit callback races the teardown and calls back into a
+// half-destroyed JS context — napi then throws with no handler and
+// the process aborts (SIGABRT in pty.node on quit). To avoid it we
+// run cleanup (which kills the PTYs), defer the real quit one tick so
+// those exit callbacks drain while JS is still alive, then quit for
+// real. `quitHandled` guards against re-entrancy on the second quit.
+let quitHandled = false;
+app.on('before-quit', (event) => {
+  if (quitHandled) return;
+  event.preventDefault();
+  quitHandled = true;
   cleanupIpcHandlers();
+  // 200 ms is comfortably longer than the kill→exit-callback latency
+  // (a killed child's kevent wakes within a few ms) while staying
+  // imperceptible to the user closing the app.
+  setTimeout(() => app.quit(), 200);
 });

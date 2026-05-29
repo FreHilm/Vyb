@@ -21,6 +21,20 @@ export interface Profile {
    * `status: done`), automatically commit, push the branch, and open a PR
    * via `gh`. Per-profile so different repos can use different policies. */
   parallelAgentAutoPush?: boolean;
+  /** Workspace this profile belongs to. Required after first launch — a
+   * migration on load assigns any profile missing this field to the
+   * Default workspace. Optional in the type only so the migration step
+   * can read pre-migration files cleanly. */
+  workspaceId?: string;
+}
+
+/** A Workspace is a top-level grouping of Agent Profiles. The sidebar
+ * shows one workspace at a time and the workspace dropdown switches
+ * between them. The "directories" of a workspace are derived from the
+ * working directories of its profiles — no separate field. */
+export interface Workspace {
+  id: string;
+  name: string;
 }
 
 export interface ProfileMemory {
@@ -73,6 +87,12 @@ export interface AppSettings {
   dictationMode: 'toggle' | 'hold'; // toggle = click start/stop, hold = hold button to dictate
   dictationLang: string; // BCP 47 language code e.g. 'en-US'
   lastActiveProfileId: string; // Restored on app launch
+  /** Workspaces — top-level groupings of agent profiles. Always has at
+   * least one entry (a migration creates "Default" on first launch and
+   * assigns any pre-existing profiles to it). */
+  workspaces: Workspace[];
+  /** ID of the currently-visible workspace in the sidebar. */
+  activeWorkspaceId: string;
   gpuAcceleration: 'auto' | 'canvas' | 'off'; // Terminal rendering: auto tries WebGL, canvas skips WebGL, off disables GPU
   flameIntensity: number; // 0-100, default 9. Controls flame brightness/opacity.
   flameSpread: number; // 0-100, default 26. Controls horizontal spread of flame spikes.
@@ -245,6 +265,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dictationMode: 'toggle',
   dictationLang: 'en-US',
   lastActiveProfileId: '',
+  // Workspaces default to empty here; App.tsx runs a migration on
+  // first launch that creates a Default workspace and assigns all
+  // existing profiles + folders to it.
+  workspaces: [],
+  activeWorkspaceId: '',
   gpuAcceleration: 'auto',
   flameIntensity: 9,
   flameSpread: 26,
@@ -292,6 +317,10 @@ export interface SidebarFolder {
    * `settings.iconReferenceImage`. Empty / undefined → fall back to the
    * global setting. */
   referenceImage?: string;
+  /** Workspace this folder belongs to. Same migration story as
+   * Profile.workspaceId — populated for new folders, backfilled to the
+   * Default workspace on first load for pre-existing folders. */
+  workspaceId?: string;
 }
 
 export type SidebarItem =

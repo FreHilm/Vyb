@@ -17,7 +17,7 @@ import { StatusBar } from './components/StatusBar';
 import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, Workspace, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -639,7 +639,57 @@ export function App() {
 
   // Load settings and profiles on mount
   useEffect(() => {
-    window.api.loadSettings().then((loaded) => {
+    window.api.loadSettings().then(async (loaded) => {
+      // Workspaces migration + SELF-HEAL. The old behaviour ("if
+      // workspaces is empty, create one Default") would silently wipe
+      // named workspaces whenever some other writer dropped the
+      // workspaces[] field — e.g. an older Vyb build sharing the same
+      // userData dir. Instead, reconcile: ensure (a) at least one
+      // workspace exists to host untagged entries, and (b) EVERY
+      // workspaceId referenced by a profile or folder has a workspace
+      // entry — re-adding any that went missing so their profiles
+      // never become invisible. Original names of dropped workspaces
+      // can't be recovered, but the grouping + profiles survive and
+      // the user can rename. Needs profiles + layout to find the
+      // referenced ids, so it loads them here (set into state by their
+      // own loaders below — this read is just for reconciliation).
+      const [reconProfiles, reconLayout] = await Promise.all([
+        window.api.getProfiles().catch(() => [] as Profile[]),
+        window.api.loadLayout().catch(() => ({ items: [], folders: [] } as SidebarLayout)),
+      ]);
+      const referenced = new Set<string>();
+      for (const p of reconProfiles) if (p.workspaceId) referenced.add(p.workspaceId);
+      for (const f of (reconLayout.folders ?? [])) if (f.workspaceId) referenced.add(f.workspaceId);
+
+      const workspaces: Workspace[] = Array.isArray(loaded.workspaces) ? [...loaded.workspaces] : [];
+      const existing = new Set(workspaces.map((w) => w.id));
+      let changed = false;
+
+      if (workspaces.length === 0) {
+        workspaces.push({ id: `ws-${Date.now().toString(36)}`, name: 'Default' });
+        existing.add(workspaces[0].id);
+        changed = true;
+      }
+      let recoveredCount = 0;
+      for (const id of referenced) {
+        if (!existing.has(id)) {
+          workspaces.push({ id, name: `Recovered ${++recoveredCount}` });
+          existing.add(id);
+          changed = true;
+        }
+      }
+      let activeWorkspaceId = loaded.activeWorkspaceId;
+      if (!activeWorkspaceId || !existing.has(activeWorkspaceId)) {
+        activeWorkspaceId = workspaces[0].id;
+        changed = true;
+      }
+      if (changed) {
+        if (recoveredCount > 0) {
+          console.warn(`[Vyb] reconstructed ${recoveredCount} missing workspace(s) referenced by profiles/folders`);
+        }
+        loaded = { ...loaded, workspaces, activeWorkspaceId };
+        window.api.saveSettings(loaded).catch((): void => undefined);
+      }
       setSettings(loaded);
       setSidebarWidth(loaded.sidebarWidth);
       setSidebarCompact(loaded.sidebarCompact === true);
@@ -717,6 +767,18 @@ export function App() {
         const lastId = loadedSettings.lastActiveProfileId;
         const lastProfile = lastId ? loadedProfiles.find((p) => p.id === lastId) : null;
         if (lastProfile) {
+          // Make sure the workspace shown in the sidebar matches the
+          // profile we're about to restore. lastActiveProfileId is
+          // saved independently of activeWorkspaceId, so they can drift
+          // (the user switched workspace, never selected a profile in
+          // it, then quit). Align them so the restored profile is
+          // actually visible.
+          const profileWs = lastProfile.workspaceId || loadedSettings.workspaces[0]?.id;
+          if (profileWs && profileWs !== loadedSettings.activeWorkspaceId) {
+            const next = { ...loadedSettings, activeWorkspaceId: profileWs };
+            setSettings(next);
+            window.api.saveSettings(next).catch((): void => undefined);
+          }
           const ok = await window.api.pathExists(lastProfile.workingDirectory).catch(() => true);
           if (ok) {
             setActiveProfileId(lastProfile.id);
@@ -809,10 +871,14 @@ export function App() {
     });
 
     // Handle notification click — switch to the profile (and parallel sub-
-    // agent if any) that needs attention.
+    // agent if any) that needs attention. Routes through `goToProfile`
+    // so a profile in a different workspace also pulls the sidebar
+    // over to that workspace; otherwise the user clicks the notification
+    // and "nothing happens" because the selected profile is filtered
+    // out of the currently-visible workspace.
     const unsubActivate = window.api.onActivateProfileRequest(({ profileId, parallelAgentId }) => {
       stoppedRef.current.delete(profileId);
-      setActiveProfileId(profileId);
+      goToProfileRef.current(profileId);
       setSelectedParallelId(parallelAgentId);
       setHasUpdates((prev) => {
         if (!prev.has(profileId)) return prev;
@@ -987,6 +1053,15 @@ export function App() {
   useEffect(() => {
     activeProfileIdRef.current = activeProfileId;
   }, [activeProfileId]);
+
+  // `goToProfile` rebinds whenever profiles/workspaces change; the
+  // notification-activate listener subscribes once on mount, so it
+  // needs to call through a ref to always reach the latest version
+  // (otherwise a notification fired after a workspace change would
+  // route via the stale first-render handler and skip the switch).
+  // The ref itself is declared here; it's updated by an effect placed
+  // *after* `goToProfile`'s declaration further down the file.
+  const goToProfileRef = useRef<(id: string) => void>(() => undefined);
 
   // File-token clicks from the agent terminal — open Files pane in the
   // current view and stash the resolved path for FileExplorer to consume.
@@ -1185,6 +1260,155 @@ export function App() {
     setSettingsOpen(false);
   };
 
+  // Workspace handlers. Mutations write through settings since workspaces
+  // live there (one small array; not worth a separate file). Each one
+  // saves immediately so a crash mid-edit doesn't lose the change.
+  const handleSelectWorkspace = useCallback((workspaceId: string) => {
+    if (!settings.workspaces.some((w) => w.id === workspaceId)) return;
+    const next = { ...settings, activeWorkspaceId: workspaceId };
+    setSettings(next);
+    window.api.saveSettings(next).catch((): void => undefined);
+  }, [settings]);
+
+  const handleAddWorkspace = useCallback((name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const ws: Workspace = {
+      id: `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      name: trimmed,
+    };
+    const next = {
+      ...settings,
+      workspaces: [...settings.workspaces, ws],
+      activeWorkspaceId: ws.id, // switch to the just-created one
+    };
+    setSettings(next);
+    window.api.saveSettings(next).catch((): void => undefined);
+  }, [settings]);
+
+  const handleRenameWorkspace = useCallback((workspaceId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const next = {
+      ...settings,
+      workspaces: settings.workspaces.map((w) =>
+        w.id === workspaceId ? { ...w, name: trimmed } : w,
+      ),
+    };
+    setSettings(next);
+    window.api.saveSettings(next).catch((): void => undefined);
+  }, [settings]);
+
+  // Select a profile that may live in a different workspace than the
+  // one currently shown — switches the sidebar to the profile's
+  // workspace first so it's actually visible. Used by paths that can
+  // land on an arbitrary profile: notification clicks (agent
+  // completed / needs input), lastActiveProfileId restore on boot.
+  // Sidebar / keyboard navigation don't need this — they can only
+  // pick profiles already in the active workspace.
+  const goToProfile = useCallback((profileId: string) => {
+    const p = profiles.find((x) => x.id === profileId);
+    if (!p) {
+      setActiveProfileId(profileId);
+      return;
+    }
+    // Legacy profiles without an explicit workspaceId belong to the
+    // first (Default) workspace under the migration rules.
+    const targetWs = p.workspaceId || settings.workspaces[0]?.id;
+    if (targetWs && targetWs !== settings.activeWorkspaceId) {
+      const next = { ...settings, activeWorkspaceId: targetWs };
+      setSettings(next);
+      window.api.saveSettings(next).catch((): void => undefined);
+    }
+    setActiveProfileId(profileId);
+  }, [profiles, settings]);
+
+  // Keep `goToProfileRef` (declared up near the other refs) tracking
+  // the latest `goToProfile` so the once-mounted notification-activate
+  // listener always sees current profile/workspace state.
+  useEffect(() => {
+    goToProfileRef.current = goToProfile;
+  }, [goToProfile]);
+
+  // Move a profile (or a folder + every profile inside it) into a
+  // target workspace. Drag-and-drop from the sidebar lands here. A
+  // folder move cascades to every member profile so the folder stays
+  // self-contained — moving the folder doesn't leave its profiles
+  // stranded in the source workspace. No-ops when the target is the
+  // current workspace or the payload doesn't resolve.
+  const handleMoveToWorkspace = useCallback(async (
+    payload: { type: 'profile' | 'folder'; id: string },
+    targetWorkspaceId: string,
+  ) => {
+    if (!settings.workspaces.some((w) => w.id === targetWorkspaceId)) return;
+
+    if (payload.type === 'profile') {
+      const target = profiles.find((p) => p.id === payload.id);
+      if (!target || target.workspaceId === targetWorkspaceId) return;
+      const updated = profiles.map((p) =>
+        p.id === payload.id ? { ...p, workspaceId: targetWorkspaceId } : p,
+      );
+      setProfiles(updated);
+      window.api.saveProfiles(updated).catch((): void => undefined);
+      return;
+    }
+
+    // Folder move — tag the folder and every member profile.
+    const folder = layout.folders.find((f) => f.id === payload.id);
+    if (!folder || folder.workspaceId === targetWorkspaceId) return;
+    const memberIds = new Set(folder.profileIds);
+    const updatedFolders = layout.folders.map((f) =>
+      f.id === payload.id ? { ...f, workspaceId: targetWorkspaceId } : f,
+    );
+    const updatedProfiles = profiles.map((p) =>
+      memberIds.has(p.id) ? { ...p, workspaceId: targetWorkspaceId } : p,
+    );
+    const newLayout = { ...layout, folders: updatedFolders };
+    setLayout(newLayout);
+    setProfiles(updatedProfiles);
+    await Promise.all([
+      window.api.saveLayout(newLayout).catch((): void => undefined),
+      window.api.saveProfiles(updatedProfiles).catch((): void => undefined),
+    ]);
+  }, [settings.workspaces, profiles, layout]);
+
+  // Delete a workspace. If it contains profiles / folders (explicit
+  // workspaceId match), they are reassigned to the first remaining
+  // workspace — no data loss. Refuses to delete the last workspace.
+  const handleDeleteWorkspace = useCallback(async (workspaceId: string) => {
+    if (settings.workspaces.length <= 1) return; // always keep at least one
+    const remaining = settings.workspaces.filter((w) => w.id !== workspaceId);
+    const fallbackId = remaining[0].id;
+
+    // Reassign profiles tagged with the deleted workspace.
+    const movedProfiles = profiles.map((p) =>
+      p.workspaceId === workspaceId ? { ...p, workspaceId: fallbackId } : p,
+    );
+    if (movedProfiles.some((p, i) => p !== profiles[i])) {
+      setProfiles(movedProfiles);
+      window.api.saveProfiles(movedProfiles).catch((): void => undefined);
+    }
+    // Reassign folders too. Items don't carry workspaceId themselves;
+    // they reference profiles/folders which already moved.
+    const movedFolders = layout.folders.map((f) =>
+      f.workspaceId === workspaceId ? { ...f, workspaceId: fallbackId } : f,
+    );
+    if (movedFolders.some((f, i) => f !== layout.folders[i])) {
+      const movedLayout = { ...layout, folders: movedFolders };
+      setLayout(movedLayout);
+      window.api.saveLayout(movedLayout).catch((): void => undefined);
+    }
+    const next = {
+      ...settings,
+      workspaces: remaining,
+      activeWorkspaceId: settings.activeWorkspaceId === workspaceId
+        ? fallbackId
+        : settings.activeWorkspaceId,
+    };
+    setSettings(next);
+    window.api.saveSettings(next).catch((): void => undefined);
+  }, [settings, profiles, layout]);
+
   const handleBatchGenerateIcons = useCallback(async () => {
     if (batchGenerating) return;
     const withoutIcons = profiles.filter((p) => !p.icon);
@@ -1339,12 +1563,18 @@ export function App() {
   };
 
   const handleSaveProfile = async (saved: Profile) => {
+    // Tag new profiles with the currently-active workspace so they
+    // appear in the sidebar immediately. Edits to existing profiles
+    // keep their workspaceId untouched.
     let updated: Profile[];
     const existing = profiles.find((p) => p.id === saved.id);
     if (existing) {
       updated = profiles.map((p) => (p.id === saved.id ? saved : p));
     } else {
-      updated = [...profiles, saved];
+      const withWs: Profile = saved.workspaceId
+        ? saved
+        : { ...saved, workspaceId: settings.activeWorkspaceId };
+      updated = [...profiles, withWs];
     }
     await window.api.saveProfiles(updated);
     setProfiles(updated);
@@ -2019,6 +2249,13 @@ export function App() {
         onAddProfile={handleAddProfile}
         onStopProfile={handleStopProfile}
         onReloadProfile={handleReloadProfile}
+        workspaces={settings.workspaces}
+        activeWorkspaceId={settings.activeWorkspaceId}
+        onSelectWorkspace={handleSelectWorkspace}
+        onAddWorkspace={handleAddWorkspace}
+        onRenameWorkspace={handleRenameWorkspace}
+        onDeleteWorkspace={handleDeleteWorkspace}
+        onMoveToWorkspace={handleMoveToWorkspace}
         initialized={initialized}
         showAgentBadge={settings.showAgentBadge !== false}
         parallelAgents={[...parallelAgents.values()]}

@@ -4224,7 +4224,13 @@ async function initOrdnaHookServer(): Promise<void> {
   }
 }
 
+let cleanupDone = false;
 export function cleanupIpcHandlers(): void {
+  // Idempotent — before-quit can fire more than once and via more
+  // than one path; killing PTYs / saving scrollback twice is wasteful
+  // and could double-write files.
+  if (cleanupDone) return;
+  cleanupDone = true;
   isQuitting = true;
   // Save scrollback only for shells where user actually typed commands
   for (const [profileId, data] of scrollbackBuffers) {

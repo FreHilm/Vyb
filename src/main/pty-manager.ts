@@ -125,12 +125,20 @@ export function loginShellPath(envShell?: string): string {
 interface PtyInstance {
   process: pty.IPty;
   profile: Profile;
+  // node-pty's onData/onExit return IDisposable. We keep them so
+  // destroy() can detach our callbacks *before* killing — otherwise
+  // our onExit fires during app teardown and tries to IPC to an
+  // already-destroyed window.
+  disposables: { dispose(): void }[];
 }
 
 export class PtyManager {
   private ptys: Map<string, PtyInstance> = new Map();
   private onData: (profileId: string, data: string) => void;
   private onExit: (profileId: string, exitCode: number) => void;
+  // Set during destroyAll() on quit so a late exit event doesn't run
+  // the normal onExit path while the app is shutting down.
+  private disposing = false;
 
   constructor(
     onData: (profileId: string, data: string) => void,
@@ -290,11 +298,15 @@ export class PtyManager {
       return;
     }
 
-    ptyProcess.onData((data) => {
+    const dataDisp = ptyProcess.onData((data) => {
       this.onData(profileId, data);
     });
 
-    ptyProcess.onExit(({ exitCode }) => {
+    const exitDisp = ptyProcess.onExit(({ exitCode }) => {
+      // Don't run the normal exit path during app shutdown — the
+      // window is being torn down and the IPC would target a dead
+      // renderer.
+      if (this.disposing) return;
       // Surface non-zero exits so users diagnosing "my terminal closed
       // immediately" can see the underlying cause in `npm start`'s
       // console. 127 = command-not-found (PATH issue), 126 = found
@@ -306,7 +318,7 @@ export class PtyManager {
       this.onExit(profileId, exitCode);
     });
 
-    this.ptys.set(profileId, { process: ptyProcess, profile });
+    this.ptys.set(profileId, { process: ptyProcess, profile, disposables: [dataDisp, exitDisp] });
   }
 
   write(profileId: string, data: string): void {
@@ -330,6 +342,11 @@ export class PtyManager {
   destroy(profileId: string): void {
     const instance = this.ptys.get(profileId);
     if (instance) {
+      // Detach our onData/onExit listeners before killing so a late
+      // exit event doesn't call back into a torn-down renderer.
+      for (const d of instance.disposables) {
+        try { d.dispose(); } catch { /* already disposed */ }
+      }
       try {
         instance.process.kill();
       } catch {
@@ -340,6 +357,9 @@ export class PtyManager {
   }
 
   destroyAll(): void {
+    // Flag shutdown so the (node-pty internal) async exit callbacks
+    // that fire after kill() don't run the normal exit path.
+    this.disposing = true;
     for (const [id] of this.ptys) {
       this.destroy(id);
     }
