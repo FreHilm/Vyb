@@ -123,9 +123,20 @@ export function saveProfileMemory(memory: ProfileMemoryMap): void {
 
 const MAX_SCROLLBACK_SIZE = 512 * 1024; // 512KB cap per profile
 
+// Shell terminal ids are `shell:<profileId>:<n>` — the colons are reserved
+// on Windows (NTFS alternate-data-stream marker) and writeFileSync fails
+// with ENOENT. Map every Windows-reserved character to `_` so the same
+// scrollback works across platforms. Backslash, slash, etc. included so
+// profile ids with paths in them can't escape the scrollback dir either.
+function scrollbackFilename(profileId: string): string {
+  // eslint-disable-next-line no-control-regex
+  const safe = profileId.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+  return `${safe}.log`;
+}
+
 export function loadScrollback(profileId: string): string | null {
   const dir = path.join(app.getPath('userData'), 'scrollback');
-  const filePath = path.join(dir, `${profileId}.log`);
+  const filePath = path.join(dir, scrollbackFilename(profileId));
   if (!fs.existsSync(filePath)) return null;
   try {
     return fs.readFileSync(filePath, 'utf-8');
@@ -170,5 +181,13 @@ export function saveScrollback(profileId: string, data: string): void {
   if (cleaned.length > MAX_SCROLLBACK_SIZE) {
     cleaned = cleaned.slice(-MAX_SCROLLBACK_SIZE);
   }
-  fs.writeFileSync(path.join(dir, `${profileId}.log`), cleaned);
+  // Guarded: a single failed scrollback write (permission denied, disk full,
+  // path too long, character we forgot to sanitize) shouldn't take down the
+  // whole main process. This runs from a PTY-exit event listener, so an
+  // unhandled throw surfaces as an "Uncaught Exception" dialog at app quit.
+  try {
+    fs.writeFileSync(path.join(dir, scrollbackFilename(profileId)), cleaned);
+  } catch (err) {
+    console.warn(`[scrollback] failed to save ${profileId}:`, (err as Error).message);
+  }
 }

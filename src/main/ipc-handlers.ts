@@ -13,6 +13,7 @@ import * as ordnaHookServer from './ordna-hook-server';
 import { OrdnaManager } from './ordna-manager';
 import { ParallelAgentManager } from './parallel-agent-manager';
 import { applyAgentArgsGuards } from './agent-args-guard';
+import { sendCtrlCToPty, clearCtrlCState } from './windows-ctrlc';
 
 
 let ptyManager: PtyManager;
@@ -436,6 +437,24 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     IPC_CHANNELS.TERMINAL_INPUT,
     (_, profileId: string, data: string) => {
       ptyManager.write(profileId, data);
+      // Windows shells: ConPTY won't dispatch CTRL_C_EVENT to grandchild
+      // python.exe (and other apps that only listen for the OS-level console
+      // signal) from a raw `\x03` byte. Pair the byte with a real
+      // GenerateConsoleCtrlEvent so Ctrl+C interrupts Python like it does on
+      // macOS/Linux. Fires for:
+      //   - `shell:*` PTYs (the split shell pane)
+      //   - any "no-agent" profile whose PTY is just the user's shell
+      //     (scratchpad profiles fall in here — they spawn powershell.exe
+      //     directly and need the same treatment)
+      // Skipped for agent CLIs (claude/codex/gemini/opencode) since they read
+      // `\x03` directly as a TUI key and a doubled signal can over-cancel.
+      if (
+        data === '\x03'
+        && process.platform === 'win32'
+        && (profileId.startsWith('shell:') || ptyManager.isShell(profileId))
+      ) {
+        sendCtrlCToPty(ptyManager.getPid(profileId));
+      }
       if (data === '\r' || data === '\n') {
         statusDetector.setWorking(profileId);
         if (profileId.startsWith('shell:')) {
@@ -455,7 +474,12 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.TERMINAL_DESTROY, (_, profileId: string) => {
     flushCoalesced(profileId);
     clearCoalesced(profileId);
+    // Capture pid before destroy() so we can drop stale Ctrl+C escalation
+    // state — Windows reuses PIDs quickly and we don't want a long-dead
+    // PTY's "second press = kill" state biasing the next process.
+    const pid = ptyManager.getPid(profileId);
     ptyManager.destroy(profileId);
+    clearCtrlCState(pid);
     statusDetector.unregister(profileId);
     flowStates.delete(profileId);
   });
