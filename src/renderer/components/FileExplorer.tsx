@@ -82,6 +82,9 @@ interface FileExplorerProps {
   /** Editor font size (px) — passed to Monaco; CodeMirror reads it
    * from the --cm-editor-font-size CSS var instead. */
   editorFontSize?: number;
+  /** Context lines kept around each change when the Monaco diff's
+   * "collapse unchanged lines" toggle is on. Default 6. */
+  diffContextLines?: number;
 }
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp']);
@@ -642,6 +645,7 @@ export function FileExplorer({
   onAdjustEditorFontSize,
   editorEngine = 'codemirror',
   editorFontSize = 13,
+  diffContextLines = 6,
 }: FileExplorerProps) {
   const [rootEntries, setRootEntries] = useState<FileEntry[]>([]);
   const [tabs, setTabs] = useState<FileTab[]>([]);
@@ -660,6 +664,10 @@ export function FileExplorer({
   // Monaco diff layout: false = inline (single column), true = side-by-side
   // (two files). Toggled from the toolbar; applied live without remount.
   const [diffSideBySide, setDiffSideBySide] = useState(false);
+  // Monaco diff: collapse unchanged regions to ~6 context lines around
+  // each change, so a reviewer sees only what the agent touched.
+  // Toggled from the toolbar; applied live.
+  const [diffHideUnchanged, setDiffHideUnchanged] = useState(false);
   const editorEngineRef = useRef(editorEngine);
   editorEngineRef.current = editorEngine;
   const monacoPathRef = useRef<string | null>(null);
@@ -2278,14 +2286,29 @@ export function FileExplorer({
             the editor body. */}
         {activeTabPath && !activeIsImage && (
           <div className="file-editor-toolbar">
-            {/* Diff layout toggle — only while a Monaco inline/side-by-side
-                diff is showing. Sits at the far left of the toolbar. */}
+            {/* Diff toolbar group — only while a Monaco diff is showing.
+                Floats at the far left; the last button in the group
+                carries marginRight:auto to push Save / Blame / Find right. */}
+            {monacoDiffPath && activeTabPath === monacoDiffPath && (
+              <button
+                className={`file-tab-action-btn${diffHideUnchanged ? ' is-active' : ''}`}
+                onClick={() => setDiffHideUnchanged((v) => !v)}
+                title={diffHideUnchanged ? 'Show full files' : `Collapse unchanged lines (show ~${diffContextLines} around each change)`}
+              >
+                {/* collapse glyph: two arrows toward a center line */}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 1.5v3M6 3l2-1.5L10 3" />
+                  <path d="M8 14.5v-3M6 13l2 1.5L10 13" />
+                  <path d="M2.5 8h11" />
+                </svg>
+              </button>
+            )}
             {monacoDiffPath && activeTabPath === monacoDiffPath && (
               <button
                 className="file-tab-action-btn"
                 // marginRight:auto claims the free space to the button's
-                // right in the flex toolbar, floating it to the far left
-                // and pushing Save / Blame / Find over to the right.
+                // right in the flex toolbar, keeping the diff group at the
+                // far left and pushing Save / Blame / Find over to the right.
                 style={{ marginRight: 'auto' }}
                 onClick={() => setDiffSideBySide((v) => !v)}
                 title={diffSideBySide ? 'Switch to inline diff' : 'Switch to side-by-side diff'}
@@ -2540,6 +2563,8 @@ export function FileExplorer({
               language={monacoLanguageForFile(fileName(monacoDiffPath))}
               fontSize={editorFontSize}
               sideBySide={diffSideBySide}
+              hideUnchanged={diffHideUnchanged}
+              contextLines={diffContextLines}
               onChange={(value, isDirty) => {
                 const p = monacoDiffPath;
                 docCacheRef.current.set(p, value);

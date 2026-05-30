@@ -156,6 +156,9 @@ export interface AppSettings {
    * blame, and markdown editing; 'monaco' is a spike that swaps the
    * plain editor for the VS Code editor. See docs/MONACO_MIGRATION.md. */
   editorEngine?: 'codemirror' | 'monaco';
+  /** Context lines kept on each side of a change when the Monaco diff's
+   * "collapse unchanged lines" toggle is on. Default 6. */
+  diffContextLines?: number;
   /** Default landing page for a Web tab that has never been navigated.
    * Once a view has a saved URL in `webUrls`, this is ignored. Free-form
    * text — non-URL input is interpreted as a DuckDuckGo search at click
@@ -297,6 +300,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showHiddenFiles: true,
   editorFontSize: 13,
   editorEngine: 'codemirror',
+  diffContextLines: 6,
   webDefaultUrl: 'https://duckduckgo.com/',
   webUrls: {},
   openFunctionTabs: {},

@@ -199,6 +199,7 @@ export function SettingsDialog({
   const [formatOnSave, setFormatOnSave] = useState(settings.formatOnSave === true);
   const [editorStickyScroll, setEditorStickyScroll] = useState(settings.editorStickyScroll !== false);
   const [editorEngine, setEditorEngine] = useState<'codemirror' | 'monaco'>(settings.editorEngine ?? 'codemirror');
+  const [diffContextLines, setDiffContextLines] = useState(settings.diffContextLines ?? 6);
   const [showHiddenFiles, setShowHiddenFiles] = useState(settings.showHiddenFiles !== false);
   const [webDefaultUrl, setWebDefaultUrl] = useState(settings.webDefaultUrl || 'https://duckduckgo.com/');
   const [pullStrategy, setPullStrategy] = useState<'merge' | 'rebase' | 'ask'>(settings.pullStrategy ?? 'merge');
@@ -303,6 +304,7 @@ export function SettingsDialog({
       formatOnSave,
       editorStickyScroll,
       editorEngine,
+      diffContextLines: Math.max(0, Math.min(99, Math.round(diffContextLines || 6))),
       showHiddenFiles,
       webDefaultUrl: webDefaultUrl.trim() || 'https://duckduckgo.com/',
       pullStrategy,
@@ -490,6 +492,26 @@ export function SettingsDialog({
                 Blame and markdown editing stay on the default editor.
                 Reopen a file to apply.
               </span>
+
+              {editorEngine === 'monaco' && (
+                <>
+                  <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                    <span className="field-label">Diff context lines</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={99}
+                      value={diffContextLines}
+                      onChange={(e) => setDiffContextLines(Number(e.target.value))}
+                      style={{ width: 64 }}
+                    />
+                  </label>
+                  <span className="field-hint">
+                    Lines kept before and after each change when the diff's
+                    "collapse unchanged lines" button is on. Default 6.
+                  </span>
+                </>
+              )}
 
               <label className="field field-row-toggle" style={{ marginTop: 12 }}>
                 <span className="field-label">Show hidden files</span>

@@ -2375,6 +2375,7 @@ export function App() {
                   showHiddenFiles={settings.showHiddenFiles !== false}
                   editorEngine={settings.editorEngine ?? 'codemirror'}
                   editorFontSize={settings.editorFontSize ?? 13}
+                  diffContextLines={settings.diffContextLines ?? 6}
                   showChangedOnly={showChangedFilesViews.has(key)}
                   onShowChangedOnlyChange={(next) => {
                     setShowChangedFilesViews((prev) => {

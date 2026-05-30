@@ -16,6 +16,11 @@ interface Props {
   /** false = inline (single column); true = side-by-side (two files).
    * Applied live via updateOptions — no remount. */
   sideBySide: boolean;
+  /** When true, collapse unchanged regions to a few context lines
+   * around each change so only the touched sections show. */
+  hideUnchanged: boolean;
+  /** Context lines kept on each side of a change while collapsed. */
+  contextLines: number;
   /** Fired on edits to the modified side with the current text + whether
    * it differs from `savedContent`. Drives the parent's modified-tab set. */
   onChange: (content: string, isDirty: boolean) => void;
@@ -34,7 +39,7 @@ interface Props {
  * Monaco's built-in overview ruler.
  */
 export function MonacoDiffEditor({
-  path, original, modified, savedContent, language, fontSize, sideBySide, onChange, onSave,
+  path, original, modified, savedContent, language, fontSize, sideBySide, hideUnchanged, contextLines, onChange, onSave,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
@@ -77,6 +82,14 @@ export function MonacoDiffEditor({
       minimap: { enabled: true },
       scrollBeyondLastLine: false,
       renderOverviewRuler: true,   // change positions on the scrollbar (replaces custom ticks)
+      // Collapse runs of unchanged lines down to a few context lines
+      // around each change, so the reviewer sees only what was touched.
+      hideUnchangedRegions: {
+        enabled: hideUnchanged,
+        contextLineCount: contextLines,
+        minimumLineCount: contextLines,
+        revealLineCount: 20,
+      },
     });
     diff.setModel({ original: originalModel, modified: modifiedModel });
     diffRef.current = diff;
@@ -115,6 +128,18 @@ export function MonacoDiffEditor({
       useInlineViewWhenSpaceIsLimited: false,
     });
   }, [sideBySide]);
+
+  // Live-toggle collapse of unchanged regions without remounting.
+  useEffect(() => {
+    diffRef.current?.updateOptions({
+      hideUnchangedRegions: {
+        enabled: hideUnchanged,
+        contextLineCount: contextLines,
+        minimumLineCount: contextLines,
+        revealLineCount: 20,
+      },
+    });
+  }, [hideUnchanged, contextLines]);
 
   // Re-baseline dirty tracking after a save / external reload.
   useEffect(() => {
