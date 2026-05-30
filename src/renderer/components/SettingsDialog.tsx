@@ -485,9 +485,10 @@ export function SettingsDialog({
                 </label>
               </label>
               <span className="field-hint">
-                Spike: swaps the VS Code (Monaco) editor in for plain
-                code/text files. Diff view, blame, and markdown editing
-                stay on the default editor. Reopen a file to apply.
+                Spike: swaps the VS Code (Monaco) editor in for code/text
+                files, including the inline diff in "show changed files".
+                Blame and markdown editing stay on the default editor.
+                Reopen a file to apply.
               </span>
 
               <label className="field field-row-toggle" style={{ marginTop: 12 }}>

@@ -25,6 +25,7 @@ import { FileHistoryView } from './FileHistoryView';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Spinner } from './Spinner';
 import { MonacoFileEditor, monacoLanguageForFile } from './MonacoFileEditor';
+import { MonacoDiffEditor } from './MonacoDiffEditor';
 import { toastError, toastInfo, errMessage } from '../lib/toast';
 
 // Working directories we've already warned about being large/cloud-heavy,
@@ -651,10 +652,20 @@ export function FileExplorer({
   // holds its path and the render swaps in <MonacoFileEditor> instead
   // of mounting CodeMirror. null = use the CodeMirror host.
   const [monacoPath, setMonacoPath] = useState<string | null>(null);
+  // Spike: when Monaco is the engine AND the show-changed filter is on
+  // AND a git baseline exists, this holds the path and the render swaps
+  // in <MonacoDiffEditor> (inline diff vs HEAD). Mutually exclusive with
+  // monacoPath — a file is either plain-Monaco or diff-Monaco, not both.
+  const [monacoDiffPath, setMonacoDiffPath] = useState<string | null>(null);
+  // Monaco diff layout: false = inline (single column), true = side-by-side
+  // (two files). Toggled from the toolbar; applied live without remount.
+  const [diffSideBySide, setDiffSideBySide] = useState(false);
   const editorEngineRef = useRef(editorEngine);
   editorEngineRef.current = editorEngine;
   const monacoPathRef = useRef<string | null>(null);
   monacoPathRef.current = monacoPath;
+  const monacoDiffPathRef = useRef<string | null>(null);
+  monacoDiffPathRef.current = monacoDiffPath;
   // Mirror tabs + modifiedSet into refs so the once-attached fs.watch
   // listener (registered in a useEffect with stable deps) can read the
   // latest tab list / dirty flags without re-subscribing on every render.
@@ -1213,9 +1224,10 @@ export function FileExplorer({
     let content: string | null = null;
     if (excalidrawRef.current && isExcalidrawFile(fileName(path))) {
       content = excalidrawRef.current.serialize();
-    } else if (monacoPathRef.current === path) {
-      // Monaco path: there's no CodeMirror view. MonacoFileEditor's
-      // onChange keeps docCacheRef current, so it's the source of truth.
+    } else if (monacoPathRef.current === path || monacoDiffPathRef.current === path) {
+      // Monaco path (plain or diff): there's no CodeMirror view. The
+      // Monaco editor's onChange keeps docCacheRef current, so it's the
+      // source of truth.
       content = docCacheRef.current.get(path) ?? '';
     } else if (viewRef.current) {
       content = viewRef.current.state.doc.toString();
@@ -1329,17 +1341,40 @@ export function FileExplorer({
       // Otherwise fall through to mount the editor.
     }
 
-    // Spike: route plain code/text files to Monaco when that engine is
-    // selected. Diff (show-changed) and markdown editing stay on
-    // CodeMirror, so those fall through below. Content is already in
-    // docCacheRef, which <MonacoFileEditor> reads as its initial value.
-    if (editorEngineRef.current === 'monaco'
-        && !isMdFile(fileName(filePath))
-        && !showChangedOnlyRef.current) {
+    // Spike: route files to Monaco when that engine is selected.
+    // Markdown editing stays on CodeMirror (falls through). Content is
+    // already in docCacheRef, which the Monaco editors read as their
+    // initial value.
+    if (editorEngineRef.current === 'monaco' && !isMdFile(fileName(filePath))) {
+      // In show-changed mode, fetch the HEAD baseline (same cache the
+      // CodeMirror merge view uses). With a baseline → Monaco diff
+      // editor; without one (untracked / new file) → plain editor.
+      if (showChangedOnlyRef.current) {
+        if (!gitBaselinesRef.current.has(filePath)) {
+          const relPath = filePath.startsWith(workingDirectory)
+            ? filePath.slice(workingDirectory.length).replace(/^\/+/, '')
+            : filePath;
+          try {
+            const fromHead = await window.api.getGitFileAtHead(workingDirectory, relPath);
+            gitBaselinesRef.current.set(filePath, fromHead);
+          } catch {
+            gitBaselinesRef.current.set(filePath, null);
+          }
+        }
+        const baseline = gitBaselinesRef.current.get(filePath) ?? null;
+        if (baseline !== null) {
+          setMonacoDiffPath(filePath);
+          setMonacoPath(null);
+          return;
+        }
+      }
+      // Plain Monaco editor (no diff).
+      setMonacoDiffPath(null);
       setMonacoPath(filePath);
       return; // skip the CodeMirror mount entirely
     }
     setMonacoPath(null);
+    setMonacoDiffPath(null);
 
     if (!editorRef.current) return;
 
@@ -2243,6 +2278,33 @@ export function FileExplorer({
             the editor body. */}
         {activeTabPath && !activeIsImage && (
           <div className="file-editor-toolbar">
+            {/* Diff layout toggle — only while a Monaco inline/side-by-side
+                diff is showing. Sits at the far left of the toolbar. */}
+            {monacoDiffPath && activeTabPath === monacoDiffPath && (
+              <button
+                className="file-tab-action-btn"
+                // marginRight:auto claims the free space to the button's
+                // right in the flex toolbar, floating it to the far left
+                // and pushing Save / Blame / Find over to the right.
+                style={{ marginRight: 'auto' }}
+                onClick={() => setDiffSideBySide((v) => !v)}
+                title={diffSideBySide ? 'Switch to inline diff' : 'Switch to side-by-side diff'}
+              >
+                {diffSideBySide ? (
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                    {/* single column → inline */}
+                    <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+                    <path d="M5 6h6M5 9h4" />
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                    {/* two columns → side by side */}
+                    <rect x="2" y="2.5" width="5" height="11" rx="1" />
+                    <rect x="9" y="2.5" width="5" height="11" rx="1" />
+                  </svg>
+                )}
+              </button>
+            )}
             <button
               className="file-tab-action-btn"
               onClick={handleSave}
@@ -2466,11 +2528,40 @@ export function FileExplorer({
             />
           </div>
         )}
+        {/* Spike: Monaco inline diff for the show-changed review path. */}
+        {monacoDiffPath && activeTabPath === monacoDiffPath && (
+          <div className="file-editor-content" style={{ display: 'block' }}>
+            <MonacoDiffEditor
+              key={monacoDiffPath}
+              path={monacoDiffPath}
+              original={gitBaselinesRef.current.get(monacoDiffPath) ?? ''}
+              modified={docCacheRef.current.get(monacoDiffPath) ?? ''}
+              savedContent={savedContentRef.current.get(monacoDiffPath) ?? docCacheRef.current.get(monacoDiffPath) ?? ''}
+              language={monacoLanguageForFile(fileName(monacoDiffPath))}
+              fontSize={editorFontSize}
+              sideBySide={diffSideBySide}
+              onChange={(value, isDirty) => {
+                const p = monacoDiffPath;
+                docCacheRef.current.set(p, value);
+                setModifiedSet((s) => {
+                  const has = s.has(p);
+                  if (isDirty === has) return s;
+                  const n = new Set(s);
+                  if (isDirty) n.add(p); else n.delete(p);
+                  return n;
+                });
+              }}
+              onSave={handleSave}
+            />
+          </div>
+        )}
         <div
           className="file-editor-content"
           ref={editorRef}
           style={{
-            display: activeTabPath && !activeIsImage && !activeMdShowing && !activeIsExcalidraw && !(monacoPath && activeTabPath === monacoPath) ? 'block' : 'none',
+            display: activeTabPath && !activeIsImage && !activeMdShowing && !activeIsExcalidraw
+              && !(monacoPath && activeTabPath === monacoPath)
+              && !(monacoDiffPath && activeTabPath === monacoDiffPath) ? 'block' : 'none',
           }}
         />
         {!activeTabPath && (
