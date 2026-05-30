@@ -198,6 +198,7 @@ export function SettingsDialog({
   const [showAuthorAvatars, setShowAuthorAvatars] = useState(settings.showAuthorAvatars !== false);
   const [formatOnSave, setFormatOnSave] = useState(settings.formatOnSave === true);
   const [editorStickyScroll, setEditorStickyScroll] = useState(settings.editorStickyScroll !== false);
+  const [editorEngine, setEditorEngine] = useState<'codemirror' | 'monaco'>(settings.editorEngine ?? 'codemirror');
   const [showHiddenFiles, setShowHiddenFiles] = useState(settings.showHiddenFiles !== false);
   const [webDefaultUrl, setWebDefaultUrl] = useState(settings.webDefaultUrl || 'https://duckduckgo.com/');
   const [pullStrategy, setPullStrategy] = useState<'merge' | 'rebase' | 'ask'>(settings.pullStrategy ?? 'merge');
@@ -301,6 +302,7 @@ export function SettingsDialog({
       showAuthorAvatars,
       formatOnSave,
       editorStickyScroll,
+      editorEngine,
       showHiddenFiles,
       webDefaultUrl: webDefaultUrl.trim() || 'https://duckduckgo.com/',
       pullStrategy,
@@ -469,6 +471,23 @@ export function SettingsDialog({
                 Pins the current function / class declaration to the
                 top of the editor while scrolling. Up to 3 nested
                 scopes. Takes effect on next file open.
+              </span>
+
+              <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                <span className="field-label">Use Monaco editor (experimental)</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={editorEngine === 'monaco'}
+                    onChange={(e) => setEditorEngine(e.target.checked ? 'monaco' : 'codemirror')}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+              <span className="field-hint">
+                Spike: swaps the VS Code (Monaco) editor in for plain
+                code/text files. Diff view, blame, and markdown editing
+                stay on the default editor. Reopen a file to apply.
               </span>
 
               <label className="field field-row-toggle" style={{ marginTop: 12 }}>

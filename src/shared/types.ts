@@ -151,6 +151,11 @@ export interface AppSettings {
    * has a manual input. Default 13 — matches the previous hard-
    * coded value before this setting existed. */
   editorFontSize: number;
+  /** Which editor backs the file view's plain (non-diff, non-markdown)
+   * path. 'codemirror' is the default and the only engine for diff,
+   * blame, and markdown editing; 'monaco' is a spike that swaps the
+   * plain editor for the VS Code editor. See docs/MONACO_MIGRATION.md. */
+  editorEngine?: 'codemirror' | 'monaco';
   /** Default landing page for a Web tab that has never been navigated.
    * Once a view has a saved URL in `webUrls`, this is ignored. Free-form
    * text — non-URL input is interpreted as a DuckDuckGo search at click
@@ -291,6 +296,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   editorStickyScroll: true,
   showHiddenFiles: true,
   editorFontSize: 13,
+  editorEngine: 'codemirror',
   webDefaultUrl: 'https://duckduckgo.com/',
   webUrls: {},
   openFunctionTabs: {},

@@ -2373,6 +2373,8 @@ export function App() {
                   formatOnSave={settings.formatOnSave === true}
                   stickyScroll={settings.editorStickyScroll !== false}
                   showHiddenFiles={settings.showHiddenFiles !== false}
+                  editorEngine={settings.editorEngine ?? 'codemirror'}
+                  editorFontSize={settings.editorFontSize ?? 13}
                   showChangedOnly={showChangedFilesViews.has(key)}
                   onShowChangedOnlyChange={(next) => {
                     setShowChangedFilesViews((prev) => {

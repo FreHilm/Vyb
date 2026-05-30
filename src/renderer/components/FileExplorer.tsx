@@ -24,6 +24,7 @@ import { SWORD_SHAPE } from '../file-icons';
 import { FileHistoryView } from './FileHistoryView';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Spinner } from './Spinner';
+import { MonacoFileEditor, monacoLanguageForFile } from './MonacoFileEditor';
 import { toastError, toastInfo, errMessage } from '../lib/toast';
 
 // Working directories we've already warned about being large/cloud-heavy,
@@ -73,6 +74,13 @@ interface FileExplorerProps {
    * the reset path; otherwise the value gets added to the current
    * setting and clamped to [8, 32] by the caller. */
   onAdjustEditorFontSize?: (delta: number) => void;
+  /** Spike: which editor backs the plain file path. Defaults to
+   * 'codemirror'. 'monaco' swaps the VS Code editor in for non-diff,
+   * non-markdown files. See docs/MONACO_MIGRATION.md. */
+  editorEngine?: 'codemirror' | 'monaco';
+  /** Editor font size (px) — passed to Monaco; CodeMirror reads it
+   * from the --cm-editor-font-size CSS var instead. */
+  editorFontSize?: number;
 }
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp']);
@@ -631,11 +639,22 @@ export function FileExplorer({
   initialTabs,
   onTabsChange,
   onAdjustEditorFontSize,
+  editorEngine = 'codemirror',
+  editorFontSize = 13,
 }: FileExplorerProps) {
   const [rootEntries, setRootEntries] = useState<FileEntry[]>([]);
   const [tabs, setTabs] = useState<FileTab[]>([]);
   const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
   const [modifiedSet, setModifiedSet] = useState<Set<string>>(new Set());
+  // Spike: when the Monaco engine is active and the open file is a
+  // plain code/text file (not diff/markdown/image/excalidraw), this
+  // holds its path and the render swaps in <MonacoFileEditor> instead
+  // of mounting CodeMirror. null = use the CodeMirror host.
+  const [monacoPath, setMonacoPath] = useState<string | null>(null);
+  const editorEngineRef = useRef(editorEngine);
+  editorEngineRef.current = editorEngine;
+  const monacoPathRef = useRef<string | null>(null);
+  monacoPathRef.current = monacoPath;
   // Mirror tabs + modifiedSet into refs so the once-attached fs.watch
   // listener (registered in a useEffect with stable deps) can read the
   // latest tab list / dirty flags without re-subscribing on every render.
@@ -1194,6 +1213,10 @@ export function FileExplorer({
     let content: string | null = null;
     if (excalidrawRef.current && isExcalidrawFile(fileName(path))) {
       content = excalidrawRef.current.serialize();
+    } else if (monacoPathRef.current === path) {
+      // Monaco path: there's no CodeMirror view. MonacoFileEditor's
+      // onChange keeps docCacheRef current, so it's the source of truth.
+      content = docCacheRef.current.get(path) ?? '';
     } else if (viewRef.current) {
       content = viewRef.current.state.doc.toString();
     }
@@ -1305,6 +1328,18 @@ export function FileExplorer({
       if (mode === 'view') return;
       // Otherwise fall through to mount the editor.
     }
+
+    // Spike: route plain code/text files to Monaco when that engine is
+    // selected. Diff (show-changed) and markdown editing stay on
+    // CodeMirror, so those fall through below. Content is already in
+    // docCacheRef, which <MonacoFileEditor> reads as its initial value.
+    if (editorEngineRef.current === 'monaco'
+        && !isMdFile(fileName(filePath))
+        && !showChangedOnlyRef.current) {
+      setMonacoPath(filePath);
+      return; // skip the CodeMirror mount entirely
+    }
+    setMonacoPath(null);
 
     if (!editorRef.current) return;
 
@@ -2403,11 +2438,39 @@ export function FileExplorer({
             onSaveRequested={handleSave}
           />
         )}
+        {/* Spike: Monaco host for the plain-file path. Keyed on the
+            path so switching files remounts cleanly. Sits in the same
+            slot as the CodeMirror host; the CM host is hidden while
+            Monaco owns the active tab. */}
+        {monacoPath && activeTabPath === monacoPath && (
+          <div className="file-editor-content" style={{ display: 'block' }}>
+            <MonacoFileEditor
+              key={monacoPath}
+              path={monacoPath}
+              initialContent={docCacheRef.current.get(monacoPath) ?? ''}
+              savedContent={savedContentRef.current.get(monacoPath) ?? docCacheRef.current.get(monacoPath) ?? ''}
+              language={monacoLanguageForFile(fileName(monacoPath))}
+              fontSize={editorFontSize}
+              onChange={(value, isDirty) => {
+                const p = monacoPath;
+                docCacheRef.current.set(p, value);
+                setModifiedSet((s) => {
+                  const has = s.has(p);
+                  if (isDirty === has) return s;
+                  const n = new Set(s);
+                  if (isDirty) n.add(p); else n.delete(p);
+                  return n;
+                });
+              }}
+              onSave={handleSave}
+            />
+          </div>
+        )}
         <div
           className="file-editor-content"
           ref={editorRef}
           style={{
-            display: activeTabPath && !activeIsImage && !activeMdShowing && !activeIsExcalidraw ? 'block' : 'none',
+            display: activeTabPath && !activeIsImage && !activeMdShowing && !activeIsExcalidraw && !(monacoPath && activeTabPath === monacoPath) ? 'block' : 'none',
           }}
         />
         {!activeTabPath && (
