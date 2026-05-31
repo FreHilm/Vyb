@@ -1350,10 +1350,10 @@ export function FileExplorer({
     }
 
     // Spike: route files to Monaco when that engine is selected.
-    // Markdown editing stays on CodeMirror (falls through). Content is
-    // already in docCacheRef, which the Monaco editors read as their
-    // initial value.
-    if (editorEngineRef.current === 'monaco' && !isMdFile(fileName(filePath))) {
+    // Markdown reaches here only in edit mode (view mode returned above),
+    // so markdown edit-mode uses Monaco too. Content is already in
+    // docCacheRef, which the Monaco editors read as their initial value.
+    if (editorEngineRef.current === 'monaco') {
       // In show-changed mode, fetch the HEAD baseline (same cache the
       // CodeMirror merge view uses). With a baseline → Monaco diff
       // editor; without one (untracked / new file) → plain editor.
@@ -2133,9 +2133,10 @@ export function FileExplorer({
     const path = activeTabPath;
     const current = mdViewModeRef.current.get(path) ?? 'view';
     const next = current === 'view' ? 'edit' : 'view';
-    if (next === 'view' && viewRef.current && modifiedSet.has(path)) {
+    if (next === 'view' && modifiedSet.has(path)) {
       // Auto-save before flipping to view so the rendered preview is
-      // up-to-date.
+      // up-to-date. Works for either engine — CodeMirror reads the live
+      // view, Monaco reads docCacheRef (see handleSave).
       await handleSave();
     }
     const updated = new Map(mdViewModeRef.current);
@@ -2144,12 +2145,18 @@ export function FileExplorer({
     setMdViewMode(updated);
     if (next === 'edit') {
       // Mount the editor — needs a frame so the host div has flipped
-      // back to display:block before we attach CodeMirror.
+      // back to display:block before we attach the editor.
       requestAnimationFrame(() => { mountEditor(path); });
-    } else if (viewRef.current) {
-      // Tear down the editor when leaving edit mode.
-      viewRef.current.destroy();
-      viewRef.current = null;
+    } else {
+      // Leaving edit mode — tear down whichever editor was active.
+      if (viewRef.current) {
+        viewRef.current.destroy();
+        viewRef.current = null;
+      }
+      // Monaco owns this path via monacoPath/monacoDiffPath; clear so the
+      // rendered preview (not the Monaco host) shows in view mode.
+      if (monacoPathRef.current === path) setMonacoPath(null);
+      if (monacoDiffPathRef.current === path) setMonacoDiffPath(null);
       // Refresh the rendered content from the in-memory cache.
       const cached = docCacheRef.current.get(path);
       if (cached !== undefined) {
@@ -2527,7 +2534,7 @@ export function FileExplorer({
             path so switching files remounts cleanly. Sits in the same
             slot as the CodeMirror host; the CM host is hidden while
             Monaco owns the active tab. */}
-        {monacoPath && activeTabPath === monacoPath && (
+        {monacoPath && activeTabPath === monacoPath && !activeMdShowing && (
           <div className="file-editor-content" style={{ display: 'block' }}>
             <MonacoFileEditor
               key={monacoPath}
@@ -2536,6 +2543,14 @@ export function FileExplorer({
               savedContent={savedContentRef.current.get(monacoPath) ?? docCacheRef.current.get(monacoPath) ?? ''}
               language={monacoLanguageForFile(fileName(monacoPath))}
               fontSize={editorFontSize}
+              blame={blameEnabled.has(monacoPath) ? blameDataByPath.get(monacoPath) : undefined}
+              onBlameSelect={(sha) => {
+                const name = monacoPath.split('/').pop() || monacoPath;
+                const relPath = monacoPath.startsWith(workingDirectory)
+                  ? monacoPath.slice(workingDirectory.length).replace(/^\/+/, '')
+                  : monacoPath;
+                setHistoryFile({ path: relPath, name, initialSha: sha });
+              }}
               onChange={(value, isDirty) => {
                 const p = monacoPath;
                 docCacheRef.current.set(p, value);
@@ -2552,7 +2567,7 @@ export function FileExplorer({
           </div>
         )}
         {/* Spike: Monaco inline diff for the show-changed review path. */}
-        {monacoDiffPath && activeTabPath === monacoDiffPath && (
+        {monacoDiffPath && activeTabPath === monacoDiffPath && !activeMdShowing && (
           <div className="file-editor-content" style={{ display: 'block' }}>
             <MonacoDiffEditor
               key={monacoDiffPath}

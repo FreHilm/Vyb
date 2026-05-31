@@ -6045,6 +6045,27 @@ select option {
   opacity: 0.55;
   cursor: default;
 }
+
+/* Monaco blame column — injected `before` text per line (counterpart to
+   the CodeMirror gutter above). A single muted monospace run; width is
+   set in `ch` in monaco-blame.ts so the column aligns across lines. */
+.monaco-blame-col {
+  color: var(--c-overlay1);
+  opacity: 0.8;
+  cursor: pointer;
+  padding-right: 10px;
+  margin-right: 8px;
+  border-right: 1px solid var(--c-surface0);
+  white-space: pre;
+}
+.monaco-blame-col:hover {
+  color: var(--c-text);
+  opacity: 1;
+}
+.monaco-blame-col-uncommitted {
+  opacity: 0.5;
+  cursor: default;
+}
 .file-tab-action-btn.is-active {
   background: color-mix(in srgb, var(--c-yellow) 30%, var(--c-surface0));
   color: var(--c-yellow);
