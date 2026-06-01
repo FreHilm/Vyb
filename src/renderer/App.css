@@ -3977,6 +3977,19 @@ select option {
   gap: 2px;
 }
 
+/* "New…" dropdown in the tree header. The menu reuses .file-context-menu
+   (position: fixed, so it escapes the tree pane's `overflow: hidden`);
+   its top/right are set inline from the button's screen rect. */
+.file-tree-create-dropdown {
+  display: flex;
+}
+.file-tree-create-menu {
+  /* Header text is uppercased; the menu items shouldn't be. */
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
+
 .file-tree-action-btn {
   background: none;
   border: none;

@@ -1569,7 +1569,13 @@ export function App() {
     let updated: Profile[];
     const existing = profiles.find((p) => p.id === saved.id);
     if (existing) {
-      updated = profiles.map((p) => (p.id === saved.id ? saved : p));
+      // Merge rather than replace: the editor's payload only carries the
+      // fields it owns (name, icon, dir, agent, parallel flags, command,
+      // args). Spreading the existing profile first preserves fields the
+      // editor never sees — notably `workspaceId` and `statusPatterns` —
+      // which a wholesale replace would silently drop, sending the
+      // profile back to the Default workspace.
+      updated = profiles.map((p) => (p.id === saved.id ? { ...p, ...saved } : p));
     } else {
       const withWs: Profile = saved.workspaceId
         ? saved

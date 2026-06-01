@@ -20,7 +20,6 @@ import { FileIcon } from '../file-icons';
 import { ResizeHandle } from './ResizeHandle';
 import { MermaidBlock } from './MermaidBlock';
 import { ExcalidrawEditor, type ExcalidrawEditorHandle } from './ExcalidrawEditor';
-import { SWORD_SHAPE } from '../file-icons';
 import { FileHistoryView } from './FileHistoryView';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Spinner } from './Spinner';
@@ -766,7 +765,12 @@ export function FileExplorer({
   blameDataByPathRef.current = blameDataByPath;
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null);
-  const [creating, setCreating] = useState<{ type: 'file' | 'dir' | 'excalidraw'; dir: string } | null>(null);
+  const [creating, setCreating] = useState<{ type: 'file' | 'dir' | 'excalidraw' | 'md'; dir: string } | null>(null);
+  // "New…" dropdown in the tree header (file / folder / excalidraw / md).
+  // The menu is position:fixed (anchored to the button's screen rect) so
+  // it escapes the tree pane's `overflow: hidden` clip.
+  const [createMenuPos, setCreateMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const createMenuOpen = createMenuPos !== null;
   const [treeWidth, setTreeWidth] = useState(240);
   // DnD: source path tracked in a ref (no re-render needed during drag);
   // current target dir in state (drives the drop highlight).
@@ -2105,12 +2109,35 @@ export function FileExplorer({
       // routes it to the Excalidraw editor on first open.
       const finalPath = isExcalidrawFile(name) ? fullPath : `${fullPath}.excalidraw`;
       await window.api.saveFile(finalPath, EMPTY_EXCALIDRAW);
+    } else if (creating.type === 'md') {
+      // Ensure a `.md` extension so it opens in the markdown view/editor.
+      const finalPath = isMdFile(name) ? fullPath : `${fullPath}.md`;
+      await window.api.createFile(finalPath);
     } else {
       await window.api.createFile(fullPath);
     }
     setCreating(null);
     refresh();
   }, [creating, refresh]);
+
+  // Start a create flow from the "New…" dropdown and close the menu.
+  const startCreate = useCallback((type: 'file' | 'dir' | 'excalidraw' | 'md') => {
+    setCreating({ type, dir: workingDirectory });
+    setCreateMenuPos(null);
+  }, [workingDirectory]);
+
+  // Close the "New…" dropdown on any outside click / Escape.
+  useEffect(() => {
+    if (!createMenuOpen) return;
+    const close = () => setCreateMenuPos(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setCreateMenuPos(null); };
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [createMenuOpen]);
 
   const activeIsImage = activeTabPath ? isImageFile(fileName(activeTabPath)) : false;
   const activeIsMd = activeTabPath ? isMdFile(fileName(activeTabPath)) : false;
@@ -2666,18 +2693,39 @@ export function FileExplorer({
                 <path d="M7 7v4m-2-2h4" fill="none" strokeWidth="1.5" />
               </svg>
             </button>
-            <button
-              className="file-tree-action-btn"
-              onClick={() => setCreating({ type: 'excalidraw', dir: workingDirectory })}
-              title="New Excalidraw drawing"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                {SWORD_SHAPE}
-                {/* "New" plus badge in the top-right — same convention as
-                    the New File button's plus inside the page outline. */}
-                <path d="M13 1.5v3M11.5 3h3" strokeWidth="1.5" />
-              </svg>
-            </button>
+            {/* "New…" dropdown — file / folder / excalidraw / md. The
+                standalone File + Folder buttons above stay for now. */}
+            <div className="file-tree-create-dropdown">
+              <button
+                className={`file-tree-action-btn${createMenuOpen ? ' is-active' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (createMenuOpen) { setCreateMenuPos(null); return; }
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setCreateMenuPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+                }}
+                title="New…"
+                aria-haspopup="menu"
+                aria-expanded={createMenuOpen}
+              >
+                {/* plus glyph → "create" menu */}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 3.5v9M3.5 8h9" />
+                </svg>
+              </button>
+              {createMenuPos && (
+                <div
+                  className="file-context-menu file-tree-create-menu"
+                  style={{ top: createMenuPos.top, right: createMenuPos.right }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button className="file-ctx-item" onClick={() => startCreate('file')}>New File</button>
+                  <button className="file-ctx-item" onClick={() => startCreate('dir')}>New Folder</button>
+                  <button className="file-ctx-item" onClick={() => startCreate('md')}>New Markdown</button>
+                  <button className="file-ctx-item" onClick={() => startCreate('excalidraw')}>New Excalidraw</button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
         <div
@@ -2692,7 +2740,8 @@ export function FileExplorer({
                 filename={
                   creating.type === 'dir' ? '__dir__'
                     : creating.type === 'excalidraw' ? 'untitled.excalidraw'
-                      : 'untitled'
+                      : creating.type === 'md' ? 'untitled.md'
+                        : 'untitled'
                 }
                 isDirectory={creating.type === 'dir'}
               />
@@ -2700,7 +2749,8 @@ export function FileExplorer({
                 initialValue={
                   creating.type === 'dir' ? 'new-folder'
                     : creating.type === 'excalidraw' ? 'untitled.excalidraw'
-                      : 'untitled.txt'
+                      : creating.type === 'md' ? 'untitled.md'
+                        : 'untitled.txt'
                 }
                 onSubmit={handleCreateSubmit}
                 onCancel={() => setCreating(null)}

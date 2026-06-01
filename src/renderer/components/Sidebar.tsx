@@ -787,6 +787,10 @@ export function Sidebar({
                       if (e.key === 'Escape') setEditingFolderId(null);
                     }}
                     autoFocus
+                    // Select the whole name on focus so a brand-new folder
+                    // ("New Folder") or a rename starts highlighted — the
+                    // user can just type to replace it.
+                    onFocus={(e) => e.currentTarget.select()}
                     onClick={(e) => e.stopPropagation()}
                   />
                 ) : (
