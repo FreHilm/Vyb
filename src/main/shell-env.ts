@@ -53,6 +53,32 @@ function defaultShell(): string {
   return '/bin/sh';
 }
 
+/**
+ * Strip pollution that only exists when Vyb itself is launched from an
+ * npm script (`npm start` dev mode). npm injects `npm_*` config/lifecycle
+ * vars + `INIT_CWD`, and prepends a `…/@npmcli/run-script/…/node-gyp-bin`
+ * entry to PATH. None of these are ever set by a user's rc files. If they
+ * flow into an agent's PTY, a child `npm install -g` (e.g. Codex's own
+ * "Update now") inherits the wrong prefix and tools resolve oddly. We only
+ * touch the lowercase `npm_*` set npm injects — a user's deliberate
+ * `NPM_CONFIG_*` (uppercase, exported in rc) is left intact.
+ */
+function scrubNpmLifecycle(env: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (k.startsWith('npm_') || k === 'INIT_CWD') continue;
+    out[k] = v;
+  }
+  const pathKey = Object.keys(out).find((k) => k.toLowerCase() === 'path');
+  if (pathKey && out[pathKey]) {
+    out[pathKey] = out[pathKey]
+      .split(':')
+      .filter((p) => p && !p.includes('node-gyp-bin'))
+      .join(':');
+  }
+  return out;
+}
+
 function parseEnvBlock(block: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const line of block.split('\n')) {
@@ -70,7 +96,16 @@ function parseEnvBlock(block: string): Record<string, string> {
 
 async function runShellAndCaptureEnv(shell: string): Promise<Record<string, string>> {
   return new Promise((resolve) => {
-    const cmd = `echo ${START_MARKER}; env; echo ${END_MARKER}`;
+    // Warm-up: lazy-loaded version managers (the common "define node/npm as
+    // a function that sources nvm.sh on first call" pattern) leave their
+    // bin dir OFF the PATH until something actually invokes them. A plain
+    // `env` capture would miss it. So before capturing, nudge nvm to load
+    // + activate its default. Output is silenced and it precedes the START
+    // marker, so it never pollutes the parsed env. Best-effort (`|| true`):
+    // shells without nvm just no-op. (fnm/Volta/asdf/mise are covered
+    // deterministically by the shim-dir resolvers in pty-manager.)
+    const warmup = '{ command -v nvm >/dev/null 2>&1 && nvm use default >/dev/null 2>&1; } >/dev/null 2>&1 || true;';
+    const cmd = `${warmup} echo ${START_MARKER}; env; echo ${END_MARKER}`;
     // -l = login shell (sources ~/.zprofile, ~/.bash_profile, etc.)
     // -i = interactive (sources ~/.zshrc, ~/.bashrc)
     // Both together cover the common rc-file locations users actually edit.
@@ -143,16 +178,15 @@ export async function resolveShellEnv(): Promise<Record<string, string>> {
     // is removed between resolution and spawn.
     if (!isExecutableFile(shell)) {
       console.warn(`[shell-env] no usable shell found; falling back to process.env`);
-      const fallback = { ...(process.env as Record<string, string>) };
-      resolved = fallback;
-      return fallback;
+      resolved = scrubNpmLifecycle({ ...(process.env as Record<string, string>) });
+      return resolved;
     }
     const env = await runShellAndCaptureEnv(shell);
     // Merge over process.env so we never *lose* anything Electron set; the
     // shell-resolved values take precedence.
     const merged = { ...(process.env as Record<string, string>), ...env };
-    resolved = merged;
-    return merged;
+    resolved = scrubNpmLifecycle(merged);
+    return resolved;
   })();
 
   return inflight;

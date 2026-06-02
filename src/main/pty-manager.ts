@@ -5,6 +5,87 @@ import * as path from 'path';
 import { Profile } from '../shared/types';
 import { getResolvedShellEnv } from './shell-env';
 
+// Compare two nvm version dir names ("v24.14.1") numerically so the
+// newest sorts last. Non-numeric segments compare as 0.
+function compareNodeVersions(a: string, b: string): number {
+  const pa = a.replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = b.replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+  }
+  return 0;
+}
+
+// Resolve the nvm node `bin` dir the user would get in a terminal.
+//
+// nvm activates a version by mutating the *current shell's* PATH; that
+// doesn't survive Vyb's env capture, which spawns a non-interactive,
+// TTY-less shell where `nvm.sh` often doesn't re-apply the default. So
+// node CLIs installed under nvm (codex, gemini) silently fall off the
+// agent's PATH. We replicate nvm's own resolution: honor the `default`
+// alias if it maps to an installed version, else fall back to the newest
+// installed. Returns null when nvm isn't present.
+function nvmDefaultBin(home: string): string | null {
+  const versionsDir = path.join(home, '.nvm', 'versions', 'node');
+  try {
+    const installed = fs.readdirSync(versionsDir).filter((d) => d.startsWith('v'));
+    if (installed.length === 0) return null;
+
+    let chosen = '';
+    try {
+      const alias = fs.readFileSync(path.join(home, '.nvm', 'alias', 'default'), 'utf8').trim();
+      if (alias) {
+        const norm = alias.startsWith('v') ? alias : `v${alias}`;
+        if (installed.includes(norm)) {
+          chosen = norm; // exact version, e.g. "24.14.1"
+        } else {
+          // Partial ("24" / "v24") → newest installed under that prefix.
+          const prefix = norm.replace(/\.+$/, '');
+          const matches = installed.filter((v) => v === prefix || v.startsWith(prefix + '.'));
+          if (matches.length) chosen = matches.sort(compareNodeVersions)[matches.length - 1];
+        }
+      }
+    } catch { /* no default alias — fall through to newest */ }
+
+    if (!chosen) chosen = installed.slice().sort(compareNodeVersions)[installed.length - 1];
+    const bin = path.join(versionsDir, chosen, 'bin');
+    return fs.existsSync(bin) ? bin : null;
+  } catch {
+    return null; // no ~/.nvm/versions/node
+  }
+}
+
+// fnm has the same TTY-activation gap as nvm. Its `default` alias is a
+// symlink to the active version's install dir; resolve it (or fall back to
+// the newest installed version) and return that `bin`. fnm's data dir
+// varies, so we probe the common locations.
+function fnmDefaultBin(home: string): string | null {
+  const roots = [
+    process.env.FNM_DIR,
+    path.join(home, '.fnm'),
+    path.join(home, 'Library', 'Application Support', 'fnm'),
+    path.join(home, '.local', 'share', 'fnm'),
+  ].filter((r): r is string => !!r);
+  for (const root of roots) {
+    try {
+      // The `default` alias symlinks to <root>/node-versions/<v>/installation.
+      const aliasInstall = path.join(root, 'aliases', 'default');
+      const bin = path.join(fs.realpathSync(aliasInstall), 'bin');
+      if (fs.existsSync(bin)) return bin;
+    } catch { /* no default alias in this root */ }
+    try {
+      const versionsDir = path.join(root, 'node-versions');
+      const installed = fs.readdirSync(versionsDir).filter((d) => d.startsWith('v'));
+      if (installed.length) {
+        const newest = installed.sort(compareNodeVersions)[installed.length - 1];
+        const bin = path.join(versionsDir, newest, 'installation', 'bin');
+        if (fs.existsSync(bin)) return bin;
+      }
+    } catch { /* no node-versions in this root */ }
+  }
+  return null;
+}
+
 // Common per-user binary dirs that should be on PATH regardless of
 // whether the user's interactive shell env capture worked. Electron
 // launched from Finder/dock inherits a minimal PATH from launchd
@@ -41,6 +122,16 @@ function supplementPath(currentPath: string): string {
     return currentPath;
   }
   const candidates = [
+    // Version-manager node dirs first — so node CLIs (codex, gemini) and
+    // `node` itself resolve to the version the user gets in a terminal,
+    // which the TTY-less env capture frequently drops. nvm/fnm need their
+    // active version resolved; Volta/asdf/mise expose stable shim dirs that
+    // dispatch to the right version themselves.
+    nvmDefaultBin(home),
+    fnmDefaultBin(home),
+    `${home}/.volta/bin`,
+    `${home}/.asdf/shims`,
+    `${home}/.local/share/mise/shims`,
     `${home}/.local/bin`,
     `${home}/.opencode/bin`,
     `${home}/.bun/bin`,
@@ -50,7 +141,7 @@ function supplementPath(currentPath: string): string {
     '/usr/local/bin',
     '/opt/homebrew/bin',
     '/opt/homebrew/sbin',
-  ];
+  ].filter((c): c is string => !!c);
   const existing = new Set(currentPath.split(':').filter(Boolean));
   try {
     const extra = candidates.filter((c) => fs.existsSync(c) && !existing.has(c));
@@ -176,6 +267,7 @@ export class PtyManager {
 
     let spawnCmd: string;
     let spawnArgs: string[];
+    let bareAgentCmd: string | null = null;
 
     // Build clean env for child processes. Prefer the env resolved from the
     // user's interactive shell (zshrc/zshenv/.bash_profile/etc.) so PATH +
@@ -206,6 +298,9 @@ export class PtyManager {
       const parts = agentCmd.split(/\s+/);
       spawnCmd = parts[0];
       spawnArgs = parts.slice(1);
+      // Remember the bare name so a spawn failure can invalidate its
+      // cached resolution (binary moved / updated / uninstalled).
+      bareAgentCmd = parts[0];
       if (os.platform() === 'win32') {
         // The agent CLIs (claude, codex, gemini, opencode) install as
         // .cmd / .ps1 shims via npm's global bin. node-pty →
@@ -224,6 +319,10 @@ export class PtyManager {
           spawnCmd = resolved;
         }
       }
+      // macOS/Linux: no per-spawn resolution needed — supplementPath()
+      // above has already put the right tool dirs (nvm/fnm default node,
+      // Volta/asdf/mise shims, ~/.local/bin, Homebrew) on PATH, so node-pty
+      // resolves the bare command to the same binary a terminal would.
     } else {
       // No command — open the user's preferred login shell rather than
       // hardcoded zsh. Bash / fish / other-shell users now get their
@@ -286,14 +385,28 @@ export class PtyManager {
       // open and show context.
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[pty] spawn failed: cmd="${spawnCmd}" args=${JSON.stringify(spawnArgs)} :: ${msg}`);
+      // Tailor the hint: an agent command that couldn't be found is almost
+      // always a PATH / install issue, and the fastest check is whether the
+      // user's own terminal can find it.
+      const hint = bareAgentCmd
+        ? [
+          `\x1b[2mVyb couldn't locate "${bareAgentCmd}". In a terminal run:  command -v ${bareAgentCmd}`,
+          'If that prints nothing, the agent isn\'t installed on your PATH.',
+          'If it prints a path but this still fails, set the profile\'s command to',
+          'that absolute path. Tip: a stale npm "prefix" can install global CLIs',
+          'into a dir that isn\'t on your PATH.\x1b[0m',
+        ]
+        : [
+          '\x1b[2mCheck $SHELL points at an actual executable (not a directory)',
+          'and that the binary exists + has its executable bit set.\x1b[0m',
+        ];
       const banner = [
         '',
         '\x1b[1;31m✖ Failed to start terminal\x1b[0m',
         `  command: ${spawnCmd} ${spawnArgs.join(' ')}`,
         `  reason:  ${msg}`,
         '',
-        '\x1b[2mCheck $SHELL points at an actual executable (not a directory)',
-        'and that the binary exists + has its executable bit set.\x1b[0m',
+        ...hint,
         '',
       ].join('\r\n');
       this.onData(profileId, banner);
@@ -303,7 +416,15 @@ export class PtyManager {
       return;
     }
 
+    // Track how much the child actually printed. A non-zero exit with
+    // ~no output is the "blank pane + cursor" case — the process started
+    // but bailed before drawing anything (bad config, missing native dep,
+    // auth check, wrong cwd). We can't see *why* without its own output,
+    // so at least tell the user it happened and how to reproduce.
+    let outputBytes = 0;
+    const startedAt = Date.now();
     const dataDisp = ptyProcess.onData((data) => {
+      outputBytes += data.length;
       this.onData(profileId, data);
     });
 
@@ -319,6 +440,25 @@ export class PtyManager {
       // negative / signal codes = killed.
       if (exitCode !== 0) {
         console.warn(`[pty] ${profileId} exited code=${exitCode} cmd="${spawnCmd}" args=${JSON.stringify(spawnArgs)}`);
+        // Agent that died on startup (near-silent, or just exited within
+        // a few seconds of launch) → don't leave a blank/alt-screen pane.
+        // Print a banner with the exit code + how to see the real error.
+        const elapsed = Date.now() - startedAt;
+        if (agentCmd && (outputBytes < 16 || elapsed < 4000)) {
+          const name = bareAgentCmd || spawnCmd;
+          const banner = [
+            '',
+            `\x1b[1;31m✖ ${name} exited immediately (code ${exitCode}) with no output\x1b[0m`,
+            `  command: ${spawnCmd} ${spawnArgs.join(' ')}`,
+            '',
+            `\x1b[2mThe agent started but bailed before drawing anything. To see why,`,
+            `open a shell terminal here (Ctrl+Cmd+=) and run:  ${name} ${spawnArgs.join(' ')}`,
+            'Common causes: incomplete install (missing native dep), failed auth,',
+            'or a project config in this working directory the agent rejects.\x1b[0m',
+            '',
+          ].join('\r\n');
+          this.onData(profileId, banner);
+        }
       }
       this.onExit(profileId, exitCode);
     });
