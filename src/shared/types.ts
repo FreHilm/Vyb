@@ -159,6 +159,9 @@ export interface AppSettings {
   /** Context lines kept on each side of a change when the Monaco diff's
    * "collapse unchanged lines" toggle is on. Default 6. */
   diffContextLines?: number;
+  /** Fire OS notifications when an agent finishes (working→ready) or needs
+   * input. Default on; `false` disables them. */
+  notificationsEnabled?: boolean;
   /** Default landing page for a Web tab that has never been navigated.
    * Once a view has a saved URL in `webUrls`, this is ignored. Free-form
    * text — non-URL input is interpreted as a DuckDuckGo search at click
@@ -301,6 +304,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   editorFontSize: 13,
   editorEngine: 'codemirror',
   diffContextLines: 6,
+  notificationsEnabled: true,
   webDefaultUrl: 'https://duckduckgo.com/',
   webUrls: {},
   openFunctionTabs: {},

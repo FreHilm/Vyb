@@ -66,6 +66,17 @@ interface CoalesceState {
   flushTimer: ReturnType<typeof setTimeout> | null;
 }
 const coalesceStates: Map<string, CoalesceState> = new Map();
+
+// A resize sends SIGWINCH, which makes full-screen agents (notably Claude
+// Code) repaint their entire view. That burst trips the status detector's
+// "working" heuristic (spinner glyphs / large chunk) and the agent
+// spuriously flips to "working" (blue flames) just from dragging the
+// window. We suppress status detection for a short window after each
+// resize so a pure redraw isn't mistaken for real activity. The window
+// extends on every resize event, covering the whole drag plus the repaint.
+const resizeQuietUntil: Map<string, number> = new Map();
+const RESIZE_STATUS_QUIET_MS = 600;
+
 let processBatch: (profileId: string, data: string) => void = () => undefined;
 
 function flushCoalesced(profileId: string): void {
@@ -237,6 +248,8 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     kind: 'ready' | 'needs-input',
   ): void => {
     if (isQuitting) return;
+    // User can turn off agent done/needs-input notifications (default on).
+    if (loadSettings().notificationsEnabled === false) return;
     const ctx = resolveNotificationContext(profileId);
     if (!ctx.ownerProfile || ctx.isFocusedOnThis || ctx.inStartupGrace) return;
 
@@ -338,7 +351,13 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     // Parallel agents use the status detector with their `parallel:<id>`
     // prefix so we can react to working→ready transitions for auto-push.
     if (!profileId.startsWith('shell:') && !profileId.startsWith('ordna:')) {
-      statusDetector.feedData(profileId, data);
+      // Skip during the post-resize quiet window — the data is a SIGWINCH
+      // repaint, not the agent doing work. Status stays as-is (a genuinely
+      // working agent keeps its state; the next real output re-evaluates).
+      const quietUntil = resizeQuietUntil.get(profileId);
+      if (!quietUntil || Date.now() >= quietUntil) {
+        statusDetector.feedData(profileId, data);
+      }
     }
     // Accumulate scrollback for shell terminals
     if (profileId.startsWith('shell:')) {
@@ -468,6 +487,9 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     IPC_CHANNELS.TERMINAL_RESIZE,
     (_, profileId: string, cols: number, rows: number) => {
       ptyManager.resize(profileId, cols, rows);
+      // Mute status detection through the resulting repaint (see
+      // resizeQuietUntil). Extends on every resize event during a drag.
+      resizeQuietUntil.set(profileId, Date.now() + RESIZE_STATUS_QUIET_MS);
     },
   );
 
@@ -482,6 +504,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     clearCtrlCState(pid);
     statusDetector.unregister(profileId);
     flowStates.delete(profileId);
+    resizeQuietUntil.delete(profileId);
   });
 
   // Flow control ACK — renderer reports bytes consumed

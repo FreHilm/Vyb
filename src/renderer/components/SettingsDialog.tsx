@@ -201,6 +201,7 @@ export function SettingsDialog({
   const [editorEngine, setEditorEngine] = useState<'codemirror' | 'monaco'>(settings.editorEngine ?? 'codemirror');
   const [diffContextLines, setDiffContextLines] = useState(settings.diffContextLines ?? 6);
   const [showHiddenFiles, setShowHiddenFiles] = useState(settings.showHiddenFiles !== false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(settings.notificationsEnabled !== false);
   const [webDefaultUrl, setWebDefaultUrl] = useState(settings.webDefaultUrl || 'https://duckduckgo.com/');
   const [pullStrategy, setPullStrategy] = useState<'merge' | 'rebase' | 'ask'>(settings.pullStrategy ?? 'merge');
   const [pushTagsStrategy, setPushTagsStrategy] = useState<'off' | 'reachable' | 'all'>(settings.pushTagsStrategy ?? 'off');
@@ -306,6 +307,7 @@ export function SettingsDialog({
       editorEngine,
       diffContextLines: Math.max(0, Math.min(99, Math.round(diffContextLines || 6))),
       showHiddenFiles,
+      notificationsEnabled,
       webDefaultUrl: webDefaultUrl.trim() || 'https://duckduckgo.com/',
       pullStrategy,
       pushTagsStrategy,
@@ -512,6 +514,23 @@ export function SettingsDialog({
                   </span>
                 </>
               )}
+
+              <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                <span className="field-label">Agent notifications</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={notificationsEnabled}
+                    onChange={(e) => setNotificationsEnabled(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+              <span className="field-hint">
+                Show a desktop notification when an agent finishes a task or
+                needs your input. Notifications are always skipped for the
+                agent you're currently focused on.
+              </span>
 
               <label className="field field-row-toggle" style={{ marginTop: 12 }}>
                 <span className="field-label">Show hidden files</span>
