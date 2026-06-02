@@ -39,6 +39,30 @@ interface ExcalidrawEditorProps {
   onSaveRequested: () => void;
 }
 
+// Element fields Excalidraw regenerates on load / normalize (not real
+// edits). Comparing the raw serialized JSON byte-for-byte would flag a
+// scene as "dirty" just from remounting, because these bump on load.
+const VOLATILE_ELEMENT_FIELDS = new Set(['version', 'versionNonce', 'updated', 'seed']);
+
+/** A reload-stable signature of a scene's *meaningful* content (elements
+ * minus volatile fields, plus the canvas background). Two scenes with the
+ * same drawing compare equal even if one was just (re)loaded — which is
+ * what stops a tab-switch/remount from falsely marking the file dirty. */
+function sceneSignature(raw: string): string {
+  if (!raw || !raw.trim()) return '';
+  try {
+    const parsed = JSON.parse(raw);
+    const els = (parsed.elements ?? []).map((e: Record<string, unknown>) => {
+      const o: Record<string, unknown> = {};
+      for (const k in e) if (!VOLATILE_ELEMENT_FIELDS.has(k)) o[k] = e[k];
+      return o;
+    });
+    return JSON.stringify({ els, bg: parsed.appState?.viewBackgroundColor ?? null });
+  } catch {
+    return raw;
+  }
+}
+
 /** Build an Excalidraw initialData object from a raw .excalidraw JSON file.
  * Returns null for empty/invalid content so Excalidraw shows a blank scene. */
 function parseInitialData(raw: string): ExcalidrawInitialDataState | null {
@@ -63,6 +87,9 @@ export const ExcalidrawEditor = forwardRef<ExcalidrawEditorHandle, ExcalidrawEdi
   ) {
     const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
     const baselineRef = useRef<string>(savedBaseline);
+    // Precomputed signature of the on-disk baseline so onChange (which fires
+    // on every pointer move) only has to sign the *current* scene.
+    const baselineSigRef = useRef<string>(sceneSignature(savedBaseline));
     const [, setIsModified] = useState(false);
 
     const initialData = useMemo(() => parseInitialData(initialContent), [initialContent]);
@@ -92,8 +119,9 @@ export const ExcalidrawEditor = forwardRef<ExcalidrawEditorHandle, ExcalidrawEdi
     // unsaved scene.
     useEffect(() => {
       baselineRef.current = savedBaseline;
+      baselineSigRef.current = sceneSignature(savedBaseline);
       const current = apiRef.current ? serializeCurrent() : initialContent;
-      const modified = current !== savedBaseline;
+      const modified = sceneSignature(current) !== baselineSigRef.current;
       setIsModified(modified);
       onModifiedChange(modified);
     }, [filePath, savedBaseline, initialContent]);
@@ -123,8 +151,7 @@ export const ExcalidrawEditor = forwardRef<ExcalidrawEditorHandle, ExcalidrawEdi
           // since persistence is handled by the host (Vyb's File Explorer).
           renderTopRightUI={() => null}
           onChange={() => {
-            const current = serializeCurrent();
-            const next = current !== baselineRef.current;
+            const next = sceneSignature(serializeCurrent()) !== baselineSigRef.current;
             setIsModified((prev) => {
               if (prev !== next) onModifiedChange(next);
               return next;
