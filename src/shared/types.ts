@@ -390,6 +390,10 @@ export const IPC_CHANNELS = {
   SETTINGS_LOAD: 'settings:load',
   SETTINGS_SAVE: 'settings:save',
   SETTINGS_OPEN_DIALOG: 'settings:openDialog',
+  // Quit handshake: main asks the renderer to check for unsaved editor
+  // buffers before closing; renderer replies with the user's decision.
+  APP_BEFORE_QUIT: 'app:beforeQuit',
+  APP_QUIT_DECISION: 'app:quitDecision',
   PROFILE_SET_ACTIVE: 'profile:setActive',
   PROFILE_ACTIVATE_REQUEST: 'profile:activateRequest',
   GENERATE_ICON: 'icon:generate',

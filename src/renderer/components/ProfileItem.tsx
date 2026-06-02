@@ -36,6 +36,8 @@ interface ProfileItemProps {
   isActive: boolean;
   status: AgentStatus;
   hasUpdate: boolean;
+  /** Profile has files with unsaved edits — shown as a trailing asterisk. */
+  hasUnsaved?: boolean;
   iconRevision: number;
   isRunning: boolean;
   showAgentBadge: boolean;
@@ -67,6 +69,7 @@ export function ProfileItem({
   isActive,
   status,
   hasUpdate,
+  hasUnsaved = false,
   iconRevision,
   isRunning,
   showAgentBadge,
@@ -185,6 +188,9 @@ export function ProfileItem({
       </div>
       <div className="profile-info">
         <span className="profile-name">{profile.name}</span>
+        {hasUnsaved && (
+          <span className="profile-unsaved" title="Unsaved changes">*</span>
+        )}
       </div>
       {hasUpdate && !isActive && (
         <div className="profile-update-indicator" title={STATUS_LABELS[status]}>

@@ -7,7 +7,7 @@ import { ShellPane } from './components/ShellPane';
 import { ProfileEditor } from './components/ProfileEditor';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ResizeHandle } from './components/ResizeHandle';
-import { FileExplorer } from './components/FileExplorer';
+import { FileExplorer, type FileExplorerHandle } from './components/FileExplorer';
 import { QuickOpenDialog } from './components/QuickOpenDialog';
 import { FindInFilesPanel } from './components/FindInFilesPanel';
 import { KanbanViewer } from './components/KanbanViewer';
@@ -113,6 +113,8 @@ declare global {
       loadSettings: () => Promise<AppSettings>;
       saveSettings: (settings: AppSettings) => Promise<void>;
       onOpenSettings: (callback: () => void) => () => void;
+      onAppBeforeQuit: (callback: () => void) => () => void;
+      sendQuitDecision: (proceed: boolean) => void;
       platform: string;
       getGitStatus: (cwd: string) => Promise<GitStatus>;
       ackTerminalData: (profileId: string, bytes: number) => void;
@@ -351,6 +353,17 @@ export function App() {
   // `settings.fileExplorerTabs`. Parallel-agent keys are excluded from
   // persistence — see the parent comment on splitViews.
   const [fileExplorerTabs, setFileExplorerTabs] = useState<Record<string, { paths: string[]; activePath?: string }>>({});
+  // Per-view-key list of unsaved file basenames, reported up by each
+  // FileExplorer. Drives the sidebar asterisk and the quit-time dialog.
+  const [dirtyFilesByView, setDirtyFilesByView] = useState<Record<string, string[]>>({});
+  const dirtyFilesByViewRef = useRef<Record<string, string[]>>({});
+  dirtyFilesByViewRef.current = dirtyFilesByView;
+  // Imperative handles to each mounted FileExplorer, so "Save all" at quit
+  // can flush every dirty buffer. Keyed by view-key.
+  const explorerHandles = useRef<Map<string, FileExplorerHandle>>(new Map());
+  // Quit prompt: list of { profile name, file names } with unsaved edits.
+  // Non-null shows the modal; null hides it.
+  const [quitPrompt, setQuitPrompt] = useState<{ profileName: string; files: string[] }[] | null>(null);
   const [agentSplitPercent, setAgentSplitPercent] = useState(50);
   // Parallel agents (Kanban-spawned worktree agents). Keyed by parallel agent id.
   const [parallelAgents, setParallelAgents] = useState<Map<string, ParallelAgent>>(new Map());
@@ -1112,6 +1125,58 @@ export function App() {
   useEffect(() => {
     profilesRef.current = profiles;
   }, [profiles]);
+
+  // Aggregate unsaved files by profile (a profile may have a main view plus
+  // parallel-agent views, keyed `profileId|parallelId`). Drives the sidebar
+  // asterisk; the quit dialog rebuilds the same thing from the ref.
+  const dirtyProfileIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [key, names] of Object.entries(dirtyFilesByView)) {
+      if (names && names.length) ids.add(key.includes('|') ? key.slice(0, key.indexOf('|')) : key);
+    }
+    return ids;
+  }, [dirtyFilesByView]);
+
+  // Quit handshake: when main asks (Cmd+Q or window close), collect the
+  // profiles with unsaved files. If none, allow the quit immediately;
+  // otherwise show the Save all / Discard / Cancel dialog.
+  useEffect(() => {
+    return window.api.onAppBeforeQuit(() => {
+      const byProfile = new Map<string, string[]>();
+      for (const [key, names] of Object.entries(dirtyFilesByViewRef.current)) {
+        if (!names || !names.length) continue;
+        const pid = key.includes('|') ? key.slice(0, key.indexOf('|')) : key;
+        const arr = byProfile.get(pid) || [];
+        for (const n of names) if (!arr.includes(n)) arr.push(n);
+        byProfile.set(pid, arr);
+      }
+      if (byProfile.size === 0) {
+        window.api.sendQuitDecision(true);
+        return;
+      }
+      const prompts = [...byProfile.entries()].map(([pid, files]) => ({
+        profileName: profilesRef.current.find((p) => p.id === pid)?.name || pid,
+        files,
+      }));
+      setQuitPrompt(prompts);
+    });
+  }, []);
+
+  const handleQuitSaveAll = useCallback(async () => {
+    await Promise.all(
+      [...explorerHandles.current.values()].map((h) => h.saveAll().catch((): void => undefined)),
+    );
+    setQuitPrompt(null);
+    window.api.sendQuitDecision(true);
+  }, []);
+  const handleQuitDiscard = useCallback(() => {
+    setQuitPrompt(null);
+    window.api.sendQuitDecision(true);
+  }, []);
+  const handleQuitCancel = useCallback(() => {
+    setQuitPrompt(null);
+    window.api.sendQuitDecision(false);
+  }, []);
 
   // Same shim for splitViews — the Ordna task listener is mounted once
   // (with `[]` deps), so a direct `splitViews.has(target)` inside the
@@ -2248,6 +2313,7 @@ export function App() {
         layout={layout}
         iconRevision={iconRevision}
         hasUpdates={hasUpdates}
+        dirtyProfileIds={dirtyProfileIds}
         navActive={navActive}
         onLayoutChange={handleLayoutChange}
         onSelectProfile={handleSelectProfile}
@@ -2372,8 +2438,22 @@ export function App() {
               return (
                 <FileExplorer
                   key={key}
+                  ref={(h) => {
+                    if (h) explorerHandles.current.set(key, h);
+                    else explorerHandles.current.delete(key);
+                  }}
                   workingDirectory={cwd}
                   hidden={!visible}
+                  onDirtyChange={(names) => {
+                    setDirtyFilesByView((prev) => {
+                      const cur = prev[key] || [];
+                      if (cur.length === names.length && cur.every((n, i) => n === names[i])) return prev;
+                      const out = { ...prev };
+                      if (names.length === 0) delete out[key];
+                      else out[key] = names;
+                      return out;
+                    });
+                  }}
                   pendingOpenPath={visible ? pendingFileOpen : null}
                   onPendingOpenHandled={() => setPendingFileOpen(null)}
                   formatOnSave={settings.formatOnSave === true}
@@ -2624,6 +2704,39 @@ export function App() {
           onBatchGenerate={handleBatchGenerateIcons}
           profilesWithoutIcons={profiles.filter((p) => !p.icon).length}
         />
+      )}
+      {/* Unsaved-files dialog shown before quitting (Cmd+Q / window close)
+          when any profile has unsaved editor buffers. Save all flushes
+          every dirty buffer; Discard quits anyway; Cancel keeps the app
+          open. The main process waits on the decision via APP_QUIT_DECISION. */}
+      {quitPrompt && (
+        <div className="modal-overlay" onClick={handleQuitCancel}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Unsaved Changes</h3>
+            </div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 8 }}>
+                You have unsaved changes in {quitPrompt.length === 1 ? 'this profile' : 'these profiles'}:
+              </p>
+              <ul style={{ fontSize: 13, lineHeight: 1.5, margin: 0, paddingLeft: 18 }}>
+                {quitPrompt.map((p) => (
+                  <li key={p.profileName}>
+                    <strong>{p.profileName}</strong>
+                    <span style={{ color: 'var(--c-subtext0)' }}> — {p.files.join(', ')}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="modal-footer">
+              <div className="modal-footer-right">
+                <button className="cancel-btn" onClick={handleQuitCancel}>Cancel</button>
+                <button className="delete-btn" onClick={handleQuitDiscard}>Discard &amp; Quit</button>
+                <button className="save-btn" onClick={handleQuitSaveAll}>Save all &amp; Quit</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
       {/* Missing working-directory dialog. Triggered by the lazy
           verifyProfileDir check on selection (or at app boot when

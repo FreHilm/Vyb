@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -34,6 +34,12 @@ const warnedLargeDirs = new Set<string>();
 import { blameGutter } from '../lib/blame-gutter';
 import { stickyScroll } from '../lib/sticky-scroll';
 import type { GitBlameLine } from '../../shared/types';
+
+/** Imperative API exposed to the parent (App) for the quit-time "Save all"
+ * action — flushes every dirty buffer in this explorer to disk. */
+export interface FileExplorerHandle {
+  saveAll: () => Promise<void>;
+}
 
 interface FileExplorerProps {
   workingDirectory: string;
@@ -74,6 +80,9 @@ interface FileExplorerProps {
    * the reset path; otherwise the value gets added to the current
    * setting and clamped to [8, 32] by the caller. */
   onAdjustEditorFontSize?: (delta: number) => void;
+  /** Reports the basenames of files with unsaved edits whenever that set
+   * changes. Drives the sidebar asterisk + the quit-time unsaved dialog. */
+  onDirtyChange?: (dirtyFileNames: string[]) => void;
   /** Spike: which editor backs the plain file path. Defaults to
    * 'codemirror'. 'monaco' swaps the VS Code editor in for non-diff,
    * non-markdown files. See docs/MONACO_MIGRATION.md. */
@@ -629,7 +638,7 @@ function FileTreeNode({
 
 // ── Main FileExplorer ────────────────────────────────────────────
 
-export function FileExplorer({
+export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(function FileExplorer({
   workingDirectory,
   hidden = false,
   pendingOpenPath,
@@ -642,10 +651,11 @@ export function FileExplorer({
   initialTabs,
   onTabsChange,
   onAdjustEditorFontSize,
+  onDirtyChange,
   editorEngine = 'codemirror',
   editorFontSize = 13,
   diffContextLines = 6,
-}: FileExplorerProps) {
+}: FileExplorerProps, ref) {
   const [rootEntries, setRootEntries] = useState<FileEntry[]>([]);
   const [tabs, setTabs] = useState<FileTab[]>([]);
   const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
@@ -1172,6 +1182,37 @@ export function FileExplorer({
       docCacheRef.current.set(path, viewRef.current.state.doc.toString());
     }
   }, []);
+
+  // Flush every dirty buffer to disk. Used by the app-quit "Save all" path.
+  // saveCurrentDoc() first syncs the active editor (CodeMirror live view /
+  // Excalidraw) into docCacheRef; inactive tabs and Monaco are already kept
+  // current there, so docCacheRef is the source of truth for all dirty paths.
+  const saveAll = useCallback(async () => {
+    saveCurrentDoc();
+    for (const path of [...modifiedSetRef.current]) {
+      const content = docCacheRef.current.get(path);
+      if (content == null) continue;
+      try {
+        await window.api.saveFile(path, content);
+        savedContentRef.current.set(path, content);
+        docCacheRef.current.set(path, content);
+      } catch (err) {
+        toastError(`Couldn't save ${fileName(path)}: ${errMessage(err)}`);
+      }
+    }
+    setModifiedSet(new Set());
+  }, [saveCurrentDoc]);
+
+  useImperativeHandle(ref, () => ({ saveAll }), [saveAll]);
+
+  // Push the dirty-file basenames up to the parent whenever they change, so
+  // the sidebar asterisk + quit dialog stay in sync. Read the callback from a
+  // ref so a new prop identity doesn't re-fire this on every render.
+  const onDirtyChangeRef = useRef(onDirtyChange);
+  onDirtyChangeRef.current = onDirtyChange;
+  useEffect(() => {
+    onDirtyChangeRef.current?.([...modifiedSet].map((p) => fileName(p)));
+  }, [modifiedSet]);
 
   // T-045: format error (transient toast). Cleared after a few
   // seconds so it doesn't linger after the user has retried.
@@ -2906,4 +2947,4 @@ export function FileExplorer({
 
     </div>
   );
-}
+});

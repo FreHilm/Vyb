@@ -838,6 +838,13 @@
   display: block;
 }
 
+/* Unsaved-changes marker next to a profile name. */
+.profile-unsaved {
+  color: var(--c-yellow);
+  font-weight: 700;
+  margin-left: 3px;
+}
+
 /* Main Area */
 .main-area {
   display: flex;

@@ -18,6 +18,8 @@ interface SidebarProps {
   layout: SidebarLayout;
   iconRevision: number;
   hasUpdates: Set<string>;
+  /** Profiles that have unsaved editor buffers — shown with an asterisk. */
+  dirtyProfileIds?: Set<string>;
   navActive: boolean;
   onLayoutChange: (layout: SidebarLayout) => void;
   onSelectProfile: (profileId: string) => void;
@@ -207,6 +209,7 @@ export function Sidebar({
   showAgentBadge,
   iconRevision,
   hasUpdates,
+  dirtyProfileIds,
   navActive,
   parallelAgents,
   selectedParallelId,
@@ -550,6 +553,7 @@ export function Sidebar({
             isActive={profile.id === activeProfileId && selectedParallelId === null}
             status={statuses.get(profile.id) || 'offline'}
             hasUpdate={hasUpdates.has(profile.id)}
+            hasUnsaved={dirtyProfileIds?.has(profile.id) === true}
             iconRevision={iconRevision}
             isRunning={initialized.has(profile.id)}
             showAgentBadge={showAgentBadge}

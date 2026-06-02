@@ -328,6 +328,15 @@ const createWindow = () => {
   setupIpcHandlers(mainWindow);
   buildMenu();
 
+  // Intercept the window close (red traffic-light / Cmd+W path) so the
+  // unsaved-files check runs before the renderer is torn down. Cmd+Q goes
+  // through before-quit instead; both funnel through the same handshake via
+  // `unsavedConfirmed`. Once confirmed (or already quitting) we let it close.
+  mainWindow.on('close', (e) => {
+    if (quitHandled || unsavedConfirmed) return;
+    if (requestUnsavedCheck()) e.preventDefault();
+  });
+
   // Defensive guard: block any top-level navigation away from the app
   // shell. A stray `<a href="other.md">` click in any future markdown
   // / html render that forgets to call e.preventDefault() would
@@ -422,13 +431,58 @@ app.on('activate', () => {
 // those exit callbacks drain while JS is still alive, then quit for
 // real. `quitHandled` guards against re-entrancy on the second quit.
 let quitHandled = false;
-app.on('before-quit', (event) => {
-  if (quitHandled) return;
-  event.preventDefault();
+// Set once the renderer has confirmed it's OK to quit (no unsaved files, or
+// the user chose Save all / Discard). Until then, a quit is intercepted and
+// the renderer is asked to run its unsaved-files check + dialog.
+let unsavedConfirmed = false;
+let quitDecisionPending = false;
+
+function proceedWithQuit(): void {
   quitHandled = true;
   cleanupIpcHandlers();
   // 200 ms is comfortably longer than the kill→exit-callback latency
   // (a killed child's kevent wakes within a few ms) while staying
   // imperceptible to the user closing the app.
   setTimeout(() => app.quit(), 200);
+}
+
+// Ask the renderer to run its unsaved-files check. Returns true if it took
+// over (caller should abort the close/quit and wait for APP_QUIT_DECISION),
+// false if there's no renderer to ask (caller should just proceed).
+function requestUnsavedCheck(): boolean {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if (!quitDecisionPending) {
+    quitDecisionPending = true;
+    mainWindow.webContents.send(IPC_CHANNELS.APP_BEFORE_QUIT);
+    // Safety net: if the renderer never replies (e.g. it crashed mid-dialog),
+    // don't trap the user in an unclosable app.
+    setTimeout(() => {
+      if (!unsavedConfirmed && quitDecisionPending) {
+        unsavedConfirmed = true;
+        app.quit();
+      }
+    }, 15000);
+  }
+  return true;
+}
+
+// Renderer's verdict from the unsaved-files dialog.
+ipcMain.on(IPC_CHANNELS.APP_QUIT_DECISION, (_e, proceed: boolean) => {
+  quitDecisionPending = false;
+  if (!proceed) return; // user cancelled — stay open; next quit re-asks.
+  unsavedConfirmed = true;
+  app.quit(); // re-enters before-quit, now confirmed → proceedWithQuit().
+});
+
+app.on('before-quit', (event) => {
+  if (quitHandled) return;
+  event.preventDefault();
+  if (!unsavedConfirmed) {
+    if (!requestUnsavedCheck()) {
+      unsavedConfirmed = true;
+      proceedWithQuit();
+    }
+    return;
+  }
+  proceedWithQuit();
 });
