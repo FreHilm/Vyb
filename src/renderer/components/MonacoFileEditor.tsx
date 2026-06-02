@@ -3,6 +3,7 @@ import * as monaco from 'monaco-editor';
 import '../lib/monaco-setup'; // side effect: wire workers before any editor is created
 import type { GitBlameLine } from '../../shared/types';
 import { buildBlameDecorations } from '../lib/monaco-blame';
+import { installMonacoClipboard } from '../lib/monaco-clipboard';
 
 interface Props {
   /** Absolute path — used as the model URI so each file gets its own
@@ -108,6 +109,9 @@ export function MonacoFileEditor({
       () => onSaveRef.current(),
     );
 
+    // Copy/Cut/Paste via navigator.clipboard — see lib/monaco-clipboard.
+    const clipboardDisposables = installMonacoClipboard(editor);
+
     blameCollectionRef.current = editor.createDecorationsCollection();
     // Seed decorations from the current blame (survives remounts).
     {
@@ -140,6 +144,7 @@ export function MonacoFileEditor({
 
     return () => {
       changeSub.dispose();
+      clipboardDisposables.forEach((d) => d.dispose());
       dom?.removeEventListener('mousedown', onBlameClick, true);
       blameCollectionRef.current?.clear();
       blameCollectionRef.current = null;

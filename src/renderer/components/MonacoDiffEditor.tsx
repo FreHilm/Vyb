@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import * as monaco from 'monaco-editor';
 import '../lib/monaco-setup'; // side effect: wire workers before any editor is created
+import { installMonacoClipboard } from '../lib/monaco-clipboard';
 
 interface Props {
   /** Absolute path of the file being diffed. Used only to build stable
@@ -105,8 +106,12 @@ export function MonacoDiffEditor({
       () => onSaveRef.current(),
     );
 
+    // Clipboard on the editable side (see lib/monaco-clipboard).
+    const clipboardDisposables = installMonacoClipboard(diff.getModifiedEditor());
+
     return () => {
       changeSub.dispose();
+      clipboardDisposables.forEach((d) => d.dispose());
       diff.dispose();
       diffRef.current = null;
       try { originalModel.dispose(); } catch { /* gone */ }

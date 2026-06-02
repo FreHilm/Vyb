@@ -455,6 +455,11 @@ export function App() {
       // keymap for. Without this carve-out, Cmd+C/V/X in the Find /
       // Find&Replace input fields silently no-op.
       if (el.closest('.cm-editor') && !el.closest('.cm-panel')) return false;
+      // Skip Monaco — it uses a hidden <textarea class="inputarea"> for
+      // keyboard input that would otherwise match the TEXTAREA branch below.
+      // Monaco owns Cmd+C/V/X/A/Z via its own actions (see lib/monaco-clipboard);
+      // intercepting here operates on the empty helper textarea and blocks them.
+      if (el.closest('.monaco-editor')) return false;
       // Skip Excalidraw — it routes clipboard through native 'copy' /
       // 'paste' / 'cut' DOM events on its hidden helper textarea, not
       // through the input/textarea value path. The dedicated Excalidraw
@@ -521,7 +526,7 @@ export function App() {
       // intercept the key (we omitted it deliberately to keep terminal
       // selection working).
       if (key === 'c' && !isTextField(target)) {
-        if (target instanceof HTMLElement && (target.closest('.xterm') || target.closest('.cm-editor'))) {
+        if (target instanceof HTMLElement && (target.closest('.xterm') || target.closest('.cm-editor') || target.closest('.monaco-editor'))) {
           return;
         }
         const sel = window.getSelection();

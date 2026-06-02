@@ -22,7 +22,7 @@
 
 <!-- TODO: showcase image / animation goes here -->
 <p align="center">
-  <em>A short demo lands here soon.</em>
+  <img src="docs/Screenshot2.png" alt="Vyb" />
 </p>
 
 ---

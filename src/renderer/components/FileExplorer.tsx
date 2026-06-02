@@ -315,9 +315,12 @@ interface ContextMenuProps {
    * (not directories). Skipped when undefined so dirs / new-file
    * contexts don't see it. */
   onShowHistory: (() => void) | null;
+  /** Reveal the entry in the OS file manager. Only present when there's an
+   * entry (the empty-area menu has no target). */
+  onShowInFinder: (() => void) | null;
 }
 
-function ContextMenu({ x, y, entry, clipboard, onClose, onCopy, onPaste, onDelete, onRename, onNewFile, onNewDir, onOpenNewTab, onShowHistory }: ContextMenuProps) {
+function ContextMenu({ x, y, entry, clipboard, onClose, onCopy, onPaste, onDelete, onRename, onNewFile, onNewDir, onOpenNewTab, onShowHistory, onShowInFinder }: ContextMenuProps) {
   useEffect(() => {
     const handleClick = () => onClose();
     window.addEventListener('click', handleClick);
@@ -362,6 +365,17 @@ function ContextMenu({ x, y, entry, clipboard, onClose, onCopy, onPaste, onDelet
             </span>
             Rename
           </button>
+          {onShowInFinder && (
+            <button className="file-ctx-item" onClick={onShowInFinder}>
+              <span className="file-ctx-icon">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="3.5" width="12" height="9" rx="1.5" />
+                  <path d="M2 6h12" />
+                </svg>
+              </span>
+              Show in Finder
+            </button>
+          )}
           <button className="file-ctx-item file-ctx-danger" onClick={onDelete}>
             <span className="file-ctx-icon">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 1h5l.5.5V3h3.5v1H13l-.7 10.2a1 1 0 01-1 .8H4.7a1 1 0 01-1-.8L3 4h-.5V3H6V1.5l.5-.5zM6 3h4V2H6v1z" /></svg>
@@ -1068,6 +1082,28 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     return true;
   };
 
+  // Copy OS files (dragged from Finder/desktop) into `targetDir`. Returns
+  // true if it handled a file payload. Paths are resolved synchronously via
+  // webUtils before any await, since the DataTransfer is neutered once the
+  // drop handler yields.
+  const importDroppedFiles = useCallback(async (e: React.DragEvent, targetDir: string): Promise<boolean> => {
+    const items = [...e.dataTransfer.files]
+      .map((f) => ({ src: window.api.getPathForFile(f), name: f.name }))
+      .filter((it) => it.src);
+    if (items.length === 0) return false;
+    for (const it of items) {
+      const dest = `${targetDir.replace(/\/$/, '')}/${it.name}`;
+      if (dest === it.src) continue; // dropped onto its own location
+      try {
+        await window.api.copyFile(it.src, dest);
+      } catch {
+        toastError(`Couldn't copy ${it.name}`);
+      }
+    }
+    refresh();
+    return true;
+  }, [refresh]);
+
   const handleDragStartItem = useCallback((e: React.DragEvent, entry: FileEntry) => {
     dragSourceRef.current = entry.path;
     e.dataTransfer.setData('application/x-vyb-path', entry.path);
@@ -1075,14 +1111,20 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   }, []);
 
   const handleDragOverItem = useCallback((e: React.DragEvent, entry: FileEntry) => {
-    if (!e.dataTransfer.types.includes('application/x-vyb-path')) return;
-    const src = dragSourceRef.current;
-    if (!src) return;
     const targetDir = entry.isDirectory ? entry.path : parentDir(entry.path);
-    if (!isValidDndMove(src, targetDir)) return;
+    const internal = e.dataTransfer.types.includes('application/x-vyb-path');
+    const external = e.dataTransfer.types.includes('Files');
+    if (internal) {
+      const src = dragSourceRef.current;
+      if (!src || !isValidDndMove(src, targetDir)) return;
+      e.dataTransfer.dropEffect = 'move';
+    } else if (external) {
+      e.dataTransfer.dropEffect = 'copy';
+    } else {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
-    e.dataTransfer.dropEffect = 'move';
     setDragHover(targetDir);
   }, []);
 
@@ -1090,8 +1132,16 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     const src = e.dataTransfer.getData('application/x-vyb-path') || dragSourceRef.current;
     dragSourceRef.current = null;
     setDragHover(null);
-    if (!src) return;
     const targetDir = entry.isDirectory ? entry.path : parentDir(entry.path);
+    if (!src) {
+      // No internal payload → OS files dragged in from Finder → copy them.
+      if (e.dataTransfer.files.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        await importDroppedFiles(e, targetDir);
+      }
+      return;
+    }
     if (!isValidDndMove(src, targetDir)) return;
     e.preventDefault();
     e.stopPropagation();
@@ -1116,20 +1166,28 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       }
       refresh();
     }
-  }, [refresh, modifiedSet]);
+  }, [refresh, modifiedSet, importDroppedFiles]);
 
   const handleDragEndItem = useCallback(() => {
     dragSourceRef.current = null;
     setDragHover(null);
   }, []);
 
-  // Root drop target — drag a file out of a folder back to the working dir.
+  // Root drop target — drag a file out of a folder back to the working dir,
+  // or drop OS files into the project root.
   const handleRootDragOver = useCallback((e: React.DragEvent) => {
-    if (!e.dataTransfer.types.includes('application/x-vyb-path')) return;
-    const src = dragSourceRef.current;
-    if (!src || !isValidDndMove(src, workingDirectory)) return;
+    const internal = e.dataTransfer.types.includes('application/x-vyb-path');
+    const external = e.dataTransfer.types.includes('Files');
+    if (internal) {
+      const src = dragSourceRef.current;
+      if (!src || !isValidDndMove(src, workingDirectory)) return;
+      e.dataTransfer.dropEffect = 'move';
+    } else if (external) {
+      e.dataTransfer.dropEffect = 'copy';
+    } else {
+      return;
+    }
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
     setDragHover(workingDirectory);
   }, [workingDirectory]);
 
@@ -1137,7 +1195,16 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     const src = e.dataTransfer.getData('application/x-vyb-path') || dragSourceRef.current;
     dragSourceRef.current = null;
     setDragHover(null);
-    if (!src || !isValidDndMove(src, workingDirectory)) return;
+    if (!src) {
+      // OS files dropped into the project root → copy them in.
+      if (e.dataTransfer.files.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        await importDroppedFiles(e, workingDirectory);
+      }
+      return;
+    }
+    if (!isValidDndMove(src, workingDirectory)) return;
     e.preventDefault();
     e.stopPropagation();
     const newPath = `${workingDirectory.replace(/\/$/, '')}/${fileName(src)}`;
@@ -1151,7 +1218,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       }
       refresh();
     }
-  }, [workingDirectory, refresh]);
+  }, [workingDirectory, refresh, importDroppedFiles]);
 
   // Load root directory
   useEffect(() => {
@@ -1897,6 +1964,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
 
   const handleCopy = useCallback(() => {
     if (ctxMenu?.entry) setClipboard(ctxMenu.entry.path);
+    setCtxMenu(null);
+  }, [ctxMenu]);
+
+  const handleShowInFinder = useCallback(() => {
+    if (ctxMenu?.entry) window.api.openInFinder(ctxMenu.entry.path);
     setCtxMenu(null);
   }, [ctxMenu]);
 
@@ -2847,6 +2919,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           onNewDir={handleNewDir}
           onOpenNewTab={ctxMenu.entry && !ctxMenu.entry.isDirectory ? handleOpenNewTab : null}
           onShowHistory={ctxMenu.entry && !ctxMenu.entry.isDirectory ? handleShowHistory : null}
+          onShowInFinder={ctxMenu.entry ? handleShowInFinder : null}
         />
       )}
 
