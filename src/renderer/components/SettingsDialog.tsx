@@ -198,7 +198,7 @@ export function SettingsDialog({
   const [showAuthorAvatars, setShowAuthorAvatars] = useState(settings.showAuthorAvatars !== false);
   const [formatOnSave, setFormatOnSave] = useState(settings.formatOnSave === true);
   const [editorStickyScroll, setEditorStickyScroll] = useState(settings.editorStickyScroll !== false);
-  const [editorEngine, setEditorEngine] = useState<'codemirror' | 'monaco'>(settings.editorEngine ?? 'codemirror');
+  const [editorEngine, setEditorEngine] = useState<'codemirror' | 'monaco'>(settings.editorEngine ?? 'monaco');
   const [diffContextLines, setDiffContextLines] = useState(settings.diffContextLines ?? 6);
   const [showHiddenFiles, setShowHiddenFiles] = useState(settings.showHiddenFiles !== false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(settings.notificationsEnabled !== false);
@@ -478,7 +478,7 @@ export function SettingsDialog({
               </span>
 
               <label className="field field-row-toggle" style={{ marginTop: 12 }}>
-                <span className="field-label">Use Monaco editor (experimental)</span>
+                <span className="field-label">Use Monaco editor</span>
                 <label className="integration-toggle">
                   <input
                     type="checkbox"
@@ -489,9 +489,9 @@ export function SettingsDialog({
                 </label>
               </label>
               <span className="field-hint">
-                Spike: swaps the VS Code (Monaco) editor in for code/text
-                files, including the inline diff in "show changed files".
-                Blame and markdown editing stay on the default editor.
+                The VS Code (Monaco) editor backs the file view — code/text
+                editing, the inline diff, blame, and markdown. On by default;
+                turn off to fall back to the lighter CodeMirror editor.
                 Reopen a file to apply.
               </span>
 

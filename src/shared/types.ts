@@ -151,10 +151,9 @@ export interface AppSettings {
    * has a manual input. Default 13 — matches the previous hard-
    * coded value before this setting existed. */
   editorFontSize: number;
-  /** Which editor backs the file view's plain (non-diff, non-markdown)
-   * path. 'codemirror' is the default and the only engine for diff,
-   * blame, and markdown editing; 'monaco' is a spike that swaps the
-   * plain editor for the VS Code editor. See docs/MONACO_MIGRATION.md. */
+  /** Which editor backs the file view. 'monaco' (the VS Code editor) is the
+   * default and covers plain editing, the inline diff, blame, and markdown
+   * editing. 'codemirror' is the legacy fallback. See docs/MONACO_MIGRATION.md. */
   editorEngine?: 'codemirror' | 'monaco';
   /** Context lines kept on each side of a change when the Monaco diff's
    * "collapse unchanged lines" toggle is on. Default 6. */
@@ -302,7 +301,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   editorStickyScroll: true,
   showHiddenFiles: true,
   editorFontSize: 13,
-  editorEngine: 'codemirror',
+  editorEngine: 'monaco',
   diffContextLines: 6,
   notificationsEnabled: true,
   webDefaultUrl: 'https://duckduckgo.com/',

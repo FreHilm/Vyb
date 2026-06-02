@@ -666,7 +666,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   onTabsChange,
   onAdjustEditorFontSize,
   onDirtyChange,
-  editorEngine = 'codemirror',
+  editorEngine = 'monaco',
   editorFontSize = 13,
   diffContextLines = 6,
 }: FileExplorerProps, ref) {

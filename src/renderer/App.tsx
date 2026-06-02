@@ -2464,7 +2464,7 @@ export function App() {
                   formatOnSave={settings.formatOnSave === true}
                   stickyScroll={settings.editorStickyScroll !== false}
                   showHiddenFiles={settings.showHiddenFiles !== false}
-                  editorEngine={settings.editorEngine ?? 'codemirror'}
+                  editorEngine={settings.editorEngine ?? 'monaco'}
                   editorFontSize={settings.editorFontSize ?? 13}
                   diffContextLines={settings.diffContextLines ?? 6}
                   showChangedOnly={showChangedFilesViews.has(key)}
