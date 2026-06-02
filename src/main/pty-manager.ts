@@ -497,7 +497,7 @@ export class PtyManager {
     }
   }
 
-  destroy(profileId: string): void {
+  destroy(profileId: string, force = false): void {
     const instance = this.ptys.get(profileId);
     if (instance) {
       // Detach our onData/onExit listeners before killing so a late
@@ -505,11 +505,23 @@ export class PtyManager {
       for (const d of instance.disposables) {
         try { d.dispose(); } catch { /* already disposed */ }
       }
-      try {
-        instance.process.kill();
-      } catch {
-        // Already dead
+      const pid = instance.process.pid;
+      // Kill the whole process GROUP, not just the leader. node-pty runs
+      // each child in its own session (forkpty → setsid), so pid == pgid
+      // and `process.kill(-pid, …)` reaps the agent *and any helpers it
+      // spawned*. This matters because some agents (e.g. Gemini's Ink TUI)
+      // ignore/survive a plain SIGHUP on the leader, or leave a child
+      // holding the pty open — which keeps node-pty's fd handle (and thus
+      // the main process's event loop) alive and blocks app quit.
+      //
+      // On quit (`force`) we go straight to SIGKILL, which can't be caught
+      // or ignored, guaranteeing the fd is released. A normal single-agent
+      // stop stays graceful (SIGHUP) so well-behaved agents can clean up.
+      const signal = force ? 'SIGKILL' : 'SIGHUP';
+      if (pid && pid > 1) {
+        try { process.kill(-pid, signal); } catch { /* group gone / not leader */ }
       }
+      try { instance.process.kill(force ? 'SIGKILL' : undefined); } catch { /* already dead */ }
       this.ptys.delete(profileId);
     }
   }
@@ -519,7 +531,9 @@ export class PtyManager {
     // that fire after kill() don't run the normal exit path.
     this.disposing = true;
     for (const [id] of this.ptys) {
-      this.destroy(id);
+      // force = true → SIGKILL the group so nothing survives to hold the
+      // event loop open and stall the quit (see before-quit in main.ts).
+      this.destroy(id, true);
     }
   }
 }
