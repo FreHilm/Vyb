@@ -37,7 +37,12 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          # Pin the EXACT Node version (not floating '24'). The release
+          # pipeline silently broke when a new 24.x rolled onto the runners
+          # — electron-forge packaged but produced zero distributables on
+          # all platforms. 24.14.1 is the version that builds cleanly
+          # locally. Bump deliberately, never implicitly.
+          node-version: '24.14.1'
           cache: 'npm'
 
       - name: Linux build deps
@@ -154,4 +159,22 @@ jobs:
           # codesign uses the temp keychain we imported the cert into.
           # Empty on non-macOS runners is harmless (signing block skipped).
           MAC_KEYCHAIN_PATH: ${{ runner.temp }}/vyb-build.keychain-db
+          # Verbose Forge logging so a future "made nothing" run is
+          # diagnosable from the step output instead of silently green.
+          DEBUG: electron-forge:*
         run: npm run publish
+
+      # Guard: `electron-forge publish` can exit 0 having produced ZERO
+      # distributables (observed when the runner's Node/image drifted),
+      # leaving an empty release. Fail loudly so it can never report green
+      # with nothing built. Runs on every platform; `out/make` is Forge's
+      # distributable output dir.
+      - name: Verify distributables were produced
+        shell: bash
+        run: |
+          if [ -z "$(ls -A out/make 2>/dev/null)" ]; then
+            echo "::error::No distributables in out/make — electron-forge publish made nothing. Check the Node version / runner image and the make step above."
+            exit 1
+          fi
+          echo "Distributables produced:"
+          ls -laR out/make
