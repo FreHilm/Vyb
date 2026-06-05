@@ -139,6 +139,14 @@ let mainWindow: BrowserWindow | null = null;
 // enables Save (Save As is enabled whenever a file is open).
 const editMenuState: EditMenuState = { hasFile: false, canSave: false };
 
+// True while the xterm terminal has keyboard focus. When focused we OMIT the
+// native clipboard roles from the Edit menu, because their accelerators
+// (Cmd+C/V/X/A) get consumed at the menu level before xterm.js's own key
+// handler can run — which would break terminal copy/paste/select. When the
+// terminal is NOT focused, the roles are present so inputs / Monaco /
+// CodeMirror / Excalidraw get the OS-default clipboard for free.
+let terminalFocused = false;
+
 function sendEditAction(action: EditMenuAction) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC_CHANNELS.EDIT_MENU_ACTION, action);
@@ -147,14 +155,13 @@ function sendEditAction(action: EditMenuAction) {
 
 function buildMenu() {
   const isMac = process.platform === 'darwin';
-  // IMPORTANT: menu role items (copy/paste/undo/selectAll/reload/etc.) install
-  // OS-level key handlers on macOS packaged apps that intercept keys BEFORE
-  // the renderer/xterm.js can receive them. Keep the menu minimal — no roles
-  // with keyboard accelerators that could conflict with terminal input.
-  //
-  // The Edit menu below uses click handlers + IPC instead of roles so the
-  // editor's CodeMirror still owns Cmd+C / Cmd+Z / Cmd+F natively while
-  // letting xterm.js handle the same keys when the terminal is focused.
+  // Menu role items (copy/paste/undo/selectAll) install OS-level accelerators
+  // that intercept Cmd+C/V/X/A before the renderer/xterm.js see them. We WANT
+  // that for inputs/Monaco/CodeMirror/Excalidraw (free OS clipboard), but it
+  // breaks the terminal — so the Edit menu's clipboard roles are dropped while
+  // the terminal is focused (`terminalFocused`, toggled via the
+  // TERMINAL_FOCUS_CHANGED IPC; menu rebuilt on each change). Save / Find stay
+  // as click+IPC items (Cmd+S/Cmd+F aren't terminal keys we need).
   const hasFile = editMenuState.hasFile;
   const canSave = editMenuState.hasFile && editMenuState.canSave;
   const template: Electron.MenuItemConstructorOptions[] = [
@@ -190,34 +197,30 @@ function buildMenu() {
     {
       label: 'Edit',
       submenu: [
-        // Accelerators set HERE register OS-level handlers on macOS, which
-        // intercept the key BEFORE the renderer / xterm.js see it. Only add
-        // accelerators for keys we want intercepted globally:
-        //   - Cmd+S / Cmd+Shift+S: file-editor save. Save isn't a terminal
-        //     key (^S would otherwise fire XOFF / pause output, which we
-        //     don't miss). The accelerator routes to FileExplorer's
-        //     onEditMenuAction handler — a no-op when no editor is open.
-        //   - Cmd+F: editor Find / search panel. Same routing.
-        //
-        // We deliberately do NOT register Cmd+C / V / X / A / Z here:
-        //   - C/V/X/A: terminal selection + paste would break, since the
-        //     menu would steal them before xterm.js's key handler runs.
-        //   - Z: would steal undo from plain HTML inputs (the global
-        //     keydown handler in App.tsx routes Cmd+Z to execCommand
-        //     ('undo') for inputs/textareas, which is independent of
-        //     CodeMirror's own Cmd+Z keymap).
-        // The menu items still work via mouse click; the labels just
-        // don't display a keyboard shortcut.
+        // Native clipboard roles (Cmd+Z/X/C/V/A). Their accelerators are
+        // registered at the OS level, which is exactly what gives plain
+        // inputs / Monaco / CodeMirror / Excalidraw working copy-paste for
+        // free — BUT it also swallows the key before xterm.js. So we drop
+        // these entirely while the terminal is focused (see terminalFocused),
+        // letting xterm's own handler own Cmd+C/V/X/A there. The menu is
+        // rebuilt on every terminal focus change.
+        ...(terminalFocused
+          ? []
+          : [
+              { role: 'undo' as const },
+              { role: 'redo' as const },
+              { type: 'separator' as const },
+              { role: 'cut' as const },
+              { role: 'copy' as const },
+              { role: 'paste' as const },
+              { role: 'selectAll' as const },
+              { type: 'separator' as const },
+            ]),
+        // Save / Find route to the file editor via IPC. These accelerators
+        // are safe to register globally — Cmd+S/Cmd+F aren't terminal keys
+        // we need (the handler no-ops when no editor is open).
         { label: 'Save', accelerator: 'CmdOrCtrl+S', enabled: canSave, click: () => sendEditAction('save') },
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', enabled: hasFile, click: () => sendEditAction('saveAs') },
-        { type: 'separator' as const },
-        { label: 'Undo', enabled: hasFile, click: () => sendEditAction('undo') },
-        { label: 'Redo', enabled: hasFile, click: () => sendEditAction('redo') },
-        { type: 'separator' as const },
-        { label: 'Cut', enabled: hasFile, click: () => sendEditAction('cut') },
-        { label: 'Copy', enabled: hasFile, click: () => sendEditAction('copy') },
-        { label: 'Paste', enabled: hasFile, click: () => sendEditAction('paste') },
-        { label: 'Select All', enabled: hasFile, click: () => sendEditAction('selectAll') },
         { type: 'separator' as const },
         { label: 'Find / Search…', accelerator: 'CmdOrCtrl+F', enabled: hasFile, click: () => sendEditAction('find') },
       ],
@@ -232,6 +235,12 @@ function buildMenu() {
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
+
+ipcMain.on(IPC_CHANNELS.TERMINAL_FOCUS_CHANGED, (_event, focused: boolean) => {
+  if (focused === terminalFocused) return;
+  terminalFocused = focused;
+  buildMenu(); // re-include / drop the clipboard roles
+});
 
 ipcMain.on(IPC_CHANNELS.EDIT_MENU_STATE, (_event, state: EditMenuState) => {
   if (

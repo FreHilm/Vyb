@@ -29,6 +29,23 @@ export function useKeyNav({
     [settings.navModifierKey],
   );
 
+  // True when keyboard focus is in a text-editing surface, where arrow keys
+  // (with Cmd/Shift) mean caret movement / selection, not app navigation.
+  const isEditableTarget = (): boolean => {
+    const el = document.activeElement as HTMLElement | null;
+    if (!el) return false;
+    // The terminal is NOT a text field for this purpose: xterm renders a
+    // hidden <textarea class="xterm-helper-textarea"> for input, but Cmd/Alt
+    // +Arrow there means profile/pane navigation (not text selection). Don't
+    // let the TEXTAREA check below swallow nav while the terminal is focused.
+    if (el.closest('.xterm')) return false;
+    const tag = el.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return true;
+    if (el.isContentEditable) return true;
+    if (el.closest('.monaco-editor') || el.closest('.cm-editor')) return true;
+    return false;
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Activate nav overlay when modifier is held
@@ -77,19 +94,18 @@ export function useKeyNav({
         return;
       }
 
-      // Arrow keys
-      if (e.key === 'ArrowUp') {
+      // Arrow keys → profile / pane navigation. BUT never steal them from a
+      // text field: with the Cmd nav-modifier, Cmd+←/→ and Cmd+Shift+←/→ are
+      // line navigation / selection, and Monaco/CodeMirror own word nav too.
+      // Hijacking those broke text selection in inputs (e.g. the commit
+      // subject/description boxes).
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        if (isEditableTarget()) return;
         e.preventDefault();
-        onProfileUp();
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        onProfileDown();
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        onPaneLeft();
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        onPaneRight();
+        if (e.key === 'ArrowUp') onProfileUp();
+        else if (e.key === 'ArrowDown') onProfileDown();
+        else if (e.key === 'ArrowLeft') onPaneLeft();
+        else onPaneRight();
       }
     };
 

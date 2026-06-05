@@ -115,6 +115,7 @@ declare global {
       onOpenSettings: (callback: () => void) => () => void;
       onAppBeforeQuit: (callback: () => void) => () => void;
       sendQuitDecision: (proceed: boolean) => void;
+      setTerminalFocused: (focused: boolean) => void;
       platform: string;
       getGitStatus: (cwd: string) => Promise<GitStatus>;
       ackTerminalData: (profileId: string, bytes: number) => void;
@@ -434,198 +435,31 @@ export function App() {
     };
   }, []);
 
-  // Cmd/Ctrl + C/V/X/A in HTML text fields. We can't add the standard Edit
-  // menu role items because their OS-level accelerators (on macOS) intercept
-  // Cmd+C from xterm.js terminals. Without the menu items, those shortcuts
-  // also stop reaching plain HTML inputs/textareas — so we wire them up here
-  // at the renderer level for inputs only. xterm.js terminals are skipped:
-  // they have their own handler in makeTerminalKeyHandler.
+  // Tell main when the xterm terminal has focus, so it can drop the native
+  // clipboard menu roles while typing in the terminal (xterm owns Cmd+C/V/X/A
+  // there; a menu accelerator would otherwise swallow them). Anything outside
+  // `.xterm` → roles restored, giving inputs / Monaco / CodeMirror / Excalidraw
+  // the OS-default clipboard.
   useEffect(() => {
-    const isTextField = (el: EventTarget | null): el is HTMLInputElement | HTMLTextAreaElement => {
-      if (!el || !(el instanceof HTMLElement)) return false;
-      // Skip xterm.js — its hidden helper textarea has class `xterm-helper-textarea`
-      // and any DOM inside `.xterm` belongs to it.
-      if (el.classList.contains('xterm-helper-textarea')) return false;
-      if (el.closest('.xterm')) return false;
-      // Skip CodeMirror's editor surface (contentEditable). CodeMirror
-      // has its own keymap that owns Cmd+C/V/X for the editor body —
-      // we must NOT preventDefault on it. EXCEPTION: the search /
-      // replace panel `.cm-panel` mounts inside `.cm-editor` and
-      // contains plain `<input>` elements that CM does NOT have any
-      // keymap for. Without this carve-out, Cmd+C/V/X in the Find /
-      // Find&Replace input fields silently no-op.
-      if (el.closest('.cm-editor') && !el.closest('.cm-panel')) return false;
-      // Skip Monaco — it uses a hidden <textarea class="inputarea"> for
-      // keyboard input that would otherwise match the TEXTAREA branch below.
-      // Monaco owns Cmd+C/V/X/A/Z via its own actions (see lib/monaco-clipboard);
-      // intercepting here operates on the empty helper textarea and blocks them.
-      if (el.closest('.monaco-editor')) return false;
-      // Skip Excalidraw — it routes clipboard through native 'copy' /
-      // 'paste' / 'cut' DOM events on its hidden helper textarea, not
-      // through the input/textarea value path. The dedicated Excalidraw
-      // branch below uses `execCommand` to fire those events instead.
-      if (el.closest('.excalidraw-host')) return false;
-      const tag = el.tagName;
-      if (tag === 'INPUT') {
-        const type = (el as HTMLInputElement).type;
-        // Editable input types only (skip checkbox, radio, button, etc.)
-        return ['text', 'search', 'url', 'email', 'password', 'tel', 'number', ''].includes(type);
-      }
-      if (tag === 'TEXTAREA') return true;
-      // Other contentEditable surfaces (rich text editors, etc.) — let the
-      // browser handle Cmd+C/V/X natively rather than reimplementing here.
-      return false;
-    };
-
-    const insertAtCursor = (el: HTMLInputElement | HTMLTextAreaElement, text: string): void => {
-      const start = el.selectionStart ?? el.value.length;
-      const end = el.selectionEnd ?? el.value.length;
-      const before = el.value.slice(0, start);
-      const after = el.value.slice(end);
-      const next = before + text + after;
-      // Use the property setter that React sees as a real input event
-      const setter = Object.getOwnPropertyDescriptor(
-        el.tagName === 'INPUT' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype,
-        'value',
-      )?.set;
-      if (setter) setter.call(el, next);
-      else el.value = next;
-      const cursor = start + text.length;
-      el.setSelectionRange(cursor, cursor);
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-    };
-
-    const handler = (e: KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod || e.altKey) return;
-      const key = e.key.toLowerCase();
-      if (!['c', 'v', 'x', 'a', 'z'].includes(key)) return;
-      const target = e.target;
-
-      // Excalidraw: route Cmd+C / V / X through `document.execCommand`,
-      // which synthesises a real native ClipboardEvent that Excalidraw's
-      // own document-level 'copy' / 'paste' / 'cut' listeners catch.
-      // Without this, Excalidraw never gets the chance to populate
-      // clipboardData because no Cocoa-role accelerator fires the
-      // ClipboardEvent in the first place. Cmd+A / Cmd+Z fall through
-      // to Excalidraw's own keydown listeners untouched.
-      if (target instanceof HTMLElement && target.closest('.excalidraw-host')) {
-        if (key === 'c' || key === 'v' || key === 'x') {
-          e.preventDefault();
-          try {
-            document.execCommand(key === 'c' ? 'copy' : key === 'v' ? 'paste' : 'cut');
-          } catch { /* best-effort */ }
-        }
-        return;
-      }
-
-      // Cmd+C anywhere outside text fields, xterm and CodeMirror — copy
-      // the current window selection if any. Without this, selecting text
-      // in the rendered README (or any other read-only DOM) and pressing
-      // Cmd+C is a no-op, because there's no Edit-menu Copy role to
-      // intercept the key (we omitted it deliberately to keep terminal
-      // selection working).
-      if (key === 'c' && !isTextField(target)) {
-        if (target instanceof HTMLElement && (target.closest('.xterm') || target.closest('.cm-editor') || target.closest('.monaco-editor'))) {
-          return;
-        }
-        const sel = window.getSelection();
-        const selected = sel?.toString() ?? '';
-        if (selected) {
-          e.preventDefault();
-          navigator.clipboard.writeText(selected).catch((): void => undefined);
-        }
-        return;
-      }
-
-      if (!isTextField(target)) return;
-      const el = target as HTMLInputElement | HTMLTextAreaElement;
-
-      // Number inputs don't support selectionStart/end (the spec excludes them).
-      // Reading those throws InvalidStateError in Chromium, so we route number
-      // inputs through full-value operations.
-      const isNumber = el.tagName === 'INPUT' && (el as HTMLInputElement).type === 'number';
-
-      const setValue = (next: string): void => {
-        const setter = Object.getOwnPropertyDescriptor(
-          el.tagName === 'INPUT' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype,
-          'value',
-        )?.set;
-        if (setter) setter.call(el, next);
-        else el.value = next;
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-      };
-
-      if (key === 'z') {
-        // Undo / redo. The browser maintains an input-level undo stack —
-        // execCommand still drives it on inputs/textareas in Chromium even
-        // though the API is deprecated. CodeMirror is excluded by isTextField.
-        e.preventDefault();
-        document.execCommand(e.shiftKey ? 'redo' : 'undo');
-        return;
-      }
-
-      if (key === 'a') {
-        e.preventDefault();
-        try {
-          el.select();
-        } catch { /* number inputs throw on .select() too */ }
-        return;
-      }
-
-      // Selection range — gracefully handle number inputs (no selection API)
-      let start = 0;
-      let end = el.value.length;
-      let selected = '';
-      try {
-        const s = el.selectionStart;
-        const en = el.selectionEnd;
-        if (s !== null && en !== null && !isNumber) {
-          start = s;
-          end = en;
-        }
-      } catch { /* number inputs */ }
-      selected = el.value.slice(start, end);
-
-      if (key === 'c') {
-        // For number inputs (or when nothing is selected), copy the whole value
-        const text = selected || (isNumber ? el.value : '');
-        if (!text) return;
-        e.preventDefault();
-        navigator.clipboard.writeText(text).catch((): void => undefined);
-        return;
-      }
-
-      if (key === 'x') {
-        const text = selected || (isNumber ? el.value : '');
-        if (!text) return;
-        e.preventDefault();
-        navigator.clipboard.writeText(text).catch((): void => undefined);
-        if (isNumber) setValue('');
-        else insertAtCursor(el, '');
-        return;
-      }
-
-      if (key === 'v') {
-        e.preventDefault();
-        navigator.clipboard
-          .readText()
-          .then((text) => {
-            if (!text) return;
-            if (isNumber) {
-              // Replace the number value (no insertion-point support)
-              setValue(text);
-            } else {
-              insertAtCursor(el, text);
-            }
-          })
-          .catch((): void => undefined);
-        return;
+    let last = false;
+    const report = () => {
+      const el = document.activeElement as HTMLElement | null;
+      const inTerminal = !!el?.closest('.xterm');
+      if (inTerminal !== last) {
+        last = inTerminal;
+        window.api.setTerminalFocused(inTerminal);
       }
     };
-
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    const onFocusIn = () => report();
+    // focusout fires before the new element is focused; defer so
+    // document.activeElement reflects the final target.
+    const onFocusOut = () => setTimeout(report, 0);
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('focusout', onFocusOut);
+    return () => {
+      document.removeEventListener('focusin', onFocusIn);
+      document.removeEventListener('focusout', onFocusOut);
+    };
   }, []);
 
   // T-043: Cmd+P (or Ctrl+P) opens the quick-open file picker. Global
@@ -696,8 +530,21 @@ export function App() {
           changed = true;
         }
       }
+      // Focus, on launch, the workspace that owns the agent profile we'll
+      // auto-select — the saved `lastActiveProfileId`, or the first profile
+      // as a fallback — so the selected agent is actually visible in the
+      // sidebar. (A profile with no workspaceId is a legacy/Default one.)
+      const autoProfile =
+        (loaded.lastActiveProfileId && reconProfiles.find((p) => p.id === loaded.lastActiveProfileId))
+        || reconProfiles[0];
+      const desiredWs = autoProfile?.workspaceId || workspaces[0]?.id;
       let activeWorkspaceId = loaded.activeWorkspaceId;
-      if (!activeWorkspaceId || !existing.has(activeWorkspaceId)) {
+      if (desiredWs && existing.has(desiredWs)) {
+        if (activeWorkspaceId !== desiredWs) {
+          activeWorkspaceId = desiredWs;
+          changed = true;
+        }
+      } else if (!activeWorkspaceId || !existing.has(activeWorkspaceId)) {
         activeWorkspaceId = workspaces[0].id;
         changed = true;
       }
@@ -785,18 +632,11 @@ export function App() {
         const lastId = loadedSettings.lastActiveProfileId;
         const lastProfile = lastId ? loadedProfiles.find((p) => p.id === lastId) : null;
         if (lastProfile) {
-          // Make sure the workspace shown in the sidebar matches the
-          // profile we're about to restore. lastActiveProfileId is
-          // saved independently of activeWorkspaceId, so they can drift
-          // (the user switched workspace, never selected a profile in
-          // it, then quit). Align them so the restored profile is
-          // actually visible.
-          const profileWs = lastProfile.workspaceId || loadedSettings.workspaces[0]?.id;
-          if (profileWs && profileWs !== loadedSettings.activeWorkspaceId) {
-            const next = { ...loadedSettings, activeWorkspaceId: profileWs };
-            setSettings(next);
-            window.api.saveSettings(next).catch((): void => undefined);
-          }
+          // Workspace focus is handled authoritatively by the settings /
+          // workspace-recovery loader above, which focuses this same
+          // auto-selected profile's workspace. Here we only restore the
+          // profile selection itself (avoids a racy second writer to
+          // activeWorkspaceId).
           const ok = await window.api.pathExists(lastProfile.workingDirectory).catch(() => true);
           if (ok) {
             setActiveProfileId(lastProfile.id);

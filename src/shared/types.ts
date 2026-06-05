@@ -517,6 +517,10 @@ export const IPC_CHANNELS = {
   ORDNA_EXITED: 'ordna:exited',
   EDIT_MENU_ACTION: 'editMenu:action',
   EDIT_MENU_STATE: 'editMenu:state',
+  // Renderer tells main whether the xterm terminal currently has focus, so
+  // the native clipboard menu roles can be dropped while it does (xterm owns
+  // Cmd+C/V/X/A itself; a menu accelerator would otherwise swallow them).
+  TERMINAL_FOCUS_CHANGED: 'terminal:focusChanged',
   /** Pop the native application menu as a dropdown — used by the
    * in-app menu button on Windows/Linux where the custom title bar
    * hides the native menu bar. */

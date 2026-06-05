@@ -1562,51 +1562,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           { key: 'Mod-+', run: () => { onAdjustEditorFontSizeRef.current?.(+1); return true; } },
           { key: 'Mod--', run: () => { onAdjustEditorFontSizeRef.current?.(-1); return true; } },
           { key: 'Mod-0', run: () => { onAdjustEditorFontSizeRef.current?.(0); return true; } },
-          // Clipboard. CodeMirror 6 normally relies on the browser's native
-          // copy/cut/paste events, but Electron on macOS doesn't fire those
-          // for Cmd+C/V/X without an Edit-menu role accelerator (which we
-          // deliberately don't register so xterm.js can keep Cmd+C). So we
-          // bind them in the keymap and route through navigator.clipboard.
-          {
-            key: 'Mod-c',
-            run: (view) => {
-              const sel = view.state.selection.main;
-              if (sel.empty) return false;
-              const text = view.state.sliceDoc(sel.from, sel.to);
-              navigator.clipboard.writeText(text).catch((): void => undefined);
-              return true;
-            },
-          },
-          {
-            key: 'Mod-x',
-            run: (view) => {
-              const sel = view.state.selection.main;
-              if (sel.empty) return false;
-              const text = view.state.sliceDoc(sel.from, sel.to);
-              navigator.clipboard.writeText(text).catch((): void => undefined);
-              view.dispatch({
-                changes: { from: sel.from, to: sel.to, insert: '' },
-                selection: EditorSelection.cursor(sel.from),
-                scrollIntoView: true,
-              });
-              return true;
-            },
-          },
-          {
-            key: 'Mod-v',
-            run: (view) => {
-              navigator.clipboard.readText().then((text) => {
-                if (!text) return;
-                const sel = view.state.selection.main;
-                view.dispatch({
-                  changes: { from: sel.from, to: sel.to, insert: text },
-                  selection: EditorSelection.cursor(sel.from + text.length),
-                  scrollIntoView: true,
-                });
-              }).catch((): void => undefined);
-              return true;
-            },
-          },
+          // Cmd+C/X/V are handled natively: the Edit-menu clipboard roles
+          // (focus-aware; see main.ts) fire real copy/cut/paste DOM events,
+          // which CodeMirror 6 handles on its own. No manual bindings needed.
         ]),
         EditorView.updateListener.of((update) => {
           if (!update.docChanged) return;

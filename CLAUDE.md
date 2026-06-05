@@ -149,13 +149,18 @@ All in `app.getPath('userData')` (`~/Library/Application Support/Vyb/` — auto-
 
 `useKeyNav` hook in `KeyNav.tsx` — listens for configurable modifier key (meta/alt). When held: numbered `NavBadge` components appear over command bar buttons, arrow indicators on sidebar and terminal panes. Modifier + number executes action, arrows navigate profiles/panes. `focusedPane` state tracks `{pane: 'agent'|'shell', shellIndex: number}` for cycling through all visible panes.
 
-### Cmd+C/V/X/Z in HTML inputs
+### Clipboard / Edit-menu roles (focus-aware)
 
-The Electron Edit menu in `src/main.ts` deliberately omits role-based accelerators (Copy / Paste / Cut / Undo / Select All) — on macOS, those install OS-level key handlers that intercept Cmd+C *before* the renderer or xterm.js see it, breaking terminal selection. To compensate, a global `keydown` handler in `App.tsx` reimplements Cmd+C/V/X/A/Z for plain HTML `<input>` and `<textarea>` elements:
+The conflict: on macOS, the standard Edit-menu role items (Copy / Cut / Paste / Select All / Undo / Redo) install OS-level accelerators that intercept Cmd+C/V/X/A *before* the renderer or xterm.js sees them — which breaks terminal copy/paste (xterm's selection isn't a DOM selection the menu can copy). But *without* those roles, plain inputs / Monaco / CodeMirror / Excalidraw lose their clipboard too.
 
-- **Skipped**: anything inside `.xterm` (xterm has its own handler) or `.cm-editor` (CodeMirror's own keymap owns these keys natively).
-- **Number inputs**: `<input type="number">` doesn't support `selectionStart`/`selectionEnd`; the handler detects this and operates on the full value (Cmd+C copies the whole number, Cmd+V replaces it).
-- **Cmd+Z / Cmd+Shift+Z**: routed through `document.execCommand('undo'|'redo')` — Chromium still drives the input element's native undo stack via this API even though execCommand is broadly deprecated.
+The resolution is **focus-aware menu roles** (`buildMenu` in `src/main.ts`):
+
+- The Edit menu includes the real role items (`{ role: 'copy' }`, etc.), so inputs/Monaco/CodeMirror/Excalidraw get the **OS-default** clipboard for free (no hand-rolled handlers).
+- A module-level `terminalFocused` flag **omits those role items entirely whenever the xterm terminal has focus**, so their accelerators aren't registered and the keys reach xterm. The menu is rebuilt on every focus change.
+- The renderer reports terminal focus via the `TERMINAL_FOCUS_CHANGED` IPC channel: a `focusin`/`focusout` listener in `App.tsx` checks whether `document.activeElement` is inside `.xterm` and calls `window.api.setTerminalFocused(...)`.
+- The terminal's own clipboard handling (`makeTerminalKeyHandler` → `attachCustomKeyEventHandler`, using `navigator.clipboard` + `terminal.getSelection()`) is unchanged; it works because the menu roles are absent while the terminal is focused.
+
+This replaced an earlier approach where the Edit menu omitted the roles and a global `keydown` handler in `App.tsx` (plus per-editor keymaps) reimplemented Cmd+C/V/X/A/Z manually — all of which is now deleted.
 
 ### External Applications
 

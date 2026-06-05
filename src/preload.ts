@@ -140,6 +140,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   sendQuitDecision: (proceed: boolean): void =>
     ipcRenderer.send(IPC_CHANNELS.APP_QUIT_DECISION, proceed),
+  setTerminalFocused: (focused: boolean): void =>
+    ipcRenderer.send(IPC_CHANNELS.TERMINAL_FOCUS_CHANGED, focused),
 
   setActiveProfile: (profileId: string | null): void =>
     ipcRenderer.send(IPC_CHANNELS.PROFILE_SET_ACTIVE, profileId),
