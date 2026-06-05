@@ -202,6 +202,7 @@ export function SettingsDialog({
   const [diffContextLines, setDiffContextLines] = useState(settings.diffContextLines ?? 6);
   const [showHiddenFiles, setShowHiddenFiles] = useState(settings.showHiddenFiles !== false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(settings.notificationsEnabled !== false);
+  const [hotkeyHintsEnabled, setHotkeyHintsEnabled] = useState(settings.hotkeyHintsEnabled === true);
   const [webDefaultUrl, setWebDefaultUrl] = useState(settings.webDefaultUrl || 'https://duckduckgo.com/');
   const [pullStrategy, setPullStrategy] = useState<'merge' | 'rebase' | 'ask'>(settings.pullStrategy ?? 'merge');
   const [pushTagsStrategy, setPushTagsStrategy] = useState<'off' | 'reachable' | 'all'>(settings.pushTagsStrategy ?? 'off');
@@ -308,6 +309,7 @@ export function SettingsDialog({
       diffContextLines: Math.max(0, Math.min(99, Math.round(diffContextLines || 6))),
       showHiddenFiles,
       notificationsEnabled,
+      hotkeyHintsEnabled,
       webDefaultUrl: webDefaultUrl.trim() || 'https://duckduckgo.com/',
       pullStrategy,
       pushTagsStrategy,
@@ -530,6 +532,23 @@ export function SettingsDialog({
                 Show a desktop notification when an agent finishes a task or
                 needs your input. Notifications are always skipped for the
                 agent you're currently focused on.
+              </span>
+
+              <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                <span className="field-label">Hotkey hints overlay</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={hotkeyHintsEnabled}
+                    onChange={(e) => setHotkeyHintsEnabled(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+              <span className="field-hint">
+                Hold a modifier (⌘/⌃/⌥) to pop up a panel of the shortcuts
+                available with it; adding modifiers narrows the list. Off by
+                default. The numbered command-bar hints work regardless.
               </span>
 
               <label className="field field-row-toggle" style={{ marginTop: 12 }}>

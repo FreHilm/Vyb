@@ -4131,9 +4131,69 @@ select option {
 }
 
 /* Keyboard Navigation */
+/* Progressive hotkey HUD (HotkeyHints.tsx). Bottom-center panel that
+   reveals available shortcuts as modifiers are held. */
+.hotkey-hints {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9998;
+  background: var(--c-mantle);
+  border: 1px solid var(--c-surface1);
+  border-radius: 8px;
+  padding: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  pointer-events: none; /* never steal focus / clicks from the app */
+  max-width: 520px;
+  animation: hotkeyHintsFade 0.12s ease-out;
+}
+@keyframes hotkeyHintsFade {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+.hotkey-hints-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  align-items: center;
+}
+.hotkey-hint-row {
+  display: contents;
+}
+.hotkey-hint-combo {
+  display: flex;
+  gap: 3px;
+  justify-content: flex-end;
+}
+.hotkey-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--c-text);
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  border-radius: 4px;
+}
+.hotkey-hint-label {
+  font-size: 12px;
+  color: var(--c-subtext0);
+  white-space: nowrap;
+  text-align: left;
+}
+
 .nav-badge {
   position: absolute;
-  top: -6px;
+  /* Sit just inside the top of the command-bar button rather than
+     overhanging above it — a negative top pushed the badge up into the
+     titlebar row, where it got clipped. */
+  top: 2px;
   left: 50%;
   transform: translateX(-50%);
   background: var(--c-blue);

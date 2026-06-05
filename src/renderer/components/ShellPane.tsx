@@ -60,6 +60,56 @@ export function ShellPane({
   const terminalsRef = useRef<Map<string, { terminal: Terminal; fitAddon: FitAddon; webglAddon?: WebglAddon }>>(new Map());
   const panelRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
 
+  // Visibility for the split/close hotkey captions. These are ⌃⌘ shortcuts,
+  // so — unlike the nav captions (which need the nav modifier held ALONE) —
+  // they should show while ⌘ is held (preview) and STAY while ⌃⌘ is held.
+  // We track the live modifier state directly rather than reuse `navActive`
+  // (which goes false the moment a second modifier like ⌃ joins).
+  const [splitHintVisible, setSplitHintVisible] = useState(false);
+  // Like the nav captions, these only appear after ⌘ has been held for 2s.
+  // hintTimerRef holds the pending show timer; visibleRef mirrors the shown
+  // state so the per-mousemove handler doesn't keep rescheduling once shown.
+  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hintVisibleRef = useRef(false);
+  useEffect(() => {
+    const cancel = () => {
+      if (hintTimerRef.current) { clearTimeout(hintTimerRef.current); hintTimerRef.current = null; }
+      hintVisibleRef.current = false;
+      setSplitHintVisible(false);
+    };
+    if (hidden) { cancel(); return; }
+    // ⌘ present, and no ⇧/⌥ (those would mean a different combo). ⌃ is
+    // allowed — that's the actual split modifier — so ⌘ and ⌃⌘ both qualify.
+    const update = (e: KeyboardEvent | MouseEvent) => {
+      const shouldShow = e.metaKey && !e.shiftKey && !e.altKey;
+      if (shouldShow) {
+        if (!hintTimerRef.current && !hintVisibleRef.current) {
+          hintTimerRef.current = setTimeout(() => {
+            hintTimerRef.current = null;
+            hintVisibleRef.current = true;
+            setSplitHintVisible(true);
+          }, 2000);
+        }
+      } else {
+        cancel();
+      }
+    };
+    const onVis = () => { if (document.visibilityState !== 'visible') cancel(); };
+    window.addEventListener('keydown', update, true);
+    window.addEventListener('keyup', update, true);
+    window.addEventListener('mousemove', update);
+    window.addEventListener('blur', cancel);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('keydown', update, true);
+      window.removeEventListener('keyup', update, true);
+      window.removeEventListener('mousemove', update);
+      window.removeEventListener('blur', cancel);
+      document.removeEventListener('visibilitychange', onVis);
+      cancel();
+    };
+  }, [hidden]);
+
   // Listen for shell exits
   useEffect(() => {
     const unsub = window.api.onShellExited(({ terminalId }) => {
@@ -349,8 +399,11 @@ export function ShellPane({
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    // Capture phase: when an xterm shell has focus it can consume the
+    // keydown before a bubble-phase window listener runs, so the split/close
+    // shortcut would silently do nothing. Capturing intercepts it first.
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [hidden, shells, createShell, handleClose]);
 
   // Apply settings to existing terminals
@@ -428,12 +481,12 @@ export function ShellPane({
         ))}
       </div>
       <button className="shell-split-btn" onClick={createShell} title="Split terminal (Ctrl+Cmd+=)">
-        {navActive && <span className="shell-hotkey-badge">^⌘+</span>}
+        {splitHintVisible && <span className="shell-hotkey-badge">^⌘+</span>}
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M7 0v14M0 7h14" />
         </svg>
       </button>
-      {navActive && shells.length > 0 && (
+      {splitHintVisible && shells.length > 0 && (
         <div className="shell-close-hotkey">
           <span className="shell-hotkey-badge">^⌘−</span>
         </div>

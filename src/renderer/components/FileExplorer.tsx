@@ -2661,6 +2661,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
                 });
               }}
               onSave={handleSave}
+              onAdjustFontSize={onAdjustEditorFontSize}
             />
           </div>
         )}
@@ -2690,6 +2691,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
                 });
               }}
               onSave={handleSave}
+              onAdjustFontSize={onAdjustEditorFontSize}
             />
           </div>
         )}

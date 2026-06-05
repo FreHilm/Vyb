@@ -28,6 +28,9 @@ interface Props {
   savedContent: string;
   /** Cmd/Ctrl+S inside the editor. */
   onSave: () => void;
+  /** Cmd+= / Cmd++ grow, Cmd+- shrink, Cmd+0 reset the editor font size
+   * (delegated to the host so it persists in settings). */
+  onAdjustFontSize?: (delta: number) => void;
 }
 
 /**
@@ -39,14 +42,16 @@ interface Props {
  * Monaco's built-in overview ruler.
  */
 export function MonacoDiffEditor({
-  path, original, modified, savedContent, language, fontSize, sideBySide, hideUnchanged, contextLines, onChange, onSave,
+  path, original, modified, savedContent, language, fontSize, sideBySide, hideUnchanged, contextLines, onChange, onSave, onAdjustFontSize,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
+  const onAdjustFontSizeRef = useRef(onAdjustFontSize);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
+  onAdjustFontSizeRef.current = onAdjustFontSize;
   const baselineRef = useRef(savedContent);
 
   useEffect(() => {
@@ -100,10 +105,17 @@ export function MonacoDiffEditor({
     });
 
     // Cmd/Ctrl+S on the editable (modified) side → save.
-    diff.getModifiedEditor().addCommand(
+    const modEditor = diff.getModifiedEditor();
+    modEditor.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
       () => onSaveRef.current(),
     );
+    // Font-size zoom (parity with the plain editor / CodeMirror).
+    const adjustFont = (d: number) => onAdjustFontSizeRef.current?.(d);
+    modEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Equal, () => adjustFont(1));
+    modEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Equal, () => adjustFont(1));
+    modEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Minus, () => adjustFont(-1));
+    modEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Digit0, () => adjustFont(0));
 
     // Clipboard comes from the native Edit-menu roles (focus-aware; see
     // main.ts) — Monaco handles copy/cut/paste DOM events itself.

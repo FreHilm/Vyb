@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { AppSettings } from '../../shared/types';
 
 interface KeyNavProps {
@@ -21,6 +21,11 @@ export function useKeyNav({
   onPaneRight,
 }: KeyNavProps) {
   const [navActive, setNavActive] = useState(false);
+
+  // The captions only appear after the modifier has been held continuously for
+  // SHOW_DELAY_MS. A pending timer lives here so any release/other-key signal
+  // can cancel it before it fires (so a quick press shows nothing).
+  const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isModifier = useCallback(
     (e: KeyboardEvent) => {
@@ -46,14 +51,35 @@ export function useKeyNav({
     return false;
   };
 
+  const SHOW_DELAY_MS = 500;
+
   useEffect(() => {
+    // Cancel a pending show timer and hide the overlay. Used by every path
+    // that should abort the captions — modifier release, another modifier
+    // joining, a committed non-nav shortcut, blur, etc.
+    const cancel = () => {
+      if (showTimerRef.current) {
+        clearTimeout(showTimerRef.current);
+        showTimerRef.current = null;
+      }
+      setNavActive(false);
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Activate nav overlay when modifier is held
+      // Modifier held → schedule the captions to appear after the hold delay.
+      // Releasing (or pressing anything else) before SHOW_DELAY_MS cancels it,
+      // so a brief tap of Cmd never flashes the overlay. Modifier keys don't
+      // auto-repeat, so this fires once per press; the guard is belt-and-braces.
       if (
         (settings.navModifierKey === 'meta' && e.key === 'Meta') ||
         (settings.navModifierKey === 'alt' && e.key === 'Alt')
       ) {
-        setNavActive(true);
+        if (!showTimerRef.current) {
+          showTimerRef.current = setTimeout(() => {
+            showTimerRef.current = null;
+            setNavActive(true);
+          }, SHOW_DELAY_MS);
+        }
         return;
       }
 
@@ -66,13 +92,13 @@ export function useKeyNav({
         (settings.navModifierKey === 'meta' && e.key === 'Alt') ||
         (settings.navModifierKey === 'alt' && e.key === 'Meta')
       ) {
-        setNavActive(false);
+        cancel();
         return;
       }
 
       if (!isModifier(e)) {
         // Modifier was released without us seeing the keyup — clear overlay.
-        setNavActive(false);
+        cancel();
         return;
       }
 
@@ -106,7 +132,15 @@ export function useKeyNav({
         else if (e.key === 'ArrowDown') onProfileDown();
         else if (e.key === 'ArrowLeft') onPaneLeft();
         else onPaneRight();
+        return;
       }
+
+      // Any OTHER key pressed while the nav modifier is held means the user
+      // is committing to a non-nav shortcut (⌘S, ⌘F, ⌘=, ⌃⌘=, …). The nav
+      // captions no longer apply, so hide them. Number/arrow nav keys
+      // returned above and deliberately keep the captions up so navigation
+      // can be chained while the modifier stays held.
+      cancel();
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -114,7 +148,7 @@ export function useKeyNav({
         (settings.navModifierKey === 'meta' && e.key === 'Meta') ||
         (settings.navModifierKey === 'alt' && e.key === 'Alt')
       ) {
-        setNavActive(false);
+        cancel();
       }
     };
 
@@ -123,13 +157,13 @@ export function useKeyNav({
     // (e.g. by a screenshot overlay) so clear the badge.
     const handleMouseMove = (e: MouseEvent) => {
       const held = settings.navModifierKey === 'meta' ? e.metaKey : e.altKey;
-      if (!held) setNavActive(false);
+      if (!held) cancel();
     };
 
     // Also deactivate on blur (modifier might be released while window is unfocused)
-    const handleBlur = () => setNavActive(false);
+    const handleBlur = () => cancel();
     const handleVisibility = () => {
-      if (document.visibilityState !== 'visible') setNavActive(false);
+      if (document.visibilityState !== 'visible') cancel();
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -144,6 +178,10 @@ export function useKeyNav({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibility);
+      if (showTimerRef.current) {
+        clearTimeout(showTimerRef.current);
+        showTimerRef.current = null;
+      }
     };
   }, [settings.navModifierKey, isModifier, commandBarActions, onProfileUp, onProfileDown, onPaneLeft, onPaneRight]);
 

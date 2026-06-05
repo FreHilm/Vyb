@@ -31,6 +31,10 @@ interface Props {
   /** Clicking a committed blame row calls this with the line's SHA so the
    * host can open that commit. */
   onBlameSelect?: (sha: string) => void;
+  /** Cmd+= / Cmd++ grow, Cmd+- shrink, Cmd+0 reset the editor font size.
+   * Delegated to the host so it persists in settings (CodeMirror routes
+   * the same keys here too). */
+  onAdjustFontSize?: (delta: number) => void;
 }
 
 /**
@@ -41,7 +45,7 @@ interface Props {
  * spike surface — diff, blame, and markdown editing stay on CodeMirror.
  */
 export function MonacoFileEditor({
-  path, initialContent, savedContent, language, fontSize, onChange, onSave, blame, onBlameSelect,
+  path, initialContent, savedContent, language, fontSize, onChange, onSave, blame, onBlameSelect, onAdjustFontSize,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -50,8 +54,10 @@ export function MonacoFileEditor({
   // re-creating the editor on every render.
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
+  const onAdjustFontSizeRef = useRef(onAdjustFontSize);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
+  onAdjustFontSizeRef.current = onAdjustFontSize;
   // Blame decorations live in their own collection so they can be
   // refreshed independently of the editor lifecycle. A line→SHA map
   // resolves clicks on the injected blame column back to a commit.
@@ -107,6 +113,15 @@ export function MonacoFileEditor({
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
       () => onSaveRef.current(),
     );
+
+    // Editor font-size zoom (parity with the CodeMirror path). Cmd+= and
+    // Cmd++ (Shift+=) grow, Cmd+- shrinks, Cmd+0 resets. Delegated to the
+    // host so the size persists in settings.
+    const adjustFont = (d: number) => onAdjustFontSizeRef.current?.(d);
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Equal, () => adjustFont(1));
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Equal, () => adjustFont(1));
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Minus, () => adjustFont(-1));
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Digit0, () => adjustFont(0));
 
     // Clipboard now comes from the native Edit-menu roles (focus-aware; see
     // main.ts) — Monaco handles the copy/cut/paste DOM events itself.

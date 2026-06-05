@@ -16,6 +16,7 @@ import { ParallelAgentTerminal } from './components/ParallelAgentTerminal';
 import { StatusBar } from './components/StatusBar';
 import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
+import { HotkeyHints } from './components/HotkeyHints';
 import { useDictation } from './components/Dictation';
 import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, Workspace, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult } from '../shared/types';
 import { applyTheme } from './theme';
@@ -2549,6 +2550,13 @@ export function App() {
           onBatchGenerate={handleBatchGenerateIcons}
           profilesWithoutIcons={profiles.filter((p) => !p.icon).length}
         />
+      )}
+      {/* Progressive hotkey HUD — holding ⌘/⌃/⌥ reveals the available
+          shortcuts; adding modifiers narrows the list. Opt-in (default off)
+          via Settings → Functions. Self-manages visibility from live
+          modifier state. */}
+      {settings.hotkeyHintsEnabled === true && (
+        <HotkeyHints navModifierKey={settings.navModifierKey} commandBarLabels={navActions.labels} />
       )}
       {/* Unsaved-files dialog shown before quitting (Cmd+Q / window close)
           when any profile has unsaved editor buffers. Save all flushes

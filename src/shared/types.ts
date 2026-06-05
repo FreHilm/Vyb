@@ -161,6 +161,9 @@ export interface AppSettings {
   /** Fire OS notifications when an agent finishes (working→ready) or needs
    * input. Default on; `false` disables them. */
   notificationsEnabled?: boolean;
+  /** Show the progressive hotkey HUD (hold a modifier to reveal matching
+   * shortcuts). Default off — opt-in via Settings. */
+  hotkeyHintsEnabled?: boolean;
   /** Default landing page for a Web tab that has never been navigated.
    * Once a view has a saved URL in `webUrls`, this is ignored. Free-form
    * text — non-URL input is interpreted as a DuckDuckGo search at click
@@ -304,6 +307,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   editorEngine: 'monaco',
   diffContextLines: 6,
   notificationsEnabled: true,
+  hotkeyHintsEnabled: false,
   webDefaultUrl: 'https://duckduckgo.com/',
   webUrls: {},
   openFunctionTabs: {},
