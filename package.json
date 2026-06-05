@@ -1,7 +1,7 @@
 {
   "name": "vyb",
   "productName": "Vyb",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "Manage multiple AI agent terminal sessions in one place",
   "main": ".vite/build/main.js",
   "private": true,
