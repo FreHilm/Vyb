@@ -290,6 +290,12 @@ function openSettings() {
 }
 
 const createWindow = () => {
+  // Defensive: a BrowserWindow can only be created once the app is ready.
+  // Any caller that runs earlier (e.g. an early `activate` on macOS) would
+  // crash the main process. Bail — the `ready` handler always creates the
+  // initial window, so no caller needs to create one before then.
+  if (!app.isReady()) return;
+
   const iconPath = path.join(app.getAppPath(), 'logo.png');
   const appIcon = nativeImage.createFromPath(iconPath);
 
@@ -415,6 +421,12 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
+  // macOS can emit `activate` BEFORE `ready` on launch/relaunch (notably
+  // after an auto-update relaunch). Calling new BrowserWindow() before the
+  // app is ready throws "Cannot create BrowserWindow before app is ready"
+  // and crashes the main process. The `ready` handler always creates the
+  // initial window, so just bail here until the app is actually ready.
+  if (!app.isReady()) return;
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
