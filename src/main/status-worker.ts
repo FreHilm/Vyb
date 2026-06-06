@@ -95,7 +95,10 @@ const claudeAdapter: AgentAdapter = {
 // Codex is non-interactive — it never blocks on a y/n prompt, so we
 // don't detect `needs-input`. The lifecycle we care about is:
 //
-//   1. "Working (Ns • esc to interrupt)" footer appears → working
+//   1. "Working (4s • esc to interrupt)" footer appears → working
+//      (the leading word and the seconds/min/h counter vary between
+//      Codex versions; the trailing "esc to interrupt" is the stable
+//      giveaway)
 //   2. Footer disappears, but Codex keeps emitting trailing lines
 //      (final summary, file list, etc.) for a moment afterwards
 //   3. Output stops → ready
@@ -105,6 +108,9 @@ const claudeAdapter: AgentAdapter = {
 // arriving the transition is held off. Once the PTY truly quiets
 // down for `idleTimeout` ms, ready fires. `idleTimeout` is bumped to
 // 4 s to comfortably cover Codex's trailing-output burst.
+const CODEX_WORKING_HINT =
+  /esc\s*to\s*interrupt|esc\s*interrupt|Escape\s*to\s*cancel|Ctrl\+C\s*to\s*stop|Working\s*\(\s*\d/i;
+
 const codexAdapter: AgentAdapter = {
   name: 'codex',
   idleTimeout: 4000,
@@ -112,14 +118,25 @@ const codexAdapter: AgentAdapter = {
 
   detectFromData(_data, stripped, currentStatus) {
     if (currentStatus === 'ready' || currentStatus === 'offline') {
-      if (/esc\s*to\s*interrupt|Escape\s*to\s*cancel|Ctrl\+C\s*to\s*stop/i.test(stripped)) {
+      if (CODEX_WORKING_HINT.test(stripped)) {
         return { status: 'working', immediate: true };
       }
     }
     return { status: null };
   },
 
-  detectFromBuffer(_strippedBuffer, _rawBuffer, _currentStatus) {
+  detectFromBuffer(strippedBuffer, _rawBuffer, _currentStatus) {
+    // Reinforce working from the buffer tail. The per-chunk detector above
+    // misses the footer when Codex resumes after a lull (the idle timer has
+    // already flipped us to `ready`, and the resume often repaints only the
+    // seconds counter, or the "esc to interrupt" line is fragmented across
+    // coalesced chunks) — that's the "not always recognised as running" bug.
+    // The footer always sits at the bottom, so only the tail is inspected. A
+    // stale hint further up the buffer can't keep us stuck working: `ready`
+    // is driven entirely by the idle timer, and the single post-data debounce
+    // re-asserting `working` is a no-op once we're already working.
+    const tail = strippedBuffer.slice(-400);
+    if (CODEX_WORKING_HINT.test(tail)) return { status: 'working' };
     return { status: null };
   },
 };

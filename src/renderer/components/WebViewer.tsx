@@ -63,8 +63,15 @@ function normalizeUrl(input: string): string {
 
 export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, onUrlChange }: Props) {
   const startUrl = initialUrl && initialUrl.length > 0 ? initialUrl : DEFAULT_URL;
-  const [address, setAddress] = useState(startUrl);
-  const [committedUrl, setCommittedUrl] = useState(startUrl);
+  // If a navigation is already queued when we first mount — the common case
+  // where clicking a link BOTH opens the Web tab and requests the URL — load
+  // that target directly as the initial src. Initialising to `startUrl` and
+  // then swapping `src` a beat later (in the pendingNavigate effect) is
+  // unreliable: on a brand-new webview the guest page hasn't attached yet, so
+  // the early src change is dropped and the page stays stuck on startUrl.
+  const mountUrl = pendingNavigate ? normalizeUrl(pendingNavigate.url) : startUrl;
+  const [address, setAddress] = useState(mountUrl);
+  const [committedUrl, setCommittedUrl] = useState(mountUrl);
   const [canBack, setCanBack] = useState(false);
   const [canForward, setCanForward] = useState(false);
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
@@ -85,10 +92,17 @@ export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, on
     onUrlChange(instanceKey, committedUrl);
   }, [instanceKey, committedUrl, startUrl, onUrlChange]);
 
+  // The nonce we already satisfied via `mountUrl` at construction. The effect
+  // below skips it so we don't immediately re-navigate to the same target the
+  // initial src is already loading (which would cause a redundant reload).
+  const handledNonceRef = useRef<number | null>(pendingNavigate?.nonce ?? null);
+
   // External navigation request — drive the webview to the URL. Keyed on
   // the nonce so re-clicking the same URL still re-navigates.
   useEffect(() => {
     if (!pendingNavigate) return;
+    if (pendingNavigate.nonce === handledNonceRef.current) return;
+    handledNonceRef.current = pendingNavigate.nonce;
     const target = normalizeUrl(pendingNavigate.url);
     setAddress(target);
     setCommittedUrl(target);
