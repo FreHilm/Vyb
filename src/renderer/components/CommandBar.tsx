@@ -31,6 +31,10 @@ interface CommandBarProps {
   kanbanEnabled: boolean;
   webEnabled: boolean;
   externalApps: ExternalApp[];
+  /** Whether the active Files view is in changed-only ("Changes") mode —
+   * drives the Files tab caption and the switcher dropdown. */
+  filesShowChanges: boolean;
+  onSetFilesShowChanges: (next: boolean) => void;
   navActive: boolean;
   /** When false (default), the built-in action buttons (Terminal, Mic,
    * Folder) render icon-only. External app buttons are unaffected. */
@@ -74,6 +78,8 @@ export function CommandBar({
   kanbanEnabled,
   webEnabled,
   externalApps,
+  filesShowChanges,
+  onSetFilesShowChanges,
   navActive,
   showActionLabels,
   dictationListening,
@@ -101,6 +107,23 @@ export function CommandBar({
       document.removeEventListener('keydown', onKey);
     };
   }, [appsOpen]);
+
+  // Files-tab "Files ▾ / Changes" switcher dropdown.
+  const [filesMenuOpen, setFilesMenuOpen] = useState(false);
+  const filesMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!filesMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (filesMenuRef.current && !filesMenuRef.current.contains(e.target as Node)) setFilesMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFilesMenuOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [filesMenuOpen]);
 
   // Compact icon-only buttons get a modifier class so CSS can shrink the
   // horizontal padding (otherwise they'd look weirdly wide for a 16px icon).
@@ -144,18 +167,43 @@ export function CommandBar({
     </button>
   );
   const filesTabButton = (
-    <button
-      className={`command-bar-tab ${activeTab === 'files' ? 'command-bar-tab-active' : ''}`}
-      onClick={() => onSelectTab('files')}
-      title="File explorer"
-    >
-      <NavNum active={navActive} idx={1} />
-      <svg {...ICON_PROPS}>
-        <path d="M9 2H5A1.5 1.5 0 0 0 3.5 3.5v9A1.5 1.5 0 0 0 5 14h6a1.5 1.5 0 0 0 1.5-1.5V5.5L9 2Z" />
-        <path d="M9 2v3.5h3.5" />
-      </svg>
-      <span>Files</span>
-    </button>
+    <div className="command-bar-tab-wrap" ref={filesMenuRef}>
+      <button
+        className={`command-bar-tab ${activeTab === 'files' ? 'command-bar-tab-active' : ''}`}
+        onClick={() => onSelectTab('files')}
+        title={filesShowChanges ? 'Changed files only' : 'File explorer'}
+      >
+        <NavNum active={navActive} idx={1} />
+        <svg {...ICON_PROPS}>
+          <path d="M9 2H5A1.5 1.5 0 0 0 3.5 3.5v9A1.5 1.5 0 0 0 5 14h6a1.5 1.5 0 0 0 1.5-1.5V5.5L9 2Z" />
+          <path d="M9 2v3.5h3.5" />
+        </svg>
+        <span>{filesShowChanges ? 'Changes' : 'Files'}</span>
+        <span
+          className="command-bar-tab-caret"
+          role="button"
+          tabIndex={-1}
+          title="Switch Files / Changes"
+          aria-haspopup="menu"
+          aria-expanded={filesMenuOpen}
+          onClick={(e) => { e.stopPropagation(); setFilesMenuOpen((o) => !o); }}
+        >▾</span>
+      </button>
+      {filesMenuOpen && (
+        <div className="command-bar-tab-menu" role="menu">
+          <button
+            role="menuitem"
+            className={!filesShowChanges ? 'is-active' : ''}
+            onClick={() => { setFilesMenuOpen(false); onSelectTab('files'); onSetFilesShowChanges(false); }}
+          >Files</button>
+          <button
+            role="menuitem"
+            className={filesShowChanges ? 'is-active' : ''}
+            onClick={() => { setFilesMenuOpen(false); onSelectTab('files'); onSetFilesShowChanges(true); }}
+          >Changes</button>
+        </div>
+      )}
+    </div>
   );
   const kanbanTabButton = kanbanEnabled ? (
     <button

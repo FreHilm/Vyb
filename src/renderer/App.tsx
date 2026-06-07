@@ -2204,6 +2204,17 @@ export function App() {
           kanbanEnabled={settings.functionKanbanEnabled !== false}
           webEnabled={settings.functionWebEnabled !== false}
           externalApps={settings.externalApps || []}
+          filesShowChanges={activeViewKey ? showChangedFilesViews.has(activeViewKey) : false}
+          onSetFilesShowChanges={(next) => {
+            const key = activeViewKey;
+            if (!key) return;
+            setShowChangedFilesViews((prev) => {
+              if (prev.has(key) === next) return prev;
+              const out = new Set(prev);
+              if (next) out.add(key); else out.delete(key);
+              return out;
+            });
+          }}
           navActive={navActive}
           showActionLabels={settings.showActionLabels === true}
           dictationListening={dictation.listening}

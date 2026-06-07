@@ -904,6 +904,51 @@
   opacity: 1;
 }
 
+/* Files tab "Files ▾ / Changes" switcher. */
+.command-bar-tab-wrap {
+  position: relative;
+  display: inline-flex;
+  -webkit-app-region: no-drag;
+}
+.command-bar-tab-caret {
+  margin-left: 2px;
+  font-size: 9px;
+  line-height: 1;
+  opacity: 0.6;
+  padding: 2px 2px;
+  border-radius: 3px;
+}
+.command-bar-tab-caret:hover { opacity: 1; background: rgba(255, 255, 255, 0.08); }
+.command-bar-tab-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 100;
+  min-width: 120px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--c-mantle);
+  border: 1px solid var(--c-surface1);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.command-bar-tab-menu button {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--c-text);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.command-bar-tab-menu button:hover { background: rgba(255, 255, 255, 0.06); }
+.command-bar-tab-menu button.is-active { color: var(--c-blue); font-weight: 600; }
+
 /* Split-view toggle — sits right of the Kanban tab. Styled like the
    action-btn pills (Terminal / Git / etc.) but vertically centered inside
    the 32 px tab strip via inline-flex on the parent. */
