@@ -824,6 +824,10 @@ export function GitChangesPanel({
   const [commitError, setCommitError] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<ChangesCtxMenuState | null>(null);
   const [discardTarget, setDiscardTarget] = useState<GitChangedFile | null>(null);
+  // Pending confirmation when staging a still-conflicted file.
+  const [confirmStageConflict, setConfirmStageConflict] = useState<GitChangedFile | null>(null);
+  // Pending confirmation when "Stage all" includes conflicted files.
+  const [confirmStageAll, setConfirmStageAll] = useState<{ conflicted: string[]; clean: string[] } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   // Shared status (branch + ahead/behind + remoteUrl) shown in the
   // panel-wide toolbar — drives the Pull / Push enabled state.
@@ -1069,11 +1073,22 @@ export function GitChangesPanel({
   // immediately to the other section, then call git in the background and
   // reconcile. The IPC + reload still runs to catch edge cases (the file
   // dropping out, counts changing, etc.) but the visible list never blanks.
-  const stageOne = useCallback(async (path: string) => {
+  const performStageOne = useCallback(async (path: string) => {
     setFiles((prev) => prev.map((f) => f.path === path && !f.staged ? { ...f, staged: true } : f));
     await window.api.gitStage(workingDirectory, path);
     await reloadFiles();
   }, [workingDirectory, reloadFiles]);
+
+  const stageOne = useCallback(async (path: string) => {
+    // Staging a conflicted file marks it resolved (even with markers left)
+    // — confirm first so it isn't done by accident.
+    const file = files.find((f) => f.path === path && !f.staged);
+    if (file?.status === 'conflicted') {
+      setConfirmStageConflict(file);
+      return;
+    }
+    await performStageOne(path);
+  }, [files, performStageOne]);
 
   const unstageOne = useCallback(async (path: string) => {
     setFiles((prev) => prev.map((f) => f.path === path && f.staged ? { ...f, staged: false } : f));
@@ -1081,12 +1096,28 @@ export function GitChangesPanel({
     await reloadFiles();
   }, [workingDirectory, reloadFiles]);
 
-  const stageAll = useCallback(async (paths: string[]) => {
+  const performStageAll = useCallback(async (paths: string[]) => {
+    if (paths.length === 0) return;
     const set = new Set(paths);
     setFiles((prev) => prev.map((f) => set.has(f.path) && !f.staged ? { ...f, staged: true } : f));
     for (const p of paths) await window.api.gitStage(workingDirectory, p);
     await reloadFiles();
   }, [workingDirectory, reloadFiles]);
+
+  const stageAll = useCallback(async (paths: string[]) => {
+    // If the batch includes still-conflicted files, confirm — with the
+    // option to skip them (stage only the rest).
+    const conflicted = paths.filter(
+      (p) => files.find((f) => f.path === p && !f.staged)?.status === 'conflicted',
+    );
+    if (conflicted.length > 0) {
+      const conflictedSet = new Set(conflicted);
+      const clean = paths.filter((p) => !conflictedSet.has(p));
+      setConfirmStageAll({ conflicted, clean });
+      return;
+    }
+    await performStageAll(paths);
+  }, [files, performStageAll]);
 
   const unstageAll = useCallback(async (paths: string[]) => {
     const set = new Set(paths);
@@ -1656,6 +1687,72 @@ export function GitChangesPanel({
               <button className="cancel-btn" onClick={() => setDiscardTarget(null)}>Cancel</button>
               <div className="modal-footer-right">
                 <button className="delete-btn" onClick={runDiscard}>Discard</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmStageConflict && (
+        <div className="modal-overlay" onClick={() => setConfirmStageConflict(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Stage conflicted file?</h3></div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, lineHeight: 1.5 }}>
+                <strong>{confirmStageConflict.path}</strong> is still in conflict.
+                Staging marks it as <strong>resolved</strong> — even if conflict
+                markers remain in the file.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="cancel-btn" onClick={() => setConfirmStageConflict(null)}>Cancel</button>
+              <div className="modal-footer-right">
+                <button
+                  className="save-btn"
+                  onClick={() => { const p = confirmStageConflict.path; setConfirmStageConflict(null); setActiveConflictFile(p); }}
+                >
+                  Open merge tool
+                </button>
+                <button
+                  className="save-btn"
+                  onClick={() => { const p = confirmStageConflict.path; setConfirmStageConflict(null); performStageOne(p); }}
+                >
+                  Stage anyway
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmStageAll && (
+        <div className="modal-overlay" onClick={() => setConfirmStageAll(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Stage conflicted files?</h3></div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, lineHeight: 1.5 }}>
+                {confirmStageAll.conflicted.length} of these file{confirmStageAll.conflicted.length === 1 ? ' is' : 's are'} still
+                in conflict. Staging marks {confirmStageAll.conflicted.length === 1 ? 'it' : 'them'} as
+                {' '}<strong>resolved</strong>, even with conflict markers left.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="cancel-btn" onClick={() => setConfirmStageAll(null)}>Cancel</button>
+              <div className="modal-footer-right">
+                <button
+                  className="save-btn"
+                  disabled={confirmStageAll.clean.length === 0}
+                  title={confirmStageAll.clean.length === 0 ? 'No non-conflicted files to stage' : undefined}
+                  onClick={() => { const clean = confirmStageAll.clean; setConfirmStageAll(null); performStageAll(clean); }}
+                >
+                  Skip conflicted ({confirmStageAll.clean.length})
+                </button>
+                <button
+                  className="save-btn"
+                  onClick={() => { const all = [...confirmStageAll.clean, ...confirmStageAll.conflicted]; setConfirmStageAll(null); performStageAll(all); }}
+                >
+                  Stage all
+                </button>
               </div>
             </div>
           </div>
