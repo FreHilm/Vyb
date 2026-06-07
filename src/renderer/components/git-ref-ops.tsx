@@ -13,7 +13,7 @@
 //     returns the modal/banner/error JSX so callers just inline it.
 
 import { useCallback, useState } from 'react';
-import type { GitRef, GitStatus } from '../../shared/types';
+import type { GitRef, GitStatus, GitMergePreviewResult } from '../../shared/types';
 
 // ── Node shapes ────────────────────────────────────────────────────
 
@@ -87,6 +87,7 @@ export type RefMenuNode =
 export interface RefOps {
   onCheckout: (target: string) => void;
   onMergeInto: (target: string) => void;
+  onPreviewMerge: (target: string) => void;
   onRebase: (ontoRef: string) => void;
   onStashApply: (ref: string) => void;
   onStashPop: (ref: string) => void;
@@ -195,6 +196,7 @@ function buildMenuItems(p: RefContextMenuProps): MenuItem[] {
       items.push({ type: 'item', label: 'Create Pull Request…', onClick: p.onCreatePr, disabled: !onBranch });
     } else {
       items.push({ type: 'item', label: onBranch ? `Merge '${node.fullName}' into '${currentBranch}'` : 'Merge — checkout a branch first', onClick: () => p.onMergeInto(node.fullName), disabled: !onBranch });
+      items.push({ type: 'item', label: 'Preview merge…', onClick: () => p.onPreviewMerge(node.fullName), disabled: !onBranch });
       items.push({ type: 'item', label: onBranch ? `Rebase '${currentBranch}' onto '${node.fullName}'…` : 'Rebase — checkout a branch first', onClick: () => p.onRebase(node.fullName), disabled: !onBranch });
       if (p.onCompareWith) {
         items.push({ type: 'item', label: `Compare with '${node.fullName}'…`, onClick: () => p.onCompareWith!(node.fullName, node.fullName) });
@@ -215,6 +217,7 @@ function buildMenuItems(p: RefContextMenuProps): MenuItem[] {
     items.push({ type: 'item', label: `Checkout '${node.fullName}'`, onClick: () => p.onCheckout(node.fullName) });
     items.push({ type: 'divider' });
     items.push({ type: 'item', label: onBranch ? `Merge '${node.fullName}' into '${currentBranch}'` : 'Merge — checkout a branch first', onClick: () => p.onMergeInto(node.fullName), disabled: !onBranch });
+    items.push({ type: 'item', label: 'Preview merge…', onClick: () => p.onPreviewMerge(node.fullName), disabled: !onBranch });
     items.push({ type: 'item', label: onBranch ? `Rebase '${currentBranch}' onto '${node.fullName}'…` : 'Rebase — checkout a branch first', onClick: () => p.onRebase(node.fullName), disabled: !onBranch });
     if (p.onCompareWith) {
       items.push({ type: 'item', label: `Compare with '${node.fullName}'…`, onClick: () => p.onCompareWith!(node.fullName, node.fullName) });
@@ -255,6 +258,7 @@ function buildMenuItems(p: RefContextMenuProps): MenuItem[] {
       items.push({ type: 'divider' });
     }
     items.push({ type: 'item', label: onBranch ? `Merge ${node.shortSha} into '${currentBranch}'` : 'Merge — checkout a branch first', onClick: () => p.onMergeInto(node.sha), disabled: !onBranch });
+    items.push({ type: 'item', label: 'Preview merge…', onClick: () => p.onPreviewMerge(node.sha), disabled: !onBranch });
     items.push({ type: 'item', label: onBranch ? `Cherry-pick ${node.shortSha}` : 'Cherry-pick — checkout a branch first', onClick: () => p.onCherryPick(node.sha), disabled: !onBranch });
     items.push({ type: 'item', label: onBranch ? `Revert ${node.shortSha}…` : 'Revert — checkout a branch first', onClick: () => p.onRevert(node.sha), disabled: !onBranch });
     if (p.onCompareWith) {
@@ -342,6 +346,8 @@ export function useGitRefOps({
   const [prResultUrl, setPrResultUrl] = useState<string | null>(null);
   const [trackingDialog, setTrackingDialog] = useState<{ branch: string } | null>(null);
   const [confirmRebase, setConfirmRebase] = useState<{ ontoRef: string } | null>(null);
+  // Merge preview (dry-run) dialog state (T-060).
+  const [previewDialog, setPreviewDialog] = useState<{ ref: string; loading: boolean; result: GitMergePreviewResult | null } | null>(null);
   // Commit-level dialogs.
   const [newTagDialog, setNewTagDialog] = useState<{ commitRef: string } | null>(null);
   const [newTagName, setNewTagName] = useState('');
@@ -387,13 +393,17 @@ export function useGitRefOps({
       else if (result.error === 'detached') setOpError('Detached HEAD — checkout a branch first.');
       else if (result.error === 'self') setOpError('Cannot merge a branch into itself.');
       else if (result.error === 'conflict') {
-        // Banner above the panel surfaces this.
+        // Auto-open the resolver on the first conflicted file (this is a
+        // UI-initiated merge). The banner still lists the rest.
+        if (onResolveConflictFile && result.conflictedFiles?.length) {
+          onResolveConflictFile(result.conflictedFiles[0]);
+        }
       } else if (result.error === 'failed') {
         setOpError(result.message ?? 'Merge failed.');
       }
     }
     await onAfterOp();
-  }, [workingDirectory, onAfterOp]);
+  }, [workingDirectory, onAfterOp, onResolveConflictFile]);
 
   const handleRebase = useCallback(async (ontoRef: string) => {
     setConfirmRebase(null);
@@ -405,13 +415,15 @@ export function useGitRefOps({
       else if (result.error === 'self') setOpError('Cannot rebase a branch onto itself.');
       else if (result.error === 'invalid') setOpError('Invalid branch name.');
       else if (result.error === 'conflict') {
-        // Banner.
+        if (onResolveConflictFile && result.conflictedFiles?.length) {
+          onResolveConflictFile(result.conflictedFiles[0]);
+        }
       } else if (result.error === 'failed') {
         setOpError(result.message ?? 'Rebase failed.');
       }
     }
     await onAfterOp();
-  }, [workingDirectory, onAfterOp]);
+  }, [workingDirectory, onAfterOp, onResolveConflictFile]);
 
   const handleRebaseAbort = useCallback(async () => {
     await runOp(() => window.api.gitRebaseAbort(workingDirectory), 'rebase --abort failed');
@@ -420,6 +432,22 @@ export function useGitRefOps({
   const handleMergeAbort = useCallback(async () => {
     await runOp(() => window.api.gitMergeAbort(workingDirectory), 'merge --abort failed');
   }, [workingDirectory, runOp]);
+
+  // Dry-run a merge and show the prediction before the user commits to it.
+  const handlePreviewMerge = useCallback(async (ref: string) => {
+    setPreviewDialog({ ref, loading: true, result: null });
+    const result = await window.api.gitMergePreview(workingDirectory, ref);
+    setPreviewDialog({ ref, loading: false, result });
+  }, [workingDirectory]);
+
+  // Resolve a single conflicted file wholesale to one side (bulk action
+  // on the conflict banner pills).
+  const handleTakeSide = useCallback(async (file: string, side: 'ours' | 'theirs') => {
+    setOpError(null);
+    const result = await window.api.gitCheckoutOursTheirs(workingDirectory, file, side);
+    if (!result.ok) setOpError(result.message ?? `Take ${side} failed.`);
+    await onAfterOp();
+  }, [workingDirectory, onAfterOp]);
 
   const handleRebaseContinue = useCallback(async () => {
     setOpError(null);
@@ -533,11 +561,13 @@ export function useGitRefOps({
     if (!result.ok) {
       if (result.error === 'invalid') setOpError('Invalid commit SHA.');
       else if (result.error === 'conflict') {
-        // Banner shows it.
+        if (onResolveConflictFile && result.conflictedFiles?.length) {
+          onResolveConflictFile(result.conflictedFiles[0]);
+        }
       } else if (result.error === 'failed') setOpError(result.message ?? 'Cherry-pick failed.');
     }
     await onAfterOp();
-  }, [workingDirectory, onAfterOp]);
+  }, [workingDirectory, onAfterOp, onResolveConflictFile]);
 
   const handleCherryPickAbort = useCallback(async () => {
     await runOp(() => window.api.gitCherryPickAbort(workingDirectory), 'cherry-pick --abort failed');
@@ -559,11 +589,13 @@ export function useGitRefOps({
     if (!result.ok) {
       if (result.error === 'invalid') setOpError('Invalid commit SHA.');
       else if (result.error === 'conflict') {
-        // Banner shows it.
+        if (onResolveConflictFile && result.conflictedFiles?.length) {
+          onResolveConflictFile(result.conflictedFiles[0]);
+        }
       } else if (result.error === 'failed') setOpError(result.message ?? 'Revert failed.');
     }
     await onAfterOp();
-  }, [workingDirectory, onAfterOp]);
+  }, [workingDirectory, onAfterOp, onResolveConflictFile]);
 
   const handleRevertAbort = useCallback(async () => {
     await runOp(() => window.api.gitRevertAbort(workingDirectory), 'revert --abort failed');
@@ -590,6 +622,7 @@ export function useGitRefOps({
   const ops: RefOps = {
     onCheckout: handleCheckout,
     onMergeInto: handleMergeInto,
+    onPreviewMerge: handlePreviewMerge,
     onRebase: (ontoRef) => setConfirmRebase({ ontoRef }),
     onStashApply: async (ref) => { await runOp(() => window.api.gitStashApply(workingDirectory, ref), 'apply failed'); },
     onStashPop: async (ref) => { await runOp(() => window.api.gitStashPop(workingDirectory, ref), 'pop failed'); },
@@ -645,13 +678,17 @@ export function useGitRefOps({
   const renderConflictFiles = (files: string[]) => (
     <>
       {files.slice(0, 5).map((f) => (
-        onResolveConflictFile
-          ? (
-            <button key={f} className="git-tree-merge-banner-file" onClick={() => onResolveConflictFile(f)} title={`Resolve ${f}`}>
-              {f}
-            </button>
-          )
-          : <code key={f}>{f}</code>
+        <span key={f} className="git-tree-merge-banner-fileitem">
+          {onResolveConflictFile
+            ? (
+              <button className="git-tree-merge-banner-file" onClick={() => onResolveConflictFile(f)} title={`Resolve ${f}`}>
+                {f}
+              </button>
+            )
+            : <code>{f}</code>}
+          <button className="git-tree-merge-banner-side" onClick={() => handleTakeSide(f, 'ours')} title={`Take ours (HEAD) for ${f}`}>ours</button>
+          <button className="git-tree-merge-banner-side" onClick={() => handleTakeSide(f, 'theirs')} title={`Take theirs (incoming) for ${f}`}>theirs</button>
+        </span>
       ))}
       {files.length > 5 && (
         <span className="git-tree-merge-banner-more">+{files.length - 5} more</span>
@@ -769,6 +806,53 @@ export function useGitRefOps({
 
   const modals = (
     <>
+      {previewDialog && (
+        <div className="modal-overlay" onClick={() => setPreviewDialog(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Preview merge</h3></div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 8 }}>
+                Merging <code>{previewDialog.ref}</code> into <code>{currentBranch || 'HEAD'}</code>.
+              </p>
+              {previewDialog.loading ? (
+                <p style={{ fontSize: 13, color: 'var(--c-overlay1)' }}>Analysing…</p>
+              ) : !previewDialog.result || !previewDialog.result.ok ? (
+                <p style={{ fontSize: 13, color: 'var(--c-red)' }}>
+                  {previewDialog.result?.message ?? 'Preview failed.'}
+                </p>
+              ) : previewDialog.result.supported === false ? (
+                <p style={{ fontSize: 13, color: 'var(--c-overlay1)' }}>
+                  Merge preview needs git 2.38 or newer. You can still merge directly.
+                </p>
+              ) : previewDialog.result.clean ? (
+                <p style={{ fontSize: 13, color: 'var(--c-green)' }}>✓ Merges cleanly — no conflicts.</p>
+              ) : (
+                <>
+                  <p style={{ fontSize: 13, color: 'var(--c-yellow)', marginBottom: 6 }}>
+                    ⚠ {previewDialog.result.conflictedFiles?.length ?? 0} file(s) would conflict:
+                  </p>
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, fontFamily: 'var(--font-mono)', maxHeight: 180, overflow: 'auto' }}>
+                    {(previewDialog.result.conflictedFiles ?? []).map((f) => <li key={f}>{f}</li>)}
+                  </ul>
+                </>
+              )}
+            </div>
+            <div className="modal-footer">
+              <div className="modal-footer-right">
+                <button className="cancel-btn" onClick={() => setPreviewDialog(null)}>Cancel</button>
+                <button
+                  className="save-btn"
+                  disabled={previewDialog.loading}
+                  onClick={() => { const ref = previewDialog.ref; setPreviewDialog(null); handleMergeInto(ref); }}
+                >
+                  Merge now
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {stashSaveOpen && (
         <div className="modal-overlay" onClick={() => setStashSaveOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>

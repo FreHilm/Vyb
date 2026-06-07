@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitRebaseResult, GitCreatePrResult, GitStash, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, ParallelAgent, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitMergePreviewResult, GitRebaseResult, GitCreatePrResult, GitStash, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, ParallelAgent, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
 import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout, loadProfileMemory, saveProfileMemory, loadScrollback, saveScrollback } from './config-loader';
@@ -1172,7 +1172,11 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     const fileMap = new Map<string, { status: string; staged: boolean }>();
     const setFromStatus = (x: string, y: string, filePath: string) => {
       if (!filePath) return;
-      if (x === '?') {
+      if (x === 'U' || y === 'U' || (x === 'A' && y === 'A') || (x === 'D' && y === 'D')) {
+        // Unmerged (conflicted) — checked first so UU/AA/DD aren't
+        // mislabelled as modified/added/deleted.
+        fileMap.set(filePath, { status: 'conflicted', staged: false });
+      } else if (x === '?') {
         fileMap.set(filePath, { status: 'untracked', staged: false });
       } else if (x === 'A' || y === 'A') {
         fileMap.set(filePath, { status: 'added', staged: x !== ' ' });
@@ -2085,6 +2089,75 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       const e = err as { stderr?: string | Buffer; message?: string };
       const stderr = e.stderr ? e.stderr.toString().trim() : '';
       return { ok: false, message: stderr || e.message || 'merge --abort failed' };
+    }
+  });
+
+  // Dry-run a merge with `git merge-tree --write-tree` (git ≥ 2.38) so
+  // the user can see whether it would conflict — and which files — before
+  // starting. Never touches the working tree or index (T-060).
+  ipcMain.handle(IPC_CHANNELS.GIT_MERGE_PREVIEW, (_, cwd: string, sourceRef: string): GitMergePreviewResult => {
+    if (
+      !sourceRef ||
+      sourceRef.startsWith('-') ||
+      sourceRef.includes('..') ||
+      !/^[A-Za-z0-9._/+@-]+$/.test(sourceRef)
+    ) {
+      return { ok: false, error: 'invalid' };
+    }
+    const tryRun = (args: string[]): string | null => {
+      try { return execFileSync('git', args, { cwd, timeout: 10000, encoding: 'utf-8' }); }
+      catch { return null; }
+    };
+    if (tryRun(['rev-parse', '--is-inside-work-tree'])?.trim() !== 'true') {
+      return { ok: false, error: 'not-git' };
+    }
+    // Ref must resolve to a commit, else merge-tree's "not a valid object"
+    // would be mistaken for "unsupported git".
+    if (tryRun(['rev-parse', '--verify', '--quiet', `${sourceRef}^{commit}`]) == null) {
+      return { ok: false, error: 'failed', message: `Ref not found: ${sourceRef}` };
+    }
+    try {
+      execFileSync('git', ['merge-tree', '--write-tree', '--name-only', 'HEAD', sourceRef], {
+        cwd, timeout: 30000, encoding: 'utf-8',
+      });
+      return { ok: true, supported: true, clean: true, conflictedFiles: [] };
+    } catch (err) {
+      const e = err as { status?: number; stdout?: string | Buffer; stderr?: string | Buffer; message?: string };
+      if (e.status === 1) {
+        // Conflicts. Output: tree OID, then conflicted paths until a blank line.
+        const stdout = e.stdout ? e.stdout.toString() : '';
+        const lines = stdout.split('\n');
+        const conflictedFiles: string[] = [];
+        for (let i = 1; i < lines.length; i++) {
+          if (lines[i].trim() === '') break;
+          conflictedFiles.push(lines[i].replace(/^"(.*)"$/, '$1'));
+        }
+        return { ok: true, supported: true, clean: false, conflictedFiles };
+      }
+      const stderr = e.stderr ? e.stderr.toString() : '';
+      if (/usage:|unknown option|--write-tree/i.test(stderr)) {
+        // git too old for `merge-tree --write-tree`.
+        return { ok: true, supported: false };
+      }
+      return { ok: false, error: 'failed', message: stderr.trim() || e.message || 'merge preview failed' };
+    }
+  });
+
+  // Resolve one conflicted file wholesale to one side: `git checkout
+  // --ours|--theirs -- <file>` then stage it. Args are passed to
+  // execFileSync (no shell) and the path sits after `--`, so unusual
+  // filenames are safe (T-060).
+  ipcMain.handle(IPC_CHANNELS.GIT_CHECKOUT_OURS_THEIRS, (_, cwd: string, filePath: string, side: 'ours' | 'theirs'): GitOpResult => {
+    if (!filePath || filePath.startsWith('-')) return { ok: false, message: 'Invalid path.' };
+    if (side !== 'ours' && side !== 'theirs') return { ok: false, message: 'Invalid side.' };
+    try {
+      execFileSync('git', ['checkout', `--${side}`, '--', filePath], { cwd, timeout: 10000, encoding: 'utf-8' });
+      execFileSync('git', ['add', '--', filePath], { cwd, timeout: 10000, encoding: 'utf-8' });
+      return { ok: true };
+    } catch (err) {
+      const e = err as { stderr?: string | Buffer; message?: string };
+      const stderr = e.stderr ? e.stderr.toString().trim() : '';
+      return { ok: false, message: stderr || e.message || `checkout --${side} failed` };
     }
   });
 

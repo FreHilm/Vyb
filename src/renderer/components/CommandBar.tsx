@@ -1,4 +1,4 @@
-import type React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Profile, ExternalApp } from '../../shared/types';
 import { APP_ICONS } from '../icons';
 import { NavBadge } from './KeyNav';
@@ -84,6 +84,24 @@ export function CommandBar({
   onDictationStart,
   onDictationStop,
 }: CommandBarProps) {
+  // External-apps dropdown (collapses the per-app buttons into one icon
+  // to save toolbar space). Closes on outside-click / Escape.
+  const [appsOpen, setAppsOpen] = useState(false);
+  const appsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!appsOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (appsRef.current && !appsRef.current.contains(e.target as Node)) setAppsOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setAppsOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [appsOpen]);
+
   // Compact icon-only buttons get a modifier class so CSS can shrink the
   // horizontal padding (otherwise they'd look weirdly wide for a 16px icon).
   const actionBtnCls = showActionLabels ? 'action-btn' : 'action-btn action-btn-icon';
@@ -97,10 +115,18 @@ export function CommandBar({
     window.api.openExternal(app.command, profile.workingDirectory);
   };
 
-  // Order on the bar:
-  //   Tabs: Agent(0) Files(1) Kanban(2) | Terminal(3) Git(4) | Mic Folder(5) | external apps(6+)
-  // Nav indices skip the dictation button (it has its own Ctrl+Shift+D shortcut).
-  const extStart = 6;
+  // Nav-badge indices MUST match App.tsx `navActions` order exactly, which
+  // skips Kanban/Web when their feature flag is off:
+  //   Agent(0) Files(1) [Kanban] [Web] Terminal Git Folder
+  // (dictation has its own Ctrl+Shift+D; external apps are mouse-only in
+  // the Apps dropdown). Computed here so the badges never drift from the
+  // actions when a tab is hidden.
+  let navIdx = 2;
+  const kanbanNav = kanbanEnabled ? navIdx++ : -1;
+  const webNav = webEnabled ? navIdx++ : -1;
+  const terminalNav = navIdx++;
+  const gitNav = navIdx++;
+  const folderNav = navIdx++;
 
   const agentTabButton = (
     <button
@@ -137,7 +163,7 @@ export function CommandBar({
       onClick={() => onSelectTab('kanban')}
       title="Kanban (Ordna)"
     >
-      <NavNum active={navActive} idx={2} />
+      <NavNum active={navActive} idx={kanbanNav} />
       <svg {...ICON_PROPS}>
         <rect x="2" y="3" width="3.2" height="10" rx="0.5" />
         <rect x="6.4" y="3" width="3.2" height="7" rx="0.5" />
@@ -152,7 +178,7 @@ export function CommandBar({
       onClick={() => onSelectTab('web')}
       title="In-app browser"
     >
-      <NavNum active={navActive} idx={kanbanEnabled ? 3 : 2} />
+      <NavNum active={navActive} idx={webNav} />
       <svg {...ICON_PROPS}>
         <circle cx="8" cy="8" r="6.2" />
         <path d="M1.8 8h12.4" />
@@ -213,7 +239,7 @@ export function CommandBar({
           onClick={onToggleShell}
           title="Toggle terminal"
         >
-          <NavNum active={navActive} idx={3} />
+          <NavNum active={navActive} idx={terminalNav} />
           <svg {...ICON_PROPS}>
             <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
             <polyline points="4.5 7 6.5 9 4.5 11" />
@@ -227,7 +253,7 @@ export function CommandBar({
           onClick={onToggleGit}
           title="Git"
         >
-          <NavNum active={navActive} idx={4} />
+          <NavNum active={navActive} idx={gitNav} />
           <svg {...ICON_PROPS}>
             {/* Two branches joined at a commit dot — same shape as the
                 external `gitBranch` icon, kept inline for stroke parity. */}
@@ -267,7 +293,7 @@ export function CommandBar({
           </button>
         )}
         <button className={actionBtnCls} onClick={handleOpenFolder} title="Open in Finder">
-          <NavNum active={navActive} idx={5} />
+          <NavNum active={navActive} idx={folderNav} />
           <svg {...ICON_PROPS}>
             <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.5h5A1.5 1.5 0 0 1 14 6v6a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12V4.5Z" />
           </svg>
@@ -276,21 +302,45 @@ export function CommandBar({
 
         {externalApps.length > 0 && <div className="command-bar-separator" />}
 
-        {externalApps.map((app, i) => {
-          const iconContent = APP_ICONS[app.icon] || APP_ICONS['file'];
-          return (
+        {externalApps.length > 0 && (
+          <div className="apps-menu" ref={appsRef}>
             <button
-              key={app.id}
-              className="action-btn"
-              onClick={() => handleOpenExternal(app)}
-              title={`Open in ${app.name}`}
+              className={`${actionBtnCls}${appsOpen ? ' is-active' : ''}`}
+              onClick={() => setAppsOpen((o) => !o)}
+              title="Open in external app"
+              aria-haspopup="menu"
+              aria-expanded={appsOpen}
             >
-              <NavNum active={navActive} idx={extStart + i} />
-              <svg {...ICON_PROPS} dangerouslySetInnerHTML={{ __html: iconContent }} />
-              <span>{app.name}</span>
+              {/* App-launcher grid icon */}
+              <svg {...ICON_PROPS}>
+                <rect x="2" y="2" width="4.5" height="4.5" rx="1" />
+                <rect x="9.5" y="2" width="4.5" height="4.5" rx="1" />
+                <rect x="2" y="9.5" width="4.5" height="4.5" rx="1" />
+                <rect x="9.5" y="9.5" width="4.5" height="4.5" rx="1" />
+              </svg>
+              {showActionLabels && <span>Apps</span>}
             </button>
-          );
-        })}
+            {appsOpen && (
+              <div className="apps-menu-dropdown" role="menu">
+                {externalApps.map((app) => {
+                  const iconContent = APP_ICONS[app.icon] || APP_ICONS['file'];
+                  return (
+                    <button
+                      key={app.id}
+                      className="apps-menu-item"
+                      role="menuitem"
+                      onClick={() => { handleOpenExternal(app); setAppsOpen(false); }}
+                      title={`Open in ${app.name}`}
+                    >
+                      <svg {...ICON_PROPS} dangerouslySetInnerHTML={{ __html: iconContent }} />
+                      <span>{app.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

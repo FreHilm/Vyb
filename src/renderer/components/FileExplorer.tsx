@@ -24,6 +24,7 @@ import { FileHistoryView } from './FileHistoryView';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Spinner } from './Spinner';
 import { MonacoFileEditor, monacoLanguageForFile } from './MonacoFileEditor';
+import { ThreeWayFileEditor } from './ThreeWayFileEditor';
 import { MonacoDiffEditor } from './MonacoDiffEditor';
 import { toastError, toastInfo, errMessage } from '../lib/toast';
 
@@ -584,6 +585,7 @@ function FileTreeNode({
       : gitStatus === 'deleted' ? 'D'
       : gitStatus === 'untracked' ? '?'
       : gitStatus === 'renamed' ? 'R'
+      : gitStatus === 'conflicted' ? 'C'
       : '')
     : '';
 
@@ -744,6 +746,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   // to short status code (M/A/D/?/R). Refreshed periodically and
   // whenever the user invokes a tree refresh.
   const [gitDecorations, setGitDecorations] = useState<Map<string, string>>(new Map());
+  // Conflicted files open in the 3-way merge editor by default; this set
+  // tracks the ones the user has toggled back to the normal editor.
+  const [threeWayOff, setThreeWayOff] = useState<Set<string>>(new Set());
+  // Mirror of gitDecorations for the async open handler (reads latest).
+  const gitDecorationsRef = useRef(gitDecorations);
+  gitDecorationsRef.current = gitDecorations;
   // When true, the file tree filters to only files that appear in
   // gitDecorations (modified / added / deleted / untracked /
   // renamed) plus the folder chain needed to reach them. Useful
@@ -1469,7 +1477,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       // In show-changed mode, fetch the HEAD baseline (same cache the
       // CodeMirror merge view uses). With a baseline → Monaco diff
       // editor; without one (untracked / new file) → plain editor.
-      if (showChangedOnlyRef.current) {
+      // Conflicted files skip the diff editor so they open in the plain
+      // path, where the 3-way merge editor takes over (T-060 follow-up).
+      const isConflicted = gitDecorationsRef.current.get(toPosix(filePath)) === 'conflicted';
+      if (showChangedOnlyRef.current && !isConflicted) {
         if (!gitBaselinesRef.current.has(filePath)) {
           const relPath = filePath.startsWith(workingDirectory)
             ? filePath.slice(workingDirectory.length).replace(/^\/+/, '')
@@ -2220,6 +2231,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     ? (mdViewMode.get(activeTabPath) ?? 'view')
     : 'view';
   const activeMdShowing = activeIsMd && activeMdMode === 'view';
+  // Git-conflict state for the active Monaco file → drives the "C" mark,
+  // the 3-way toggle, and which editor renders.
+  const monacoConflicted = monacoPath ? gitDecorations.get(toPosix(monacoPath)) === 'conflicted' : false;
+  const threeWayActive = monacoConflicted && !!monacoPath && !threeWayOff.has(monacoPath);
 
   // Toggle a markdown tab between view and edit. edit→view auto-saves
   // dirty content first; view→edit mounts CodeMirror with the latest
@@ -2358,10 +2373,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
             {tabs.map((tab) => {
               const isActive = tab.path === activeTabPath;
               const isMod = modifiedSet.has(tab.path);
+              const isConflicted = gitDecorations.get(toPosix(tab.path)) === 'conflicted';
               return (
                 <div
                   key={tab.path}
-                  className={`file-tab ${isActive ? 'file-tab-active' : ''}`}
+                  className={`file-tab ${isActive ? 'file-tab-active' : ''}${isConflicted ? ' file-tab-conflicted' : ''}`}
                   onClick={() => switchTab(tab.path)}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -2370,6 +2386,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
                   title={tab.path}
                 >
                   <FileIcon filename={tab.name} isDirectory={false} />
+                  {isConflicted && <span className="file-tab-conflict-badge" title="git conflict">C</span>}
                   <span className="file-tab-name">{tab.name}{isMod ? ' *' : ''}</span>
                   <button
                     className="file-tab-close"
@@ -2431,6 +2448,23 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
                     <rect x="9" y="2.5" width="5" height="11" rx="1" />
                   </svg>
                 )}
+              </button>
+            )}
+            {monacoConflicted && (
+              <button
+                className={`file-tab-action-btn${threeWayActive ? ' is-active' : ''}`}
+                onClick={() => {
+                  if (!monacoPath) return;
+                  setThreeWayOff((prev) => {
+                    const n = new Set(prev);
+                    // Active now → turn off (add to the off-set); off now → turn on.
+                    if (threeWayActive) n.add(monacoPath); else n.delete(monacoPath);
+                    return n;
+                  });
+                }}
+                title={threeWayActive ? 'Switch to the normal editor' : 'Open as 3-way merge'}
+              >
+                3-way
               </button>
             )}
             <button
@@ -2634,6 +2668,30 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
             Monaco owns the active tab. */}
         {monacoPath && activeTabPath === monacoPath && !activeMdShowing && (
           <div className="file-editor-content" style={{ display: 'block' }}>
+            {threeWayActive ? (
+              <ThreeWayFileEditor
+                key={`${monacoPath}:3way`}
+                workingDirectory={workingDirectory}
+                filePath={monacoPath}
+                relPath={monacoPath.startsWith(workingDirectory) ? monacoPath.slice(workingDirectory.length).replace(/^\/+/, '') : monacoPath}
+                initialContent={docCacheRef.current.get(monacoPath) ?? ''}
+                savedContent={savedContentRef.current.get(monacoPath) ?? docCacheRef.current.get(monacoPath) ?? ''}
+                language={monacoLanguageForFile(fileName(monacoPath))}
+                fontSize={editorFontSize}
+                onChange={(value, isDirty) => {
+                  const p = monacoPath;
+                  docCacheRef.current.set(p, value);
+                  setModifiedSet((s) => {
+                    const has = s.has(p);
+                    if (isDirty === has) return s;
+                    const n = new Set(s);
+                    if (isDirty) n.add(p); else n.delete(p);
+                    return n;
+                  });
+                }}
+                onSave={handleSave}
+              />
+            ) : (
             <MonacoFileEditor
               key={monacoPath}
               path={monacoPath}
@@ -2641,6 +2699,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
               savedContent={savedContentRef.current.get(monacoPath) ?? docCacheRef.current.get(monacoPath) ?? ''}
               language={monacoLanguageForFile(fileName(monacoPath))}
               fontSize={editorFontSize}
+              enableConflictLens
               blame={blameEnabled.has(monacoPath) ? blameDataByPath.get(monacoPath) : undefined}
               onBlameSelect={(sha) => {
                 const name = monacoPath.split('/').pop() || monacoPath;
@@ -2663,6 +2722,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
               onSave={handleSave}
               onAdjustFontSize={onAdjustEditorFontSize}
             />
+            )}
           </div>
         )}
         {/* Spike: Monaco inline diff for the show-changed review path. */}

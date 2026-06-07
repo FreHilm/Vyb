@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitRebaseResult, GitCreatePrResult, GitStash, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from './shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitMergePreviewResult, GitRebaseResult, GitCreatePrResult, GitStash, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
@@ -304,6 +304,10 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE, cwd, sourceRef),
   gitMergeAbort: (cwd: string): Promise<GitOpResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE_ABORT, cwd),
+  gitMergePreview: (cwd: string, sourceRef: string): Promise<GitMergePreviewResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_MERGE_PREVIEW, cwd, sourceRef),
+  gitCheckoutOursTheirs: (cwd: string, filePath: string, side: 'ours' | 'theirs'): Promise<GitOpResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_CHECKOUT_OURS_THEIRS, cwd, filePath, side),
   gitListStashes: (cwd: string): Promise<GitStash[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_LIST_STASHES, cwd),
   gitStashSave: (cwd: string, message: string): Promise<GitOpResult> =>

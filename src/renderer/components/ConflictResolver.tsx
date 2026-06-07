@@ -1,18 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MergeResultEditor, type MergeResultEditorHandle } from './MergeResultEditor';
+import { MergeEditor } from './MergeEditor';
+import { monacoLanguageForFile } from './MonacoFileEditor';
+import {
+  scanConflicts,
+  resolutionLines,
+  regionsFromBlocks,
+  buildSideView,
+  detectNewline,
+  splitLines,
+  type HunkDecision,
+} from '../lib/conflict-parse';
 
-// ── Conflict-resolver overlay (T-025) ─────────────────────────────
+// ── Conflict-resolver overlay (T-025, editable in T-058) ──────────
 //
 // Renders inside the Git panel body whenever GitChangesPanel has an
-// `activeConflictFile`. The user picks per-hunk resolutions (ours /
-// theirs / both / both-reversed), clicks "Apply & stage", and the
-// component rewrites the working-tree file with markers removed and
-// stages it via the existing `gitStage` IPC. That's enough to drive
-// the merge / rebase / cherry-pick / revert continue flow without
-// leaving the app.
-//
-// Manual-edit mode (let the user type into a conflict region directly)
-// is deferred to V2 — V1 covers the four canned resolutions which
-// match what Fork's conflict picker offers as one-click actions.
+// `activeConflictFile`. Phase 1 (T-058) replaced the read-only `<pre>`
+// hunk cards with a single EDITABLE Monaco editor seeded from the raw
+// conflicted file (markers intact) plus a hunk toolbar. The per-hunk
+// "Use ours / theirs / both" buttons splice the chosen text into the
+// live buffer; the user can also hand-edit anything. "Conflicts left"
+// is just the count of remaining markers in the buffer, so manual
+// edits that remove markers count too. Apply writes the buffer and
+// stages via the existing `gitStage` IPC — enough to drive the
+// merge / rebase / cherry-pick / revert continue flow in-app.
 
 export interface ConflictResolverProps {
   workingDirectory: string;
@@ -24,145 +35,35 @@ export interface ConflictResolverProps {
   onResolved: () => void;
 }
 
-type HunkDecision = 'ours' | 'theirs' | 'both-ot' | 'both-to' | null;
-
-interface ConflictHunk {
-  /** Lines before the `<<<<<<<` marker that have already been resolved
-   * (or never conflicted) — emitted verbatim in the output. */
-  prefix: string[];
-  ours: string[];
-  /** Diff3-style base section if the file was generated with
-   * `merge.conflictStyle = diff3` — otherwise we fetch :1:path
-   * separately. Pre-populated only for the matching hunk index when
-   * the working-tree file contains the `|||||||` section. */
-  base: string[] | null;
-  theirs: string[];
-  oursLabel: string;
-  theirsLabel: string;
-}
-
-interface ParsedFile {
-  hunks: ConflictHunk[];
-  /** Tail content after the last hunk's `>>>>>>>` marker. */
-  tail: string[];
-  /** Detected line ending — preserved on write-back so the file
-   * doesn't flip from CRLF to LF (or vice versa) on resolve. */
-  newline: '\n' | '\r\n';
-}
-
-const CONFLICT_RE = /^<{7}\s*(.*)$/;
-const SEPARATOR_RE = /^={7}\s*$/;
-const BASE_RE = /^\|{7}\s*(.*)$/;
-const END_RE = /^>{7}\s*(.*)$/;
-
-function detectNewline(raw: string): '\n' | '\r\n' {
-  // First newline wins. Files with mixed endings keep whichever git
-  // wrote first in the conflict region.
-  const first = raw.indexOf('\n');
-  if (first > 0 && raw[first - 1] === '\r') return '\r\n';
-  return '\n';
-}
-
-function splitLines(raw: string): string[] {
-  // Strip trailing \r so downstream join with the detected newline
-  // doesn't double up CRs on Windows-checkout files.
-  return raw.split('\n').map((l) => l.endsWith('\r') ? l.slice(0, -1) : l);
-}
-
-function parseConflicts(raw: string): ParsedFile {
-  const newline = detectNewline(raw);
-  const lines = splitLines(raw);
-  const hunks: ConflictHunk[] = [];
-  let prefix: string[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    const openMatch = line.match(CONFLICT_RE);
-    if (!openMatch) {
-      prefix.push(line);
-      i++;
-      continue;
-    }
-    const oursLabel = openMatch[1].trim() || 'ours';
-    const ours: string[] = [];
-    let base: string[] | null = null;
-    const theirs: string[] = [];
-    let theirsLabel = 'theirs';
-    i++;
-    // ours section — until ||||||| or =======
-    while (i < lines.length && !SEPARATOR_RE.test(lines[i]) && !BASE_RE.test(lines[i])) {
-      ours.push(lines[i]);
-      i++;
-    }
-    // optional diff3 base section
-    if (i < lines.length && BASE_RE.test(lines[i])) {
-      base = [];
-      i++;
-      while (i < lines.length && !SEPARATOR_RE.test(lines[i])) {
-        base.push(lines[i]);
-        i++;
-      }
-    }
-    // ======= separator
-    if (i < lines.length && SEPARATOR_RE.test(lines[i])) {
-      i++;
-    }
-    // theirs section — until >>>>>>>
-    while (i < lines.length && !END_RE.test(lines[i])) {
-      theirs.push(lines[i]);
-      i++;
-    }
-    if (i < lines.length) {
-      const endMatch = lines[i].match(END_RE);
-      if (endMatch) theirsLabel = endMatch[1].trim() || 'theirs';
-      i++;
-    }
-    hunks.push({ prefix, ours, base, theirs, oursLabel, theirsLabel });
-    prefix = [];
-  }
-  return { hunks, tail: prefix, newline };
-}
-
-function applyDecision(hunk: ConflictHunk, decision: HunkDecision): string[] {
-  if (decision === 'ours') return hunk.ours;
-  if (decision === 'theirs') return hunk.theirs;
-  if (decision === 'both-ot') return [...hunk.ours, ...hunk.theirs];
-  if (decision === 'both-to') return [...hunk.theirs, ...hunk.ours];
-  // No decision yet — keep markers so the user can come back. Won't
-  // hit this path on Apply, the button is gated until every hunk is
-  // decided.
-  return [
-    `<<<<<<< ${hunk.oursLabel}`,
-    ...hunk.ours,
-    ...(hunk.base ? [`||||||| base`, ...hunk.base] : []),
-    '=======',
-    ...hunk.theirs,
-    `>>>>>>> ${hunk.theirsLabel}`,
-  ];
-}
-
-function buildResolved(parsed: ParsedFile, decisions: HunkDecision[]): string {
-  const out: string[] = [];
-  for (let i = 0; i < parsed.hunks.length; i++) {
-    out.push(...parsed.hunks[i].prefix);
-    out.push(...applyDecision(parsed.hunks[i], decisions[i]));
-  }
-  out.push(...parsed.tail);
-  return out.join(parsed.newline);
-}
-
 export function ConflictResolver({ workingDirectory, filePath, onClose, onResolved }: ConflictResolverProps) {
-  const [parsed, setParsed] = useState<ParsedFile | null>(null);
-  const [decisions, setDecisions] = useState<HunkDecision[]>([]);
+  // Raw file text, captured once per load — seeds the editor.
+  const [initialContent, setInitialContent] = useState<string | null>(null);
+  // Live editor buffer, mirrored here so the hunk toolbar re-derives.
+  const [content, setContent] = useState('');
+  const [eol, setEol] = useState<'\n' | '\r\n'>('\n');
+  // Git index stages — only needed for the no-markers fallback.
   const [baseStage, setBaseStage] = useState<string | null>(null);
   const [oursStage, setOursStage] = useState<string | null>(null);
   const [theirsStage, setTheirsStage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Labels captured from the first scan, so the legend survives once
+  // every hunk has been resolved (and the block list is empty).
+  const [labels, setLabels] = useState<{ ours: string; theirs: string }>({ ours: 'ours', theirs: 'theirs' });
+  // 'simple' = single editor + hunk toolbar (T-058); 'merge' = 3-pane
+  // editor (T-059). Toggled in the header; the live buffer (`content`)
+  // is preserved across the switch so edits aren't lost.
+  const [view, setView] = useState<'simple' | 'merge'>('simple');
+  // Show the common-ancestor (:1) pane in the 3-pane view.
+  const [showBase, setShowBase] = useState(false);
+
+  const editorRef = useRef<MergeResultEditorHandle | null>(null);
   // Avoid stale-state writes when the user clicks a file pill, then
   // quickly switches to another file before the first one finishes.
   const requestRef = useRef(0);
+
+  const language = useMemo(() => monacoLanguageForFile(filePath), [filePath]);
 
   // Build absolute path. `filePath` arrives from git status as a
   // POSIX-relative path from the repo root, so a simple slash join is
@@ -178,8 +79,8 @@ export function ConflictResolver({ workingDirectory, filePath, onClose, onResolv
     const id = ++requestRef.current;
     setLoading(true);
     setError(null);
-    setParsed(null);
-    setDecisions([]);
+    setInitialContent(null);
+    setContent('');
     setBaseStage(null);
     setOursStage(null);
     setTheirsStage(null);
@@ -197,16 +98,17 @@ export function ConflictResolver({ workingDirectory, filePath, onClose, onResolv
           setLoading(false);
           return;
         }
-        const next = parseConflicts(raw);
-        setParsed(next);
-        setDecisions(next.hunks.map((): HunkDecision => null));
+        const blocks = scanConflicts(raw);
+        setInitialContent(raw);
+        setContent(raw);
+        setEol(detectNewline(raw));
         setBaseStage(base ?? '');
         setOursStage(ours ?? '');
         setTheirsStage(theirs ?? '');
-        if (next.hunks.length === 0) {
-          // No markers — likely add/add (binary) or already-resolved.
-          // Surface that so the user knows the panel can't help here.
+        if (blocks.length === 0) {
           setError('No conflict markers found. Resolve via the shell or stage the file directly.');
+        } else {
+          setLabels({ ours: blocks[0].oursLabel, theirs: blocks[0].theirsLabel });
         }
         setLoading(false);
       } catch (e) {
@@ -217,18 +119,57 @@ export function ConflictResolver({ workingDirectory, filePath, onClose, onResolv
     })();
   }, [absolutePath, workingDirectory, filePath]);
 
-  const setDecision = useCallback((idx: number, value: HunkDecision) => {
-    setDecisions((prev) => prev.map((d, i) => (i === idx ? value : d)));
+  // Re-derived from the live buffer on every edit.
+  const conflicts = useMemo(() => scanConflicts(content), [content]);
+  const regions = useMemo(() => regionsFromBlocks(conflicts), [conflicts]);
+  // Reconstructed side files + exact conflict-line ranges, from the
+  // ORIGINAL conflicted content (stable as the user resolves).
+  const sideViews = useMemo(
+    () => (initialContent != null
+      ? { ours: buildSideView(initialContent, 'ours'), theirs: buildSideView(initialContent, 'theirs') }
+      : null),
+    [initialContent],
+  );
+  const remaining = conflicts.length;
+  const hasMarkers = initialContent != null && !loading && !error;
+
+  // Replace one hunk (by its current ordinal) with the chosen side. We
+  // re-scan the editor's live value at click time so the splice lands on
+  // the right lines even after prior edits.
+  const resolveBlock = useCallback((ordinal: number, decision: HunkDecision) => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    const current = ed.getValue();
+    const blocks = scanConflicts(current);
+    const b = blocks[ordinal];
+    if (!b) return;
+    const lines = splitLines(current);
+    lines.splice(b.startLine - 1, b.endLine - b.startLine + 1, ...resolutionLines(b, decision));
+    ed.setValue(lines.join('\n')); // onChange → setContent re-derives conflicts
   }, []);
 
-  const allDecided = decisions.length > 0 && decisions.every((d) => d !== null);
+  // Resolve every remaining hunk to one side. Splice from last to first
+  // so earlier line numbers stay valid as we go.
+  const resolveAll = useCallback((side: 'ours' | 'theirs') => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    const current = ed.getValue();
+    const blocks = scanConflicts(current);
+    if (blocks.length === 0) return;
+    const lines = splitLines(current);
+    for (let k = blocks.length - 1; k >= 0; k--) {
+      const b = blocks[k];
+      lines.splice(b.startLine - 1, b.endLine - b.startLine + 1, ...(side === 'ours' ? b.ours : b.theirs));
+    }
+    ed.setValue(lines.join('\n'));
+  }, []);
 
   const handleApply = useCallback(async () => {
-    if (!parsed || !allDecided || busy) return;
+    if (busy || !hasMarkers || remaining !== 0) return;
     setBusy(true);
     setError(null);
     try {
-      const merged = buildResolved(parsed, decisions);
+      const merged = editorRef.current?.getValue() ?? content;
       const ok = await window.api.saveFile(absolutePath, merged);
       if (!ok) {
         setError('Failed to write resolved file.');
@@ -247,11 +188,7 @@ export function ConflictResolver({ workingDirectory, filePath, onClose, onResolv
       setError(e instanceof Error ? e.message : 'Apply failed.');
       setBusy(false);
     }
-  }, [parsed, decisions, allDecided, busy, absolutePath, workingDirectory, filePath, onResolved, onClose]);
-
-  const remaining = decisions.filter((d) => d === null).length;
-  const oursLabel = parsed?.hunks[0]?.oursLabel || 'ours';
-  const theirsLabel = parsed?.hunks[0]?.theirsLabel || 'theirs';
+  }, [busy, hasMarkers, remaining, content, absolutePath, workingDirectory, filePath, onResolved, onClose]);
 
   return (
     <div className="git-conflict-overlay" role="dialog" aria-label={`Resolve conflicts in ${filePath}`}>
@@ -261,16 +198,37 @@ export function ConflictResolver({ workingDirectory, filePath, onClose, onResolv
           <code className="git-conflict-title-path">{filePath}</code>
         </div>
         <div className="git-conflict-header-actions">
-          {parsed && parsed.hunks.length > 0 && (
+          {hasMarkers && (
+            <div className="git-conflict-viewtoggle" role="group" aria-label="Resolver view">
+              <button
+                className={view === 'simple' ? 'is-active' : ''}
+                onClick={() => setView('simple')}
+                title="Single editor with a hunk list"
+              >Simple</button>
+              <button
+                className={view === 'merge' ? 'is-active' : ''}
+                onClick={() => setView('merge')}
+                title="3-pane merge editor (ours · theirs · result)"
+              >3-pane</button>
+            </div>
+          )}
+          {hasMarkers && view === 'merge' && baseStage ? (
+            <button
+              className={`git-conflict-basetoggle${showBase ? ' is-active' : ''}`}
+              onClick={() => setShowBase((b) => !b)}
+              title="Show the common-ancestor (base) version"
+            >Base</button>
+          ) : null}
+          {hasMarkers && (
             <span className="git-conflict-progress">
-              {decisions.length - remaining} / {decisions.length} hunks decided
+              {remaining === 0 ? 'all resolved' : `${remaining} conflict${remaining === 1 ? '' : 's'} left`}
             </span>
           )}
           <button
             className="git-conflict-apply"
-            disabled={!allDecided || busy}
+            disabled={!hasMarkers || remaining !== 0 || busy}
             onClick={handleApply}
-            title={allDecided ? 'Write resolved file and stage' : 'Pick a resolution for every hunk first'}
+            title={remaining === 0 ? 'Write resolved file and stage' : 'Resolve every conflict first'}
           >
             {busy ? 'Applying…' : 'Apply & stage'}
           </button>
@@ -278,122 +236,86 @@ export function ConflictResolver({ workingDirectory, filePath, onClose, onResolv
         </div>
       </div>
 
-      {error && (
-        <div className="git-conflict-error">{error}</div>
-      )}
+      {error && <div className="git-conflict-error">{error}</div>}
 
       <div className="git-conflict-body">
         {loading ? (
           <div className="git-conflict-loading">Loading conflict…</div>
-        ) : !parsed || parsed.hunks.length === 0 ? (
-          <ConflictNoMarkers
-            base={baseStage}
-            ours={oursStage}
-            theirs={theirsStage}
+        ) : !hasMarkers ? (
+          <ConflictNoMarkers base={baseStage} ours={oursStage} theirs={theirsStage} />
+        ) : view === 'merge' ? (
+          <MergeEditor
+            ref={editorRef}
+            filePath={filePath}
+            language={language}
+            eol={eol}
+            oursStage={sideViews?.ours.text ?? ''}
+            theirsStage={sideViews?.theirs.text ?? ''}
+            oursHighlight={sideViews?.ours.ranges}
+            theirsHighlight={sideViews?.theirs.ranges}
+            oursLabel={labels.ours}
+            theirsLabel={labels.theirs}
+            showBase={showBase}
+            baseStage={baseStage ?? ''}
+            resultValue={content}
+            regions={regions}
+            onResultChange={setContent}
+            onRegionAction={resolveBlock}
+            onSave={handleApply}
           />
         ) : (
-          <div className="git-conflict-hunks">
-            {parsed.hunks.map((hunk, idx) => (
-              <ConflictHunkCard
-                key={idx}
-                index={idx}
-                hunk={hunk}
-                decision={decisions[idx]}
-                onChoose={(v) => setDecision(idx, v)}
+          <div className="git-conflict-main">
+            <div className="git-conflict-hunklist">
+              <div className="git-conflict-hunklist-head">
+                <span className="git-conflict-hunklist-title">Hunks</span>
+                <div className="git-conflict-hunklist-bulk">
+                  <button onClick={() => resolveAll('ours')} disabled={remaining === 0} title="Use ours for every remaining hunk">All ours</button>
+                  <button onClick={() => resolveAll('theirs')} disabled={remaining === 0} title="Use theirs for every remaining hunk">All theirs</button>
+                </div>
+              </div>
+              {conflicts.length === 0 ? (
+                <div className="git-conflict-allclear">All conflicts resolved ✓<br />Edit freely, then Apply &amp; stage.</div>
+              ) : (
+                conflicts.map((b, idx) => (
+                  <div className="git-conflict-hunkrow" key={`${b.startLine}-${idx}`}>
+                    <button
+                      className="git-conflict-hunkrow-jump"
+                      onClick={() => editorRef.current?.reveal(b.startLine)}
+                      title={`Jump to hunk ${idx + 1} (line ${b.startLine})`}
+                    >
+                      Hunk {idx + 1}
+                    </button>
+                    <div className="git-conflict-hunkrow-actions">
+                      <button onClick={() => resolveBlock(idx, 'ours')} title="Keep ours (HEAD)">Ours</button>
+                      <button onClick={() => resolveBlock(idx, 'theirs')} title="Keep theirs (incoming)">Theirs</button>
+                      <button onClick={() => resolveBlock(idx, 'both-ot')} title="Both — ours then theirs">Both ↓</button>
+                      <button onClick={() => resolveBlock(idx, 'both-to')} title="Both — theirs then ours">Both ↑</button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="git-conflict-editor">
+              <MergeResultEditor
+                key={`${filePath}:simple`}
+                ref={editorRef}
+                initialValue={content}
+                language={language}
+                eol={eol}
+                onChange={setContent}
+                onSave={handleApply}
               />
-            ))}
+            </div>
           </div>
         )}
       </div>
 
       <div className="git-conflict-footer">
         <div className="git-conflict-footer-legend">
-          <span><span className="git-conflict-swatch git-conflict-swatch-ours" /> {oursLabel} (HEAD)</span>
-          <span><span className="git-conflict-swatch git-conflict-swatch-theirs" /> {theirsLabel} (incoming)</span>
+          <span><span className="git-conflict-swatch git-conflict-swatch-ours" /> {labels.ours} (HEAD)</span>
+          <span><span className="git-conflict-swatch git-conflict-swatch-theirs" /> {labels.theirs} (incoming)</span>
         </div>
       </div>
-    </div>
-  );
-}
-
-interface ConflictHunkCardProps {
-  index: number;
-  hunk: ConflictHunk;
-  decision: HunkDecision;
-  onChoose: (value: HunkDecision) => void;
-}
-
-function ConflictHunkCard({ index, hunk, decision, onChoose }: ConflictHunkCardProps) {
-  return (
-    <div className={`git-conflict-hunk${decision ? ' git-conflict-hunk-decided' : ''}`}>
-      <div className="git-conflict-hunk-header">
-        <span className="git-conflict-hunk-num">Hunk {index + 1}</span>
-        <div className="git-conflict-hunk-actions">
-          <button
-            className={`git-conflict-choice${decision === 'ours' ? ' git-conflict-choice-active' : ''}`}
-            onClick={() => onChoose('ours')}
-            title="Keep the version from HEAD only"
-          >Use ours</button>
-          <button
-            className={`git-conflict-choice${decision === 'theirs' ? ' git-conflict-choice-active' : ''}`}
-            onClick={() => onChoose('theirs')}
-            title="Keep the incoming version only"
-          >Use theirs</button>
-          <button
-            className={`git-conflict-choice${decision === 'both-ot' ? ' git-conflict-choice-active' : ''}`}
-            onClick={() => onChoose('both-ot')}
-            title="Keep both sides; ours first, then theirs"
-          >Both (ours→theirs)</button>
-          <button
-            className={`git-conflict-choice${decision === 'both-to' ? ' git-conflict-choice-active' : ''}`}
-            onClick={() => onChoose('both-to')}
-            title="Keep both sides; theirs first, then ours"
-          >Both (theirs→ours)</button>
-        </div>
-      </div>
-      <div className="git-conflict-hunk-grid">
-        <ConflictPane
-          side="ours"
-          label={`${hunk.oursLabel} (HEAD)`}
-          lines={hunk.ours}
-          empty="(no content from HEAD)"
-        />
-        <ConflictPane
-          side="theirs"
-          label={`${hunk.theirsLabel} (incoming)`}
-          lines={hunk.theirs}
-          empty="(no incoming content)"
-        />
-      </div>
-      {hunk.base && hunk.base.length > 0 && (
-        <details className="git-conflict-base">
-          <summary>Show common ancestor ({hunk.base.length} line{hunk.base.length === 1 ? '' : 's'})</summary>
-          <ConflictPane
-            side="base"
-            label="base"
-            lines={hunk.base}
-            empty="(empty in base)"
-          />
-        </details>
-      )}
-    </div>
-  );
-}
-
-interface ConflictPaneProps {
-  side: 'ours' | 'theirs' | 'base';
-  label: string;
-  lines: string[];
-  empty: string;
-}
-
-function ConflictPane({ side, label, lines, empty }: ConflictPaneProps) {
-  return (
-    <div className={`git-conflict-pane git-conflict-pane-${side}`}>
-      <div className="git-conflict-pane-label">{label}</div>
-      <pre className="git-conflict-pane-body">
-        {lines.length === 0 ? <span className="git-conflict-pane-empty">{empty}</span> : lines.join('\n')}
-      </pre>
     </div>
   );
 }
@@ -409,7 +331,7 @@ function ConflictNoMarkers({ base, ours, theirs }: NoMarkersProps) {
   // the working tree; the only meaningful action is to pick a side.
   // Stage-3 missing = "deleted by them"; stage-2 missing = "deleted by
   // us". We just show what we have and let the user resolve from the
-  // shell — V1 doesn't auto-stage these.
+  // shell — Phase 1 doesn't auto-stage these.
   return (
     <div className="git-conflict-no-markers">
       <p>

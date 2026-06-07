@@ -3,6 +3,7 @@ import * as monaco from 'monaco-editor';
 import '../lib/monaco-setup'; // side effect: wire workers before any editor is created
 import type { GitBlameLine } from '../../shared/types';
 import { buildBlameDecorations } from '../lib/monaco-blame';
+import { registerConflictLens, registerConflictDecorations } from '../lib/monaco-conflict-lens';
 
 interface Props {
   /** Absolute path — used as the model URI so each file gets its own
@@ -35,6 +36,10 @@ interface Props {
    * Delegated to the host so it persists in settings (CodeMirror routes
    * the same keys here too). */
   onAdjustFontSize?: (delta: number) => void;
+  /** When true, show inline "Accept Current/Incoming/Both" CodeLens above
+   * any git conflict markers in the file. Edit-only: resolving edits the
+   * buffer; the host's normal save/stage flow is unchanged. */
+  enableConflictLens?: boolean;
 }
 
 /**
@@ -45,7 +50,7 @@ interface Props {
  * spike surface — diff, blame, and markdown editing stay on CodeMirror.
  */
 export function MonacoFileEditor({
-  path, initialContent, savedContent, language, fontSize, onChange, onSave, blame, onBlameSelect, onAdjustFontSize,
+  path, initialContent, savedContent, language, fontSize, onChange, onSave, blame, onBlameSelect, onAdjustFontSize, enableConflictLens,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -103,6 +108,13 @@ export function MonacoFileEditor({
     });
     editorRef.current = editor;
 
+    // Inline conflict CodeLens + region coloring (opt-in). Scoped to this
+    // model; disposed on unmount. The decorations match the 3-way editor
+    // so conflicts stay easy to see when 3-way is toggled off.
+    // `enableConflictLens` is read at mount — the host keeps it constant.
+    const conflictLens = enableConflictLens ? registerConflictLens(model) : null;
+    const conflictDeco = enableConflictLens ? registerConflictDecorations(model) : null;
+
     const changeSub = model.onDidChangeContent(() => {
       const value = model.getValue();
       onChangeRef.current(value, value !== baselineRef.current);
@@ -158,6 +170,8 @@ export function MonacoFileEditor({
 
     return () => {
       changeSub.dispose();
+      conflictLens?.dispose();
+      conflictDeco?.dispose();
       dom?.removeEventListener('mousedown', onBlameClick, true);
       blameCollectionRef.current?.clear();
       blameCollectionRef.current = null;

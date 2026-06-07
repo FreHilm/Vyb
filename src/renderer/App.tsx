@@ -18,7 +18,7 @@ import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { HotkeyHints } from './components/HotkeyHints';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, Workspace, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, Workspace, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitMergePreviewResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -182,6 +182,8 @@ declare global {
       gitPull: (cwd: string) => Promise<GitOpResult>;
       gitMerge: (cwd: string, sourceRef: string) => Promise<GitMergeResult>;
       gitMergeAbort: (cwd: string) => Promise<GitOpResult>;
+      gitMergePreview: (cwd: string, sourceRef: string) => Promise<GitMergePreviewResult>;
+      gitCheckoutOursTheirs: (cwd: string, filePath: string, side: 'ours' | 'theirs') => Promise<GitOpResult>;
       gitListStashes: (cwd: string) => Promise<GitStash[]>;
       gitStashSave: (cwd: string, message: string) => Promise<GitOpResult>;
       gitStashApply: (cwd: string, ref: string) => Promise<GitOpResult>;
@@ -1979,9 +1981,10 @@ export function App() {
 
   const navActions = useMemo(() => {
     // Keep this in sync with CommandBar.tsx button order:
-    //   Agent(0) Files(1) [Kanban] [Web] | Terminal Git | Mic Folder | external apps
+    //   Agent(0) Files(1) [Kanban] [Web] | Terminal Git | Folder
     // Kanban / Web are skipped from the array when their feature flag is
-    // off, so downstream indices shift accordingly.
+    // off, so downstream indices shift accordingly. External apps are NOT
+    // numbered — they live in the Apps dropdown (mouse-only) to save space.
     const kanbanOn = settings.functionKanbanEnabled !== false;
     const webOn = settings.functionWebEnabled !== false;
     const actions: Array<() => void> = [goAgent, goFiles];
@@ -1990,14 +1993,8 @@ export function App() {
     if (webOn) { actions.push(goWeb); labels.push('Web'); }
     actions.push(toggleShell, toggleGit, openFolder);
     labels.push('Terminal', 'Git', 'Folder');
-    for (const app of settings.externalApps || []) {
-      const cmd = app.command;
-      const wd = activeProfile?.workingDirectory || '';
-      actions.push(() => window.api.openExternal(cmd, wd));
-      labels.push(app.name);
-    }
     return { actions, labels };
-  }, [goAgent, goFiles, goKanban, goWeb, toggleShell, toggleGit, openFolder, settings.externalApps, settings.functionKanbanEnabled, settings.functionWebEnabled, activeProfile]);
+  }, [goAgent, goFiles, goKanban, goWeb, toggleShell, toggleGit, openFolder, settings.functionKanbanEnabled, settings.functionWebEnabled]);
 
   // Keyboard profile navigation — only updates visual selection.
   // The auto-init effect (2s debounce) handles terminal initialization.
@@ -2483,12 +2480,22 @@ export function App() {
       <StatusBar
         profile={activeProfile}
         onToggleChanges={() => {
-          setGitPanelTab('changes');
-          setChangesVisible((v) => !v);
+          // Toggle off only if the panel is already open on this tab;
+          // otherwise open (or switch from the tree tab) and keep it open.
+          if (changesVisible && gitPanelTab === 'changes') {
+            setChangesVisible(false);
+          } else {
+            setGitPanelTab('changes');
+            setChangesVisible(true);
+          }
         }}
         onBranchClick={() => {
-          setGitPanelTab('tree');
-          setChangesVisible(true);
+          if (changesVisible && gitPanelTab === 'tree') {
+            setChangesVisible(false);
+          } else {
+            setGitPanelTab('tree');
+            setChangesVisible(true);
+          }
         }}
       />
       {editorOpen && (

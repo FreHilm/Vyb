@@ -1159,6 +1159,48 @@
   flex-shrink: 0;
 }
 
+/* External-apps dropdown (collapses per-app buttons into one icon). */
+.apps-menu {
+  position: relative;
+  display: inline-flex;
+  -webkit-app-region: no-drag;
+}
+.apps-menu .action-btn.is-active {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--c-surface2);
+}
+.apps-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 100;
+  min-width: 168px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--c-mantle);
+  border: 1px solid var(--c-surface1);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.apps-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--c-text);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+.apps-menu-item:hover { background: rgba(255, 255, 255, 0.06); }
+.apps-menu-item svg { opacity: 0.9; flex-shrink: 0; }
+
 .action-btn-active,
 .action-btn.action-btn-active {
   background: color-mix(in srgb, var(--c-blue) 14%, transparent);
@@ -2792,6 +2834,26 @@ select option {
   border-color: var(--c-yellow);
   color: var(--c-yellow);
 }
+.git-tree-merge-banner-fileitem {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.git-tree-merge-banner-side {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--c-overlay0) 30%, transparent);
+  border-radius: 3px;
+  padding: 0 5px;
+  font-size: 10px;
+  color: var(--c-overlay1);
+  cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+.git-tree-merge-banner-side:hover {
+  background: var(--c-surface1);
+  border-color: var(--c-blue);
+  color: var(--c-text);
+}
 .git-tree-merge-banner-more {
   color: var(--c-overlay0);
   font-size: 11px;
@@ -3191,6 +3253,16 @@ select option {
   color: var(--c-magenta);
   background: color-mix(in srgb, var(--c-magenta) 18%, transparent);
   border-color: color-mix(in srgb, var(--c-magenta) 40%, transparent);
+}
+.git-changes-status[data-status="conflicted"] {
+  color: var(--c-red);
+  background: color-mix(in srgb, var(--c-red) 18%, transparent);
+  border-color: color-mix(in srgb, var(--c-red) 40%, transparent);
+}
+.git-changes-status-conflict { cursor: pointer; }
+.git-changes-status-conflict:hover {
+  background: color-mix(in srgb, var(--c-red) 32%, transparent);
+  border-color: var(--c-red);
 }
 
 /* Right-aligned status + counts group, fixed layout so M/U chips line up
@@ -5770,6 +5842,207 @@ select option {
   overflow: auto;
   padding: 12px 14px;
 }
+/* Editable-result layout (T-058): hunk toolbar + Monaco editor side by side. */
+.git-conflict-main {
+  display: flex;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+.git-conflict-hunklist {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: auto;
+  padding-right: 4px;
+}
+.git-conflict-hunklist-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  background: var(--c-base);
+  padding-bottom: 4px;
+}
+.git-conflict-hunklist-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--c-overlay0);
+}
+.git-conflict-hunklist-bulk { display: flex; gap: 4px; }
+.git-conflict-hunklist-bulk button {
+  background: var(--c-surface0);
+  color: var(--c-overlay1);
+  border: 1px solid var(--c-surface1);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.git-conflict-hunklist-bulk button:hover:not(:disabled) { background: var(--c-surface1); color: var(--c-text); }
+.git-conflict-hunklist-bulk button:disabled { opacity: 0.4; cursor: not-allowed; }
+.git-conflict-allclear {
+  font-size: 12px;
+  color: var(--c-green);
+  padding: 10px 8px;
+  line-height: 1.5;
+}
+.git-conflict-hunkrow {
+  border: 1px solid var(--c-surface1);
+  border-radius: 6px;
+  background: var(--c-mantle);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.git-conflict-hunkrow-jump {
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  color: var(--c-blue);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+.git-conflict-hunkrow-jump:hover { text-decoration: underline; }
+.git-conflict-hunkrow-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.git-conflict-hunkrow-actions button {
+  background: var(--c-base);
+  color: var(--c-text);
+  border: 1px solid var(--c-surface2);
+  border-radius: 4px;
+  padding: 3px 7px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.git-conflict-hunkrow-actions button:hover { background: var(--c-surface1); border-color: var(--c-overlay0); }
+.git-conflict-editor {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--c-surface1);
+  border-radius: 6px;
+  overflow: hidden;
+}
+/* View toggle: simple (T-058) ↔ 3-pane (T-059). */
+.git-conflict-viewtoggle {
+  display: flex;
+  border: 1px solid var(--c-surface1);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.git-conflict-viewtoggle button {
+  background: var(--c-base);
+  color: var(--c-overlay1);
+  border: none;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.git-conflict-viewtoggle button + button { border-left: 1px solid var(--c-surface1); }
+.git-conflict-viewtoggle button.is-active { background: var(--c-surface1); color: var(--c-text); }
+.git-conflict-viewtoggle button:hover:not(.is-active) { background: var(--c-surface0); }
+.git-conflict-basetoggle {
+  background: var(--c-base);
+  color: var(--c-overlay1);
+  border: 1px solid var(--c-surface1);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.git-conflict-basetoggle.is-active { background: var(--c-surface1); color: var(--c-text); }
+.git-conflict-basetoggle:hover:not(.is-active) { background: var(--c-surface0); }
+
+/* ── 3-pane merge editor (T-059) ── */
+.merge-editor { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
+.merge-editor-top { flex: 1 1 45%; display: flex; gap: 8px; min-height: 0; }
+.merge-editor-result { flex: 1 1 55%; display: flex; flex-direction: column; min-height: 0; }
+.merge-pane {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--c-surface1);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.merge-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-overlay1);
+  padding: 5px 10px;
+  background: var(--c-mantle);
+  border-bottom: 1px solid var(--c-surface1);
+}
+.merge-pane-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.merge-pane-head-ours .merge-pane-dot { background: var(--c-green); }
+.merge-pane-head-theirs .merge-pane-dot { background: var(--c-blue); }
+.merge-pane-head-base .merge-pane-dot { background: var(--c-overlay0); }
+.merge-pane-head-result { color: var(--c-yellow); }
+
+/* Per-pane colour identity so it's obvious which side maps to which
+   colour in the Result regions: ours = green, theirs = blue, base = dim.
+   Tints the header + a top accent + the Monaco background of the pane. */
+.merge-pane-ours { border-top: 2px solid color-mix(in srgb, var(--c-green) 70%, transparent); }
+.merge-pane-theirs { border-top: 2px solid color-mix(in srgb, var(--c-blue) 70%, transparent); }
+.merge-pane-base { border-top: 2px solid color-mix(in srgb, var(--c-overlay0) 70%, transparent); }
+.merge-pane-ours .merge-pane-head { background: color-mix(in srgb, var(--c-green) 16%, var(--c-mantle)); color: var(--c-green); }
+.merge-pane-theirs .merge-pane-head { background: color-mix(in srgb, var(--c-blue) 16%, var(--c-mantle)); color: var(--c-blue); }
+.merge-pane-base .merge-pane-head { background: color-mix(in srgb, var(--c-overlay0) 16%, var(--c-mantle)); }
+.merge-pane-ours .monaco-editor,
+.merge-pane-ours .monaco-editor .margin,
+.merge-pane-ours .monaco-editor-background { background-color: color-mix(in srgb, var(--c-green) 7%, var(--c-base)) !important; }
+.merge-pane-theirs .monaco-editor,
+.merge-pane-theirs .monaco-editor .margin,
+.merge-pane-theirs .monaco-editor-background { background-color: color-mix(in srgb, var(--c-blue) 7%, var(--c-base)) !important; }
+.merge-pane-base .monaco-editor,
+.merge-pane-base .monaco-editor .margin,
+.merge-pane-base .monaco-editor-background { background-color: color-mix(in srgb, var(--c-overlay0) 6%, var(--c-base)) !important; }
+.merge-pane-body { flex: 1 1 auto; min-height: 0; }
+
+/* Exact lines each side contributes to the result, highlighted in the
+   read-only side panes (stronger than the pane wash so they stand out). */
+.merge-hl-ours { background: color-mix(in srgb, var(--c-green) 26%, transparent); }
+.merge-hl-theirs { background: color-mix(in srgb, var(--c-blue) 26%, transparent); }
+
+/* Result-pane conflict decorations. */
+.merge-ours-line { background: color-mix(in srgb, var(--c-green) 14%, transparent); }
+.merge-theirs-line { background: color-mix(in srgb, var(--c-blue) 14%, transparent); }
+.merge-base-line { background: color-mix(in srgb, var(--c-overlay0) 12%, transparent); }
+.merge-marker-line { opacity: 0.55; }
+
+/* Floating per-region Accept buttons (Monaco content widget). */
+.merge-region-actions {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--c-mantle);
+  border: 1px solid var(--c-surface1);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+.merge-region-actions button {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--c-surface2);
+  background: var(--c-base);
+  color: var(--c-text);
+  cursor: pointer;
+}
+.merge-region-actions button:hover { background: var(--c-surface1); }
+.merge-region-actions .mra-ours:hover { border-color: var(--c-green); }
+.merge-region-actions .mra-theirs:hover { border-color: var(--c-blue); }
 .git-conflict-loading {
   padding: 24px;
   color: var(--c-overlay0);
@@ -6262,6 +6535,27 @@ select option {
 .file-tree-item.git-untracked .file-tree-git-badge { color: var(--c-green); }
 .file-tree-item.git-deleted .file-tree-git-badge { color: var(--c-red); }
 .file-tree-item.git-renamed .file-tree-git-badge { color: var(--c-blue); }
+/* Conflicted: red name + red "C" badge + a tint so the row clearly
+   reads as a change (T-060 follow-up). */
+.file-tree-item.git-conflicted { background: color-mix(in srgb, var(--c-red) 12%, transparent); }
+.file-tree-item.git-conflicted .file-tree-name { color: var(--c-red); font-weight: 600; }
+.file-tree-item.git-conflicted .file-tree-git-badge { color: var(--c-red); }
+
+/* Conflicted open tab: red name + a small "C" badge + tint. */
+.file-tab-conflicted { background: color-mix(in srgb, var(--c-red) 12%, transparent); }
+.file-tab-conflicted .file-tab-name { color: var(--c-red); }
+.file-tab-conflict-badge {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--c-red);
+  border: 1px solid color-mix(in srgb, var(--c-red) 50%, transparent);
+  border-radius: 2px;
+  padding: 0 3px;
+  line-height: 1.4;
+}
+
+/* Embedded 3-way merge editor fills its tab slot. */
+.threeway-file-editor { width: 100%; height: 100%; min-height: 0; }
 
 /* T-044 Find in Files overlay */
 .find-in-files-panel {

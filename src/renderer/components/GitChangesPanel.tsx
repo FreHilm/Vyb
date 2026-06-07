@@ -1271,16 +1271,16 @@ export function GitChangesPanel({
       <div className="git-changes-header git-panel-tabs">
         <div className="git-panel-tab-row">
           <button
-            className={`git-panel-tab ${activeTab === 'changes' ? 'git-panel-tab-active' : ''}`}
-            onClick={() => onTabChange('changes')}
-          >
-            Changes{!loading && activeTab === 'changes' ? ` (${files.length})` : ''}
-          </button>
-          <button
             className={`git-panel-tab ${activeTab === 'tree' ? 'git-panel-tab-active' : ''}`}
             onClick={() => onTabChange('tree')}
           >
             Tree
+          </button>
+          <button
+            className={`git-panel-tab ${activeTab === 'changes' ? 'git-panel-tab-active' : ''}`}
+            onClick={() => onTabChange('changes')}
+          >
+            Changes{!loading && activeTab === 'changes' ? ` (${files.length})` : ''}
           </button>
           <button
             className={`git-panel-tab ${activeTab === 'branches' ? 'git-panel-tab-active' : ''}`}
@@ -1546,6 +1546,7 @@ export function GitChangesPanel({
           onApplyPatch={applyPatch}
           signCommits={signCommits}
           onToggleSignCommits={handleToggleSignCommits}
+          onResolveConflict={setActiveConflictFile}
         />
       )}
       {activeConflictFile && (
@@ -1707,6 +1708,8 @@ interface ChangesViewProps {
    * indicator is read-only for read-only contexts. */
   signCommits?: boolean;
   onToggleSignCommits?: () => void;
+  /** Open the merge tool for a conflicted file (click the red "C"). */
+  onResolveConflict?: (path: string) => void;
 }
 
 function ChangesView({
@@ -1737,6 +1740,7 @@ function ChangesView({
   onApplyPatch,
   signCommits = false,
   onToggleSignCommits,
+  onResolveConflict,
 }: ChangesViewProps) {
   const unstaged = files.filter((f) => !f.staged);
   const staged = files.filter((f) => f.staged);
@@ -1768,6 +1772,7 @@ function ChangesView({
             rowKey={rowKey}
             diffViewMode={diffViewMode}
             onApplyPatch={onApplyPatch}
+            onResolveConflict={onResolveConflict}
           />
         )}
 
@@ -1891,10 +1896,12 @@ interface FileSectionProps {
   diffViewMode: 'unified' | 'split';
   /** Forwarded from the panel for T-023 partial staging. */
   onApplyPatch?: (filePath: string, fromStaged: boolean, patch: string) => Promise<void>;
+  /** Click the red "C" chip to open the merge tool for a conflicted file. */
+  onResolveConflict?: (path: string) => void;
 }
 
 function FileSection({
-  title, count, files, staged, expanded, diffs, onToggle, onMove, onMoveAll, onContextMenu, rowKey, diffViewMode, onApplyPatch,
+  title, count, files, staged, expanded, diffs, onToggle, onMove, onMoveAll, onContextMenu, rowKey, diffViewMode, onApplyPatch, onResolveConflict,
 }: FileSectionProps) {
   return (
     <div className="git-changes-section">
@@ -1937,9 +1944,21 @@ function FileSection({
                     {file.added > 0 && <span className="git-changes-added">+{file.added}</span>}
                     {file.deleted > 0 && <span className="git-changes-deleted">−{file.deleted}</span>}
                   </span>
-                  <span className="git-changes-status" data-status={file.status}>
-                    {file.status === 'untracked' ? 'U' : file.status === 'added' ? 'A' : file.status === 'deleted' ? 'D' : file.status === 'renamed' ? 'R' : 'M'}
-                  </span>
+                  {file.status === 'conflicted' && onResolveConflict ? (
+                    <span
+                      className="git-changes-status git-changes-status-conflict"
+                      data-status="conflicted"
+                      role="button"
+                      tabIndex={0}
+                      title="Resolve conflict — open the merge tool"
+                      onClick={(e) => { e.stopPropagation(); onResolveConflict(file.path); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onResolveConflict(file.path); } }}
+                    >C</span>
+                  ) : (
+                    <span className="git-changes-status" data-status={file.status}>
+                      {file.status === 'untracked' ? 'U' : file.status === 'added' ? 'A' : file.status === 'deleted' ? 'D' : file.status === 'renamed' ? 'R' : 'M'}
+                    </span>
+                  )}
                 </span>
               </button>
               <button

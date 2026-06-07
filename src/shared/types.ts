@@ -464,6 +464,8 @@ export const IPC_CHANNELS = {
   GIT_PULL: 'git:pull',
   GIT_MERGE: 'git:merge',
   GIT_MERGE_ABORT: 'git:mergeAbort',
+  GIT_MERGE_PREVIEW: 'git:mergePreview',
+  GIT_CHECKOUT_OURS_THEIRS: 'git:checkoutOursTheirs',
   GIT_LIST_STASHES: 'git:listStashes',
   GIT_STASH_SAVE: 'git:stashSave',
   GIT_STASH_APPLY: 'git:stashApply',
@@ -865,6 +867,20 @@ export interface GitRebaseResult {
   error?: 'dirty' | 'conflict' | 'self' | 'detached' | 'invalid' | 'not-git' | 'failed';
   message?: string;
   conflictedFiles?: string[];
+}
+
+/** Dry-run merge prediction via `git merge-tree --write-tree` (T-060).
+ * `supported` is false on git too old for `--write-tree` (< 2.38); the
+ * UI then just says preview isn't available. When `ok` + `supported`,
+ * `clean` says whether the merge would apply without conflicts and
+ * `conflictedFiles` lists the paths that would conflict. */
+export interface GitMergePreviewResult {
+  ok: boolean;
+  supported?: boolean;
+  clean?: boolean;
+  conflictedFiles?: string[];
+  error?: 'invalid' | 'not-git' | 'failed';
+  message?: string;
 }
 
 /** PR-creation result. `url` is the URL gh prints on success. */
