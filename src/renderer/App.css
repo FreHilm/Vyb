@@ -911,14 +911,26 @@
   -webkit-app-region: no-drag;
 }
 .command-bar-tab-caret {
-  margin-left: 3px;
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 5px;
+  font-size: 16px;
   line-height: 1;
   opacity: 0.7;
-  padding: 2px 3px;
-  border-radius: 3px;
+  /* Looks like plain text until hovered — same size whether or not the
+     button chrome shows, so nothing shifts on hover. */
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
 }
-.command-bar-tab-caret:hover { opacity: 1; background: rgba(255, 255, 255, 0.08); }
+.command-bar-tab-caret:hover {
+  opacity: 1;
+  background: var(--c-surface0);
+  border-color: var(--c-surface1);
+}
 .command-bar-tab-menu {
   position: absolute;
   top: calc(100% + 2px);

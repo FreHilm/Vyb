@@ -23,7 +23,7 @@ import { ExcalidrawEditor, type ExcalidrawEditorHandle } from './ExcalidrawEdito
 import { FileHistoryView } from './FileHistoryView';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Spinner } from './Spinner';
-import { MonacoFileEditor, monacoLanguageForFile } from './MonacoFileEditor';
+import { MonacoFileEditor, monacoLanguageForFile, type MonacoFileEditorHandle } from './MonacoFileEditor';
 import { ThreeWayFileEditor } from './ThreeWayFileEditor';
 import { MonacoDiffEditor } from './MonacoDiffEditor';
 import { toastError, toastInfo, errMessage } from '../lib/toast';
@@ -729,6 +729,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   const [revealRequest, setRevealRequest] = useState<{ path: string; nonce: number } | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const monacoRef = useRef<MonacoFileEditorHandle | null>(null);
   const excalidrawRef = useRef<ExcalidrawEditorHandle | null>(null);
   const activePathRef = useRef<string | null>(null);
   // Store editor doc content per tab so we can restore on switch
@@ -956,6 +957,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   // synthesise the keystroke against the editor DOM — basicSetup's
   // searchKeymap is what binds Mod-Alt-f to that internal toggle.
   const openFindReplace = useCallback(() => {
+    // Monaco (default engine): open its built-in Find & Replace widget.
+    if (monacoRef.current) {
+      monacoRef.current.openFind();
+      return;
+    }
     const view = viewRef.current;
     if (!view) return;
     openSearchPanel(view);
@@ -1314,6 +1320,22 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   const handleFormat = useCallback(async (): Promise<boolean> => {
     const path = activePathRef.current;
     if (!path) return false;
+
+    // Monaco (default engine): format the buffer and replace it (kept on
+    // the undo stack). Cursor jumps to the top — acceptable for a format.
+    if (monacoRef.current) {
+      const content = monacoRef.current.getValue();
+      const result = await window.api.formatDocument(path, content);
+      if (result.error) {
+        setFormatError(result.error);
+        setTimeout(() => setFormatError(null), 5000);
+        return false;
+      }
+      if (!result.content || result.content === content) return true;
+      monacoRef.current.setValue(result.content);
+      return true;
+    }
+
     const view = viewRef.current;
     if (!view) return false;
     const sel = view.state.selection.main;
@@ -1397,8 +1419,13 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     let content: string | null = null;
     if (excalidrawRef.current && isExcalidrawFile(fileName(path))) {
       content = excalidrawRef.current.serialize();
+    } else if (monacoRef.current) {
+      content = monacoRef.current.getValue();
     } else if (viewRef.current) {
       content = viewRef.current.state.doc.toString();
+    } else {
+      // Fallback to the cached buffer (kept in sync by either editor).
+      content = docCacheRef.current.get(path) ?? null;
     }
     if (content === null) return;
     const newPath = await window.api.saveFileAs(content, path);
@@ -2315,6 +2342,13 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     const unsub = window.api.onEditMenuAction(async (action: EditMenuAction) => {
       if (action === 'save') { handleSave(); return; }
       if (action === 'saveAs') { handleSaveAs(); return; }
+      // Editor functions — work under both Monaco (default) and CodeMirror
+      // via the handlers' own engine branching, so they run before the
+      // CodeMirror-only `viewRef` guard below.
+      if (action === 'find') { openFindReplace(); return; }
+      if (action === 'format') { handleFormat(); return; }
+      if (action === 'reveal') { revealActiveInTree(); return; }
+      if (action === 'blame') { toggleBlame(); return; }
 
       const view = viewRef.current;
       if (!view) return;
@@ -2322,7 +2356,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
 
       if (action === 'undo') { undo(view); return; }
       if (action === 'redo') { redo(view); return; }
-      if (action === 'find') { openSearchPanel(view); return; }
       if (action === 'selectAll') {
         view.dispatch({
           selection: EditorSelection.single(0, view.state.doc.length),
@@ -2358,7 +2391,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       }
     });
     return unsub;
-  }, [hidden, handleSave, handleSaveAs]);
+  }, [hidden, handleSave, handleSaveAs, openFindReplace, handleFormat, revealActiveInTree, toggleBlame]);
 
   return (
     <div
@@ -2694,6 +2727,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
             ) : (
             <MonacoFileEditor
               key={monacoPath}
+              ref={monacoRef}
               path={monacoPath}
               initialContent={docCacheRef.current.get(monacoPath) ?? ''}
               savedContent={savedContentRef.current.get(monacoPath) ?? docCacheRef.current.get(monacoPath) ?? ''}

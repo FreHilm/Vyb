@@ -183,7 +183,13 @@ function buildMenu() {
     {
       label: 'File',
       submenu: [
-        { label: 'New Agent Profile', accelerator: 'CmdOrCtrl+N', click: newProfile },
+        { label: 'New Project Profile', accelerator: 'CmdOrCtrl+N', click: newProfile },
+        { type: 'separator' as const },
+        // Save / Save As route to the file editor via IPC, enabled only when
+        // a file is open / modified. Cmd+S/Cmd+Shift+S are safe to register
+        // globally (not terminal keys we need; the handler no-ops with no editor).
+        { label: 'Save', accelerator: 'CmdOrCtrl+S', enabled: canSave, click: () => sendEditAction('save') },
+        { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', enabled: hasFile, click: () => sendEditAction('saveAs') },
         { type: 'separator' as const },
         ...(!isMac
           ? [
@@ -218,13 +224,14 @@ function buildMenu() {
               { role: 'selectAll' as const },
               { type: 'separator' as const },
             ]),
-        // Save / Find route to the file editor via IPC. These accelerators
-        // are safe to register globally — Cmd+S/Cmd+F aren't terminal keys
-        // we need (the handler no-ops when no editor is open).
-        { label: 'Save', accelerator: 'CmdOrCtrl+S', enabled: canSave, click: () => sendEditAction('save') },
-        { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', enabled: hasFile, click: () => sendEditAction('saveAs') },
-        { type: 'separator' as const },
-        { label: 'Find / Search…', accelerator: 'CmdOrCtrl+F', enabled: hasFile, click: () => sendEditAction('find') },
+        // Editor functions — routed to the file editor via IPC, enabled only
+        // while a file is open. Accelerators are safe to register globally
+        // (the handler no-ops when no editor is open). Save / Save As now
+        // live in the File menu.
+        { label: 'Find & Replace…', accelerator: 'CmdOrCtrl+Alt+F', enabled: hasFile, click: () => sendEditAction('find') },
+        { label: 'Format Document', accelerator: 'Shift+Alt+F', enabled: hasFile, click: () => sendEditAction('format') },
+        { label: 'Reveal in File Tree', accelerator: 'CmdOrCtrl+Shift+E', enabled: hasFile, click: () => sendEditAction('reveal') },
+        { label: 'Toggle Blame', enabled: hasFile, click: () => sendEditAction('blame') },
       ],
     },
     {

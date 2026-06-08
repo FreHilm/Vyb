@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import * as monaco from 'monaco-editor';
 import '../lib/monaco-setup'; // side effect: wire workers before any editor is created
 import type { GitBlameLine } from '../../shared/types';
@@ -49,11 +49,35 @@ interface Props {
  * tab state, the modified set, and the actual disk write. This is the
  * spike surface — diff, blame, and markdown editing stay on CodeMirror.
  */
-export function MonacoFileEditor({
+/** Imperative API for host toolbar actions (Find/Replace, Format, Save As)
+ * that used to drive CodeMirror's `viewRef`. */
+export interface MonacoFileEditorHandle {
+  getValue: () => string;
+  /** Replace the whole buffer, kept on the undo stack + focus retained. */
+  setValue: (text: string) => void;
+  /** Open Monaco's Find & Replace widget. */
+  openFind: () => void;
+  focus: () => void;
+}
+
+export const MonacoFileEditor = forwardRef<MonacoFileEditorHandle, Props>(function MonacoFileEditor({
   path, initialContent, savedContent, language, fontSize, onChange, onSave, blame, onBlameSelect, onAdjustFontSize, enableConflictLens,
-}: Props) {
+}: Props, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    getValue: () => editorRef.current?.getModel()?.getValue() ?? '',
+    setValue: (text: string) => {
+      const ed = editorRef.current;
+      const model = ed?.getModel();
+      if (!ed || !model) return;
+      ed.executeEdits('host-replace', [{ range: model.getFullModelRange(), text }]);
+      ed.pushUndoStop();
+    },
+    openFind: () => { editorRef.current?.getAction('editor.action.startFindReplaceAction')?.run(); },
+    focus: () => editorRef.current?.focus(),
+  }), []);
   // Keep the latest callbacks in refs so the once-on-mount editor +
   // its disposables always call through to current handlers without
   // re-creating the editor on every render.
@@ -214,7 +238,7 @@ export function MonacoFileEditor({
    * re-derives dirty from onChange + its own saved content). */
 
   return <div ref={hostRef} style={{ width: '100%', height: '100%' }} />;
-}
+});
 
 /** Map a filename to a Monaco language id. Mirrors the set the
  * CodeMirror path supports; unknown extensions fall back to

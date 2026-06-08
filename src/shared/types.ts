@@ -263,7 +263,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   geminiApiKey: '',
   openaiModel: 'gpt-image-1',
   openaiApiKey: '',
-  iconPromptPrefix: 'A minimal, modern flat icon with a dark background, clean geometric shapes, suitable as a project avatar',
+  iconPromptPrefix: 'Minimal margins, transparent background. No text, suitable as a project avatar.',
   iconReferenceImage: '',
   sidebarWidth: 250,
   sidebarCompact: false,
@@ -608,7 +608,10 @@ export type EditMenuAction =
   | 'copy'
   | 'paste'
   | 'selectAll'
-  | 'find';
+  | 'find'
+  | 'format'
+  | 'reveal'
+  | 'blame';
 
 export interface EditMenuState {
   /** Whether a non-image file is currently open in the editor (i.e. menu items
