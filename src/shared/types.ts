@@ -393,6 +393,9 @@ export const IPC_CHANNELS = {
   SETTINGS_LOAD: 'settings:load',
   SETTINGS_SAVE: 'settings:save',
   SETTINGS_OPEN_DIALOG: 'settings:openDialog',
+  /** Main → renderer: File → New Agent Profile clicked. Opens the profile
+   * editor in create mode (lands in the active workspace). */
+  MENU_NEW_PROFILE: 'menu:newProfile',
   // Quit handshake: main asks the renderer to check for unsaved editor
   // buffers before closing; renderer replies with the user's decision.
   APP_BEFORE_QUIT: 'app:beforeQuit',

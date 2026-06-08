@@ -183,6 +183,8 @@ function buildMenu() {
     {
       label: 'File',
       submenu: [
+        { label: 'New Agent Profile', accelerator: 'CmdOrCtrl+N', click: newProfile },
+        { type: 'separator' as const },
         ...(!isMac
           ? [
               { label: 'Settings...', accelerator: 'Ctrl+,', click: openSettings },
@@ -295,6 +297,12 @@ ipcMain.on(
 function openSettings() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC_CHANNELS.SETTINGS_OPEN_DIALOG);
+  }
+}
+
+function newProfile() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC_CHANNELS.MENU_NEW_PROFILE);
   }
 }
 

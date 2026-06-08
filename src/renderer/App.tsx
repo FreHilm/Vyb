@@ -114,6 +114,7 @@ declare global {
       loadSettings: () => Promise<AppSettings>;
       saveSettings: (settings: AppSettings) => Promise<void>;
       onOpenSettings: (callback: () => void) => () => void;
+      onMenuNewProfile: (callback: () => void) => () => void;
       onAppBeforeQuit: (callback: () => void) => () => void;
       sendQuitDecision: (proceed: boolean) => void;
       setTerminalFocused: (focused: boolean) => void;
@@ -731,6 +732,13 @@ export function App() {
       setSettingsOpen(true);
     });
 
+    // File → New Agent Profile: open the editor in create mode. The saved
+    // profile lands in the active workspace (see handleSaveProfile).
+    const unsubNewProfile = window.api.onMenuNewProfile(() => {
+      setEditingProfile(null);
+      setEditorOpen(true);
+    });
+
     // Handle notification click — switch to the profile (and parallel sub-
     // agent if any) that needs attention. Routes through `goToProfile`
     // so a profile in a different workspace also pulls the sidebar
@@ -901,6 +909,7 @@ export function App() {
       unsubStatus();
       unsubCompletion();
       unsubSettings();
+      unsubNewProfile();
       unsubActivate();
       unsubOrdnaTask();
       unsubOrdnaExit();

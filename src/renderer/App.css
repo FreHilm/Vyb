@@ -911,11 +911,11 @@
   -webkit-app-region: no-drag;
 }
 .command-bar-tab-caret {
-  margin-left: 2px;
-  font-size: 9px;
+  margin-left: 3px;
+  font-size: 13px;
   line-height: 1;
-  opacity: 0.6;
-  padding: 2px 2px;
+  opacity: 0.7;
+  padding: 2px 3px;
   border-radius: 3px;
 }
 .command-bar-tab-caret:hover { opacity: 1; background: rgba(255, 255, 255, 0.08); }

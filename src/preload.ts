@@ -129,6 +129,13 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.removeListener(IPC_CHANNELS.SETTINGS_OPEN_DIALOG, handler);
   },
 
+  onMenuNewProfile: (callback: () => void): (() => void) => {
+    const handler = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.MENU_NEW_PROFILE, handler);
+    return () =>
+      ipcRenderer.removeListener(IPC_CHANNELS.MENU_NEW_PROFILE, handler);
+  },
+
   // Quit handshake. Main fires APP_BEFORE_QUIT; the renderer checks for
   // unsaved files and, after the user decides, replies via APP_QUIT_DECISION
   // with whether to proceed.

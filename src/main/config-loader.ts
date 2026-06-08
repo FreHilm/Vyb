@@ -7,24 +7,12 @@ export function loadProfiles(): Profile[] {
   const userDataPath = app.getPath('userData');
   const configPath = path.join(userDataPath, 'profiles.json');
 
+  // Fresh install: start with NO profiles. We must never auto-create a
+  // profile pointing at the user's home folder — the user creates their
+  // first profile explicitly (sidebar "+" or File → New Agent Profile),
+  // which is when profiles.json first gets written (via saveProfiles).
   if (!fs.existsSync(configPath)) {
-    const examplePath = path.join(app.getAppPath(), 'profiles.example.json');
-    if (fs.existsSync(examplePath)) {
-      fs.copyFileSync(examplePath, configPath);
-    } else {
-      const defaultProfiles: Profile[] = [
-        {
-          id: 'claude-default',
-          name: 'Claude Code',
-          icon: '',
-          workingDirectory: app.getPath('home'),
-          command: 'claude',
-          args: [],
-        },
-      ];
-      fs.writeFileSync(configPath, JSON.stringify(defaultProfiles, null, 2));
-      return defaultProfiles;
-    }
+    return [];
   }
 
   try {
