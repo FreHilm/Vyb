@@ -272,7 +272,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   agents: [...DEFAULT_AGENTS],
   externalApps: [
     { id: 'vscode', name: 'VS Code', icon: 'vscode', command: 'open -a "Visual Studio Code" "{path}"' },
-    { id: 'fork', name: 'Fork', icon: 'gitBranch', command: 'open -a Fork "{path}"' },
   ],
   navModifierKey: 'meta',
   dictationMode: 'toggle',
