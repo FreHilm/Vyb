@@ -22,8 +22,9 @@ Vyb is an Electron app built around the framework's recommended security model: 
 │  ├── TerminalPane      — agent terminals (xterm.js)       │
 │  ├── ShellPane         — splittable shell terminals       │
 │  ├── CommandBar        — quick-action buttons + nav       │
-│  ├── FileExplorer      — file tree + CodeMirror + diff    │
-│  ├── GitChangesPanel   — stage / commit / branches        │
+│  ├── FileExplorer      — file tree + Monaco editor + diff │
+│  ├── GitChangesPanel   — stage / commit / branches /      │
+│  │                       conflict & 3-way merge resolver  │
 │  ├── WebViewer         — embedded browser + DevTools      │
 │  ├── KanbanViewer      — Ordna integration                │
 │  ├── ReadmeViewer      — markdown + Mermaid               │
@@ -58,7 +59,8 @@ For the deeper conventions — the PTY output pipeline tuning, WebGL context man
 - **React 19 + TypeScript 5.8** — renderer UI
 - **Vite 5 + Electron Forge 7** — bundling and packaging
 - **xterm.js 6 + WebGL + node-pty** — terminals
-- **CodeMirror 6** — file editor, with `@codemirror/merge` for the inline diff view
+- **Monaco editor** — default file editor, inline diff, and the conflict / 3-way merge view
+- **CodeMirror 6** — alternative editor engine (with `@codemirror/merge` for its inline diff)
 - **react-markdown + remark-gfm + Mermaid** — markdown rendering
 - **electron-updater** — auto-updates from GitHub Releases
 

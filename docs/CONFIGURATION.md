@@ -75,9 +75,40 @@ AI-generated profile icons.
 | Reference Image | Optional image for visual consistency | — |
 | Batch Generate | Generate icons for all profiles lacking one | — |
 
+### Functions
+
+Feature toggles and editor/behaviour preferences.
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| Kanban | Show the Kanban (Ordna) tab | On |
+| Web | Show the in-app browser tab | On |
+| Agent notifications | Notify when an agent finishes or needs input | On |
+| Use Monaco editor | Use Monaco (vs. CodeMirror) as the file editor | On |
+| Diff context lines | Lines kept around each change when collapsing unchanged regions | 6 |
+| Format on save | Run Prettier on save | Off |
+| Sticky scroll | Pin the enclosing scope to the top of the editor | On |
+| Show hidden files | Include dotfiles in the file tree | On |
+| Show author avatars | Gravatars next to commits in the git graph | On |
+| Hotkey hints overlay | Opt-in HUD listing hotkeys while a modifier is held | Off |
+| Default page | Start URL for the web tab | — |
+| Pull strategy | merge / rebase / fast-forward-only for Pull | merge |
+| Push tags by default | Include tags when pushing | Off |
+
+### Agents
+
+The built-in agents (Claude, Codex, Gemini, OpenCode) and any custom ones. Each agent has a name, command, args, icon, and optional *permission-mode args* (injected only for parallel/Kanban-dispatched worktree runs). Built-in agents' command/args are locked, but your edits are saved as overrides. **+ Add Agent** creates a custom entry you can point a profile at.
+
+### Ordna (Kanban)
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| Mode | **Web** (iframed board) or **TUI** (terminal board) | Web |
+| Hook Receiver Port | Local port Ordna posts dispatched tasks to | 9876 |
+
 ### Apps
 
-Custom external-app launcher buttons. Each has a name, an icon from the built-in set (VS Code, Terminal, Git Branch, Folder, Globe, Rocket…), and a shell command using a `{path}` placeholder that's replaced with the active profile's directory.
+Custom external-app launcher buttons, shown in the **Apps** dropdown on the command bar. Each has a name, an icon from the built-in set (VS Code, Terminal, Git Branch, Folder, Globe, Rocket…), and a shell command using a `{path}` placeholder that's replaced with the active profile's directory. Ships with one default: **VS Code**.
 
 ### Integrations
 
@@ -96,13 +127,20 @@ Hold the configured modifier (default Cmd) to reveal on-screen navigation hints.
 
 | Shortcut | Action |
 |----------|--------|
-| Mod + 1–9, 0 | Activate command-bar buttons (README, Files, Terminal, Folder, apps…) |
+| Mod + 1–9, 0 | Activate command-bar buttons (Agent, Files, Kanban, Web, Terminal, Git, Folder — disabled tabs are skipped) |
 | Mod + ↑ / ↓ | Move between profiles |
 | Mod + ← / → | Cycle between the agent pane and shell terminals |
 | Ctrl + Cmd + = | Add a shell terminal split |
 | Ctrl + Cmd + - | Close the last shell terminal |
 | Ctrl + Shift + D | Toggle dictation |
+| Cmd + N | New project profile |
+| Cmd + S / Cmd + Shift + S | Save / Save As (file editor) |
+| Cmd + Alt + F | Find & Replace (file editor) |
+| Shift + Alt + F | Format document |
+| Cmd + Shift + E | Reveal active file in the tree |
 | Cmd + , | Open Settings |
+
+External apps are no longer numbered — they live in the **Apps** dropdown on the command bar.
 
 ## Data locations
 
