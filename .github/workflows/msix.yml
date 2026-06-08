@@ -1,0 +1,73 @@
+# Microsoft Store (MSIX/AppX) build.
+#
+# Trigger: manual (workflow_dispatch). Builds the Windows AppX package and
+# uploads it as a workflow artifact for you to submit to Partner Center.
+# The Microsoft Store re-signs on submission, so no real code-signing cert
+# is needed — we generate a throwaway self-signed cert whose publisher
+# matches the Partner Center identity (CN below) just so makeappx can build
+# a package; the Store strips and re-signs it.
+#
+# After the run: download the `vyb-msix` artifact and upload the .appx to
+# Partner Center → your product → Packages.
+
+name: MSIX (Microsoft Store)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  msix:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.14.1'
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      # Generate a throwaway self-signed cert whose subject EXACTLY matches
+      # the Partner Center Publisher (CN). makeappx requires a signed
+      # package; the Store re-signs on submission so this cert never ships.
+      # Using New-SelfSignedCertificate avoids the deprecated makecert.exe
+      # the maker would otherwise reach for.
+      - name: Generate self-signed AppX certificate
+        shell: pwsh
+        run: |
+          $subject = "CN=2980D3E3-168B-4604-9E12-2A29E0B67F92"
+          $cert = New-SelfSignedCertificate `
+            -Type Custom `
+            -Subject $subject `
+            -KeyUsage DigitalSignature `
+            -FriendlyName "Vyb MSIX (throwaway)" `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+          $pwd = ConvertTo-SecureString -String "vyb-msix" -Force -AsPlainText
+          $pfx = Join-Path $env:RUNNER_TEMP "vyb-msix.pfx"
+          Export-PfxCertificate -Cert "Cert:\CurrentUser\My\$($cert.Thumbprint)" -FilePath $pfx -Password $pwd | Out-Null
+          "APPX_DEV_CERT=$pfx"      | Out-File -FilePath $env:GITHUB_ENV -Append
+          "APPX_CERT_PASS=vyb-msix" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build MSIX/AppX
+        shell: pwsh
+        env:
+          BUILD_MSIX: '1'
+        run: npx electron-forge make --arch=x64
+
+      - name: List output
+        shell: pwsh
+        run: Get-ChildItem -Recurse out/make/appx | Select-Object FullName
+
+      - name: Upload MSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vyb-msix
+          path: |
+            out/make/appx/**/*.appx
+            out/make/appx/**/*.msix
+          if-no-files-found: error

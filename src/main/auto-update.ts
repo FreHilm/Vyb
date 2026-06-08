@@ -22,6 +22,12 @@ export function startAutoUpdater(): void {
   // electron-updater throws on missing app-update.yml.
   if (!app.isPackaged) return;
 
+  // Skip when running as a Microsoft Store / MSIX package — the Store
+  // owns updates, and self-updating an MSIX is forbidden (it would fail
+  // and violates Store policy). `process.windowsStore` is true only for
+  // the packaged AppX/MSIX build.
+  if (process.windowsStore) return;
+
   autoUpdater.logger = log;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;

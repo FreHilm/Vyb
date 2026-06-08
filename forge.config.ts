@@ -1,5 +1,6 @@
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
+import { MakerAppX } from '@electron-forge/maker-appx';
 import { MakerZIP } from '@electron-forge/maker-zip';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
@@ -120,6 +121,36 @@ const config: ForgeConfig = {
     new MakerDMG({}, ['darwin']),
     new MakerRpm({}),
     new MakerDeb({}),
+    // MSIX/AppX for the Microsoft Store. Only included when BUILD_MSIX=1 so
+    // it stays OUT of the normal `npm run publish` (which would otherwise
+    // try to build it on every platform and upload it to the GitHub
+    // release). Built on Windows only (the maker no-ops elsewhere) by the
+    // dedicated msix.yml workflow, which generates a self-signed cert whose
+    // publisher matches the Partner Center identity below — the Store
+    // re-signs on submission, so this cert is throwaway.
+    //
+    // Identity values come straight from Partner Center → Product identity
+    // and MUST match exactly or the Store rejects the upload.
+    ...(process.env.BUILD_MSIX === '1'
+      ? [
+          new MakerAppX({
+            packageName: 'FreHilm.Vyb',
+            packageDisplayName: 'Vyb',
+            packageDescription: 'Manage multiple AI agent terminal sessions in one place',
+            publisher: 'CN=2980D3E3-168B-4604-9E12-2A29E0B67F92',
+            // Not in the typed config but passed through to
+            // electron-windows-store and written into the manifest's
+            // <Properties><PublisherDisplayName>.
+            publisherDisplayName: 'FreHilm',
+            assets: 'build/appx',
+            makeVersionWinStoreCompatible: true,
+            // Throwaway self-signed cert (publisher must match the CN above).
+            // The msix.yml workflow generates it and sets these env vars.
+            devCert: process.env.APPX_DEV_CERT,
+            certPass: process.env.APPX_CERT_PASS,
+          } as ConstructorParameters<typeof MakerAppX>[0]),
+        ]
+      : []),
   ],
   publishers: [
     new PublisherGithub({
