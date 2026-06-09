@@ -22,7 +22,6 @@ import { MermaidBlock } from './MermaidBlock';
 import { ExcalidrawEditor, type ExcalidrawEditorHandle } from './ExcalidrawEditor';
 import { FileHistoryView } from './FileHistoryView';
 import { ErrorBoundary } from './ErrorBoundary';
-import { Spinner } from './Spinner';
 import { MonacoFileEditor, monacoLanguageForFile, type MonacoFileEditorHandle } from './MonacoFileEditor';
 import { ThreeWayFileEditor } from './ThreeWayFileEditor';
 import { MonacoDiffEditor } from './MonacoDiffEditor';
@@ -2464,52 +2463,46 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           </div>
         </div>
 
-        {/* Action toolbar — sits below the tab bar so the tabs stay
-            at the top while frequently-used actions hang just above
-            the editor body. */}
-        {activeTabPath && !activeIsImage && (
-          <div className="file-editor-toolbar">
-            {/* Diff toolbar group — only while a Monaco diff is showing.
-                Floats at the far left; the last button in the group
-                carries marginRight:auto to push Save / Blame / Find right. */}
+        {/* Floating editor controls — only the mode toggles that have no
+            app-menu equivalent: diff collapse / side-by-side, the 3-way
+            switch, and the markdown view/edit toggle. The old toolbar's
+            actions (Save, Save As, Find, Format, Reveal, Blame) now live in
+            the File / Edit menus, so the toolbar is gone. This sits in the
+            editor's top-right corner, overlaying the content. */}
+        {activeTabPath && !activeIsImage
+          && ((monacoDiffPath && activeTabPath === monacoDiffPath) || monacoConflicted || activeIsMd) && (
+          <div className="file-editor-float">
             {monacoDiffPath && activeTabPath === monacoDiffPath && (
-              <button
-                className={`file-tab-action-btn${diffHideUnchanged ? ' is-active' : ''}`}
-                onClick={() => setDiffHideUnchanged((v) => !v)}
-                title={diffHideUnchanged ? 'Show full files' : `Collapse unchanged lines (show ~${diffContextLines} around each change)`}
-              >
-                {/* collapse glyph: two arrows toward a center line */}
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 1.5v3M6 3l2-1.5L10 3" />
-                  <path d="M8 14.5v-3M6 13l2 1.5L10 13" />
-                  <path d="M2.5 8h11" />
-                </svg>
-              </button>
-            )}
-            {monacoDiffPath && activeTabPath === monacoDiffPath && (
-              <button
-                className="file-tab-action-btn"
-                // marginRight:auto claims the free space to the button's
-                // right in the flex toolbar, keeping the diff group at the
-                // far left and pushing Save / Blame / Find over to the right.
-                style={{ marginRight: 'auto' }}
-                onClick={() => setDiffSideBySide((v) => !v)}
-                title={diffSideBySide ? 'Switch to inline diff' : 'Switch to side-by-side diff'}
-              >
-                {diffSideBySide ? (
+              <>
+                <button
+                  className={`file-tab-action-btn${diffHideUnchanged ? ' is-active' : ''}`}
+                  onClick={() => setDiffHideUnchanged((v) => !v)}
+                  title={diffHideUnchanged ? 'Show full files' : `Collapse unchanged lines (show ~${diffContextLines} around each change)`}
+                >
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                    {/* single column → inline */}
-                    <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
-                    <path d="M5 6h6M5 9h4" />
+                    <path d="M8 1.5v3M6 3l2-1.5L10 3" />
+                    <path d="M8 14.5v-3M6 13l2 1.5L10 13" />
+                    <path d="M2.5 8h11" />
                   </svg>
-                ) : (
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                    {/* two columns → side by side */}
-                    <rect x="2" y="2.5" width="5" height="11" rx="1" />
-                    <rect x="9" y="2.5" width="5" height="11" rx="1" />
-                  </svg>
-                )}
-              </button>
+                </button>
+                <button
+                  className="file-tab-action-btn"
+                  onClick={() => setDiffSideBySide((v) => !v)}
+                  title={diffSideBySide ? 'Switch to inline diff' : 'Switch to side-by-side diff'}
+                >
+                  {diffSideBySide ? (
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+                      <path d="M5 6h6M5 9h4" />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="2.5" width="5" height="11" rx="1" />
+                      <rect x="9" y="2.5" width="5" height="11" rx="1" />
+                    </svg>
+                  )}
+                </button>
+              </>
             )}
             {monacoConflicted && (
               <button
@@ -2518,7 +2511,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
                   if (!monacoPath) return;
                   setThreeWayOff((prev) => {
                     const n = new Set(prev);
-                    // Active now → turn off (add to the off-set); off now → turn on.
                     if (threeWayActive) n.add(monacoPath); else n.delete(monacoPath);
                     return n;
                   });
@@ -2528,53 +2520,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
                 3-way
               </button>
             )}
-            <button
-              className="file-tab-action-btn"
-              onClick={handleSave}
-              disabled={saving || !activeIsModified}
-              title="Save (Cmd+S)"
-            >
-              {saving ? <Spinner label="Saving…" size={13} /> : 'Save'}
-            </button>
-            <button
-              className="file-tab-action-btn"
-              onClick={handleSaveAs}
-              disabled={saving}
-              title="Save As (Cmd+Shift+S)"
-            >
-              Save As
-            </button>
-            <button
-              className={`file-tab-action-btn ${blameEnabled.has(activeTabPath) ? 'is-active' : ''}`}
-              onClick={toggleBlame}
-              title={blameEnabled.has(activeTabPath) ? 'Hide blame gutter' : 'Show blame gutter (git blame)'}
-            >
-              Blame
-            </button>
-            <button
-              className="file-tab-action-btn"
-              onClick={openFindReplace}
-              title="Find and Replace (Cmd+Alt+F)"
-              disabled={!activeTabPath || activeIsImage}
-            >
-              Find/Replace
-            </button>
-            <button
-              className="file-tab-action-btn"
-              onClick={revealActiveInTree}
-              title="Reveal this file in the tree (Cmd+Shift+E)"
-              disabled={!activeTabPath}
-            >
-              Reveal
-            </button>
-            <button
-              className="file-tab-action-btn"
-              onClick={handleFormat}
-              title="Format with Prettier (Shift+Alt+F)"
-              disabled={!activeTabPath || activeIsImage || activeIsExcalidraw}
-            >
-              Format
-            </button>
             {activeIsMd && (
               <button
                 className={`file-tab-action-btn ${activeMdMode === 'edit' ? 'is-active' : ''}`}

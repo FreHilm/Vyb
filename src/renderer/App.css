@@ -3927,14 +3927,21 @@ select option {
    bar can show just tabs. Background matches the editor body
    (`--c-base`) so the toolbar reads as part of the same surface;
    buttons right-aligned. */
-.file-editor-toolbar {
+/* Floating editor controls (mode toggles), top-right of the editor body. */
+.file-editor-float {
+  position: absolute;
+  top: 40px; /* clear the 32px tab bar */
+  right: 16px;
+  /* Sit clearly in front of Monaco's overview-ruler change indicator and
+     minimap on the right edge. Opaque so the change bar doesn't bleed
+     through the control. */
+  z-index: 20;
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
   gap: 4px;
-  padding: 4px 8px;
-  background: var(--c-base);
-  flex-shrink: 0;
+  padding: 3px;
+  border: 1px solid var(--c-surface1);
+  border-radius: 7px;
+  background: var(--c-surface0);
 }
 
 .file-tab-action-btn {
