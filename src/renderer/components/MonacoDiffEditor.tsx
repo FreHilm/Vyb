@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as monaco from 'monaco-editor';
 import '../lib/monaco-setup'; // side effect: wire workers before any editor is created
 
@@ -46,6 +46,10 @@ export function MonacoDiffEditor({
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
+  // Bumped when the working file is reloaded externally (agent edit), to
+  // force a full remount so the diff rebuilds with "hide unchanged regions"
+  // re-applied. Not bumped on user typing, so editing keeps cursor/scroll.
+  const [reloadNonce, setReloadNonce] = useState(0);
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
   const onAdjustFontSizeRef = useRef(onAdjustFontSize);
@@ -127,12 +131,30 @@ export function MonacoDiffEditor({
       try { originalModel.dispose(); } catch { /* gone */ }
       try { modifiedModel.dispose(); } catch { /* gone */ }
     };
-    // Remount when the file, language, or baseline (HEAD) changes.
-  }, [path, language, original]);
+    // Remount when the file, language, baseline (HEAD), or an external
+    // reload (reloadNonce) changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, language, original, reloadNonce]);
 
   useEffect(() => {
     diffRef.current?.updateOptions({ fontSize });
   }, [fontSize]);
+
+  // Live-follow the working tree. When the `modified` prop diverges from
+  // the live model, the host reloaded the file externally (an agent edited
+  // it on disk) — re-baseline so it isn't flagged dirty, then bump
+  // reloadNonce to force a full remount. The remount is what makes the
+  // rebuilt diff honor "hide unchanged regions"; a plain setValue leaves
+  // the regions expanded and re-applying the option is a Monaco no-op.
+  // User typing keeps the model in sync with `modified`, so this never
+  // fires mid-edit (cursor/scroll are preserved while you type).
+  useEffect(() => {
+    const model = diffRef.current?.getModel()?.modified;
+    if (model && model.getValue() !== modified) {
+      baselineRef.current = savedContent;
+      setReloadNonce((n) => n + 1);
+    }
+  }, [modified, savedContent]);
 
   // Live-switch inline <-> side-by-side without remounting. Re-assert
   // useInlineViewWhenSpaceIsLimited so a narrow pane can't override the

@@ -781,6 +781,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   // on remount. `null` means "tracked but lookup failed / new file" —
   // we still flag the entry to avoid refetching on every remount.
   const gitBaselinesRef = useRef<Map<string, string | null>>(new Map());
+  // Bumped to force a re-render when the open diff's HEAD baseline is
+  // re-fetched after a refresh (e.g. a commit changed HEAD).
+  const [, setDiffBaselineTick] = useState(0);
   // T-026: when set, render the FileHistoryView overlay for this path.
   // Cleared by the overlay's close button or Esc keypress.
   const [historyFile, setHistoryFile] = useState<{ path: string; name: string; initialSha?: string }| null>(null);
@@ -1983,12 +1986,37 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showChangedOnly]);
 
-  // Invalidate the baseline cache whenever the file tree refreshes
-  // (e.g. after a commit or external git op) so re-opening a file
-  // re-fetches its HEAD content. Cheap — the map is small.
+  // Invalidate the baseline cache when the file tree refreshes so
+  // re-opening a file re-fetches its HEAD content (e.g. after a commit).
+  // BUT keep the currently-open diff's baseline: a plain working-tree
+  // change (an agent editing the file) also triggers a refresh, and
+  // blanking the baseline made the diff's `original` side empty — the
+  // whole file flashed green until you switched away and back. Instead we
+  // keep the open diff's HEAD content and re-fetch it asynchronously,
+  // updating only if HEAD actually changed (so commits are still picked
+  // up without the all-green flash). The working-tree side follows live
+  // via MonacoDiffEditor's `modified` effect.
   useEffect(() => {
+    const open = monacoDiffPathRef.current;
+    const prev = open ? gitBaselinesRef.current.get(open) : undefined;
     gitBaselinesRef.current.clear();
-  }, [refreshKey]);
+    if (open && prev !== undefined) gitBaselinesRef.current.set(open, prev);
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      const rel = open.startsWith(workingDirectory)
+        ? open.slice(workingDirectory.length).replace(/^\/+/, '')
+        : open;
+      let head: string | null = null;
+      try { head = await window.api.getGitFileAtHead(workingDirectory, rel); } catch { head = null; }
+      if (cancelled) return;
+      if (head !== gitBaselinesRef.current.get(open)) {
+        gitBaselinesRef.current.set(open, head);
+        setDiffBaselineTick((t) => t + 1);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [refreshKey, workingDirectory]);
 
   // T-027: toggle the blame gutter for the active tab. On first
   // enable we fetch via `git blame --line-porcelain`, cache it, and
