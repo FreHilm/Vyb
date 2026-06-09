@@ -466,7 +466,7 @@ export function Sidebar({
 
         // Remove dragged item from current position
         let items = [...effective.items];
-        let folders = effective.folders.map((f) => ({
+        const folders = effective.folders.map((f) => ({
           ...f,
           profileIds: [...f.profileIds],
         }));

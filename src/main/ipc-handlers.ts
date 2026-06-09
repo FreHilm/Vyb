@@ -2989,7 +2989,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       // Each line: "<oid> [*-] <path>" — keep just the path.
       const paths: string[] = [];
       for (const line of out.split('\n')) {
-        const m = line.match(/^[0-9a-f]+\s+[*\-]\s+(.+)$/);
+        const m = line.match(/^[0-9a-f]+\s+[*-]\s+(.+)$/);
         if (m) paths.push(m[1]);
       }
       trackedCount = paths.length;

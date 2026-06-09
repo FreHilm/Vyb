@@ -271,7 +271,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   agentSplitPercent: 50,
   agents: [...DEFAULT_AGENTS],
   externalApps: [
-    { id: 'vscode', name: 'VS Code', icon: 'vscode', command: 'open -a "Visual Studio Code" "{path}"' },
+    // Cross-platform fallback (the `code` CLI works on macOS/Windows/Linux
+    // when installed). The main process seeds an OS-tuned default on fresh
+    // install via loadSettings → defaultExternalApps().
+    { id: 'vscode', name: 'VS Code', icon: 'vscode', command: 'code "{path}"' },
   ],
   navModifierKey: 'meta',
   dictationMode: 'toggle',

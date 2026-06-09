@@ -233,7 +233,7 @@ function annotateIntraLineDiffs(lines: DiffLine[]): void {
     let dEnd = dStart;
     while (dEnd < lines.length && lines[dEnd].type === 'del') dEnd++;
     // Now look for an immediately-following run of `add` lines.
-    let aStart = dEnd;
+    const aStart = dEnd;
     let aEnd = aStart;
     while (aEnd < lines.length && lines[aEnd].type === 'add') aEnd++;
     const dCount = dEnd - dStart;

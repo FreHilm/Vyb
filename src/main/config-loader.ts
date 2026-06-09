@@ -1,7 +1,18 @@
 import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Profile, AppSettings, DEFAULT_SETTINGS, DEFAULT_AGENTS, SidebarLayout, ProfileMemoryMap } from '../shared/types';
+import { Profile, AppSettings, ExternalApp, DEFAULT_SETTINGS, DEFAULT_AGENTS, SidebarLayout, ProfileMemoryMap } from '../shared/types';
+
+/** Default external-app launchers for a fresh install, picked per OS.
+ * macOS uses `open -a` (works without the `code` CLI on PATH); Windows
+ * and Linux use the cross-platform `code` CLI. Avoids shipping a launcher
+ * whose command only runs on one platform. */
+function defaultExternalApps(): ExternalApp[] {
+  const command = process.platform === 'darwin'
+    ? 'open -a "Visual Studio Code" "{path}"'
+    : 'code "{path}"';
+  return [{ id: 'vscode', name: 'VS Code', icon: 'vscode', command }];
+}
 
 export function loadProfiles(): Profile[] {
   const userDataPath = app.getPath('userData');
@@ -49,7 +60,9 @@ export function saveProfiles(profiles: Profile[]): void {
 export function loadSettings(): AppSettings {
   const settingsPath = path.join(app.getPath('userData'), 'settings.json');
   if (!fs.existsSync(settingsPath)) {
-    return { ...DEFAULT_SETTINGS };
+    // Fresh install — seed the default app launcher for THIS platform so
+    // its button actually works (the static default is macOS-flavoured).
+    return { ...DEFAULT_SETTINGS, externalApps: defaultExternalApps() };
   }
   try {
     const content = fs.readFileSync(settingsPath, 'utf-8');

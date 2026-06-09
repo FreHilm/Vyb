@@ -167,7 +167,7 @@ export function ShellPane({
       if (!panelDiv) continue;
 
       // Check if terminal is already mounted in this panel
-      let entry = terminalsRef.current.get(shell.id);
+      const entry = terminalsRef.current.get(shell.id);
       const alreadyMounted = entry && panelDiv.querySelector('.xterm');
 
       if (alreadyMounted && entry) {
