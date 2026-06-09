@@ -790,6 +790,27 @@
   border: 1px solid var(--c-mantle);
 }
 
+/* Temporary/scratch project marker — bottom-left of the profile icon. */
+.temp-badge {
+  position: absolute;
+  bottom: -2px;
+  left: -2px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 2px;
+  border-radius: 4px;
+  background: var(--c-yellow);
+  color: var(--c-base);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+  border: 1px solid var(--c-mantle);
+}
+
 .profile-controls {
   display: flex;
   gap: 2px;

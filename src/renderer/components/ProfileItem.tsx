@@ -99,6 +99,9 @@ export function ProfileItem({
 
   const isAnimated = status === 'working' || status === 'needs-input';
   const isCalm = status === 'ready';
+  // Temp/scratch projects live in a `vyb-agent-…` mkdtemp directory
+  // (created by the profile editor's "Temp" button). Flag them with a "T".
+  const isTemp = profile.workingDirectory.includes('vyb-agent-');
 
   const itemStyle: React.CSSProperties | undefined =
     hasUpdate && !isActive
@@ -184,6 +187,9 @@ export function ProfileItem({
           <div className="agent-badge" title={profile.agentId}>
             <SmallAgentIcon agentId={profile.agentId} />
           </div>
+        )}
+        {isTemp && (
+          <div className="temp-badge" title="Temporary project (scratch directory)">T</div>
         )}
       </div>
       <div className="profile-info">
