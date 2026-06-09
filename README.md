@@ -22,7 +22,7 @@
 
 <!-- TODO: showcase image / animation goes here -->
 <p align="center">
-  <img src="docs/Screenshot2.png" alt="Vyb" />
+  <img src="docs/Screenshot.png" alt="Vyb" />
 </p>
 
 ---
