@@ -6978,7 +6978,11 @@ select option {
   border-radius: 4px;
 }
 .workspace-dropdown-name {
-  flex: 1;
+  /* Size to the name so the chevron sits right next to it (not pushed to
+     the far edge). Still shrinks with an ellipsis when the name is too
+     long for the available space. */
+  flex: 0 1 auto;
+  min-width: 0;
   text-align: left;
   white-space: nowrap;
   overflow: hidden;
