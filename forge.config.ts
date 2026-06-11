@@ -114,7 +114,13 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   makers: [
-    new MakerSquirrel({}),
+    new MakerSquirrel({
+      // Icon for Setup.exe itself.
+      setupIcon: './build/icon.ico',
+      // Icon Windows shows in Add/Remove Programs — must be a remote URL
+      // (Squirrel quirk). Without it, this DEFAULTS TO THE ATOM ICON.
+      iconUrl: 'https://raw.githubusercontent.com/FreHilm/Vyb/main/build/icon.ico',
+    }),
     new MakerZIP({}, ['darwin']),
     // DMG is a nicer macOS installer than just a zip — produces the
     // standard "drag to Applications" window.
@@ -142,6 +148,13 @@ const config: ForgeConfig = {
             // electron-windows-store and written into the manifest's
             // <Properties><PublisherDisplayName>.
             publisherDisplayName: 'FreHilm',
+            // IMPORTANT: the files in build/appx MUST be named
+            // SampleAppx.44x44 / .50x50 / .150x150 / .310x150 — those exact
+            // names are hardcoded in electron-windows-store's manifest
+            // template. Differently-named files are packaged but never
+            // referenced, so the tiles fall back to the tool's default
+            // sample images — which fails Store certification ("tile icons
+            // include a default image", rejected 2026-06-11).
             assets: 'build/appx',
             makeVersionWinStoreCompatible: true,
             // Throwaway self-signed cert (publisher must match the CN above).
