@@ -6,7 +6,7 @@ import { Profile } from '../shared/types';
 import { PtyManager } from './pty-manager';
 
 /** Pinned version of @frehilm/ordna-cli. Mirrored in vendor/ordna-cli/package.json. */
-const ORDNA_CLI_VERSION = '0.1.2';
+const ORDNA_CLI_VERSION = '0.2.1';
 
 /** Resolve the directory containing the vendor tree.
  *
