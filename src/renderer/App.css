@@ -209,17 +209,29 @@
    the labels are hidden. Falls back to surface1 if the property isn't
    set (e.g. offline status — no flame color assigned). */
 .app-sidebar-compact .profile-item.active {
-  background: color-mix(in srgb, var(--flame-color, var(--c-blue)) 38%, var(--c-surface1));
+  /* Muted, balanced tint: roughly midway between the status color and the
+     sidebar background. Mixed into --c-surface0 (darker than surface1) at a
+     lower ratio than before so green/blue/yellow reads as "selected" without
+     the previous over-saturated wash. */
+  background: color-mix(in srgb, var(--flame-color, var(--c-blue)) 22%, var(--c-surface0));
 }
 .app-sidebar-compact .profile-item.active:hover {
-  background: color-mix(in srgb, var(--flame-color, var(--c-blue)) 48%, var(--c-surface1));
+  background: color-mix(in srgb, var(--flame-color, var(--c-blue)) 30%, var(--c-surface0));
 }
 /* Override the 6% .active-working tint in compact mode so it doesn't
-   compete with / dilute the brighter .active fill above. The animated
-   flame indicators still convey activity; the row background is now
-   just for "this profile is selected". */
+   compete with / dilute the .active fill above. The animated flame
+   indicators still convey activity; the row background is now just for
+   "this profile is selected". */
 .app-sidebar-compact .profile-item.active.active-working {
-  background: color-mix(in srgb, var(--flame-color, var(--c-blue)) 38%, var(--c-surface1));
+  background: color-mix(in srgb, var(--flame-color, var(--c-blue)) 22%, var(--c-surface0));
+}
+/* Selected-icon backing in compact view: transparent profile icons (no
+   baked-in background) would otherwise let the green active tint show
+   through. Give every active icon the same dark rounded square as the
+   agent panel (--c-base) so they all read consistently — icons with their
+   own opaque background (e.g. Vyb) simply cover it, no visible change. */
+.app-sidebar-compact .profile-item.active .profile-icon {
+  background: var(--c-base);
 }
 .app-sidebar-compact .parallel-agent-row {
   padding: 4px 0;
