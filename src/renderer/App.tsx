@@ -18,7 +18,7 @@ import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { HotkeyHints } from './components/HotkeyHints';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, Workspace, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitMergePreviewResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, Workspace, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitMergePreviewResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult, FileReplaceTarget, FileReplaceResult } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -213,6 +213,8 @@ declare global {
       listDir: (dirPath: string) => Promise<FileEntry[]>;
       listProjectFiles: (cwd: string) => Promise<string[]>;
       searchInFiles: (cwd: string, query: string, opts?: FileSearchOptions) => Promise<FileSearchResult>;
+      replaceInFiles: (cwd: string, query: string, opts: FileSearchOptions | undefined, replaceText: string, targets: FileReplaceTarget[]) => Promise<FileReplaceResult>;
+      onMenuFindInFiles: (callback: (payload: { withReplace: boolean }) => void) => () => void;
       formatDocument: (filePath: string, content: string) => Promise<{ content?: string; error?: string }>;
       readFile: (filePath: string) => Promise<string | null>;
       saveFile: (filePath: string, content: string) => Promise<boolean>;
@@ -403,6 +405,11 @@ export function App() {
   const [quickOpenVisible, setQuickOpenVisible] = useState(false);
   // T-044: Find-in-Files panel. Toggled by Cmd+Shift+F.
   const [findInFilesVisible, setFindInFilesVisible] = useState(false);
+  // Width % of the docked Search panel (mirrors changesWidth for git).
+  const [searchWidth, setSearchWidth] = useState(50);
+  // Set by the Edit-menu items: tells the panel to focus (and whether to
+  // expand the replace row). Nonce so repeat invocations re-trigger.
+  const [findPanelRequest, setFindPanelRequest] = useState<{ withReplace: boolean; nonce: number } | null>(null);
 
   // Build the view key for the currently-active profile + parallel selection.
   // Parent: just the profileId. Parallel: `${profileId}|${parallelId}`.
@@ -483,9 +490,12 @@ export function App() {
       }
       if (key === 'f' && e.shiftKey) {
         // T-044 Find in Files. Stays out of xterm's way — xterm
-        // doesn't bind Cmd+Shift+F.
+        // doesn't bind Cmd+Shift+F. (Normally the Edit-menu accelerator
+        // intercepts this first; this is the in-window fallback.) The
+        // docked Search panel shares the right edge with Git.
         e.preventDefault();
         e.stopPropagation();
+        setChangesVisible(false);
         setFindInFilesVisible((v) => !v);
       }
     };
@@ -739,6 +749,14 @@ export function App() {
       setEditorOpen(true);
     });
 
+    // Edit → Find in Files / Replace in Files: open the docked Search
+    // panel (closing the Git panel — they share the right edge).
+    const unsubFindInFiles = window.api.onMenuFindInFiles(({ withReplace }) => {
+      setChangesVisible(false);
+      setFindInFilesVisible(true);
+      setFindPanelRequest({ withReplace, nonce: Date.now() });
+    });
+
     // Handle notification click — switch to the profile (and parallel sub-
     // agent if any) that needs attention. Routes through `goToProfile`
     // so a profile in a different workspace also pulls the sidebar
@@ -910,6 +928,7 @@ export function App() {
       unsubCompletion();
       unsubSettings();
       unsubNewProfile();
+      unsubFindInFiles();
       unsubActivate();
       unsubOrdnaTask();
       unsubOrdnaExit();
@@ -1000,11 +1019,15 @@ export function App() {
   useEffect(() => {
     return window.api.onAppBeforeQuit(() => {
       const byProfile = new Map<string, string[]>();
-      for (const [key, names] of Object.entries(dirtyFilesByViewRef.current)) {
-        if (!names || !names.length) continue;
+      for (const [key, paths] of Object.entries(dirtyFilesByViewRef.current)) {
+        if (!paths || !paths.length) continue;
         const pid = key.includes('|') ? key.slice(0, key.indexOf('|')) : key;
         const arr = byProfile.get(pid) || [];
-        for (const n of names) if (!arr.includes(n)) arr.push(n);
+        // dirtyFilesByView stores absolute paths; the dialog shows basenames.
+        for (const p of paths) {
+          const base = p.split('/').pop() || p;
+          if (!arr.includes(base)) arr.push(base);
+        }
         byProfile.set(pid, arr);
       }
       if (byProfile.size === 0) {
@@ -1669,15 +1692,21 @@ export function App() {
   // settings; the keyboard shortcuts (Cmd+= / Cmd+- / Cmd+0) call
   // adjustEditorFontSize below to bump and persist.
   useEffect(() => {
-    const size = Math.max(8, Math.min(32, settings.editorFontSize ?? 13));
+    const size = Math.max(8, Math.min(32, settings.editorFontSize ?? 12));
     document.documentElement.style.setProperty('--cm-editor-font-size', `${size}px`);
   }, [settings.editorFontSize]);
 
+  // File-tree row font size (Files view) — same CSS-variable pattern.
+  useEffect(() => {
+    const size = Math.max(9, Math.min(20, settings.fileTreeFontSize ?? 12));
+    document.documentElement.style.setProperty('--file-tree-font-size', `${size}px`);
+  }, [settings.fileTreeFontSize]);
+
   const adjustEditorFontSize = useCallback((delta: number) => {
-    const current = settingsRef.current.editorFontSize ?? 13;
+    const current = settingsRef.current.editorFontSize ?? 12;
     // delta === 0 is the "reset to default" path. Otherwise clamp
     // to the spec's 8/32 floor + ceiling.
-    const next = delta === 0 ? 13 : Math.max(8, Math.min(32, current + delta));
+    const next = delta === 0 ? 12 : Math.max(8, Math.min(32, current + delta));
     if (next === current) return;
     savePaneSizes({ editorFontSize: next });
   }, [savePaneSizes]);
@@ -1985,6 +2014,9 @@ export function App() {
 
   const toggleGit = useCallback(() => {
     setGitPanelTab('changes');
+    // Git and Search share the docked right edge — opening one closes
+    // the other.
+    setFindInFilesVisible(false);
     setChangesVisible((v) => !v);
   }, []);
 
@@ -2323,7 +2355,7 @@ export function App() {
                   stickyScroll={settings.editorStickyScroll !== false}
                   showHiddenFiles={settings.showHiddenFiles !== false}
                   editorEngine={settings.editorEngine ?? 'monaco'}
-                  editorFontSize={settings.editorFontSize ?? 13}
+                  editorFontSize={settings.editorFontSize ?? 12}
                   diffContextLines={settings.diffContextLines ?? 6}
                   showChangedOnly={showChangedFilesViews.has(key)}
                   onShowChangedOnlyChange={(next) => {
@@ -2496,6 +2528,26 @@ export function App() {
             showAuthorAvatars={settings.showAuthorAvatars ?? true}
           />
         )}
+        {findInFilesVisible && activeProfile && (
+          <FindInFilesPanel
+            workingDirectory={activeProfile.workingDirectory}
+            widthPercent={searchWidth}
+            onWidthChange={setSearchWidth}
+            onClose={() => setFindInFilesVisible(false)}
+            openRequest={findPanelRequest}
+            dirtyPaths={activeViewKey ? (dirtyFilesByView[activeViewKey] ?? []) : []}
+            onOpenResult={(absolutePath, line) => {
+              if (activeViewKey) {
+                const key = activeViewKey;
+                setFilesViews((prev) => ensureInSet(prev, key));
+                setFilesRunning((prev) => ensureInSet(prev, key));
+                setKanbanViews((prev) => removeFromSet(prev, key));
+                setWebViews((prev) => removeFromSet(prev, key));
+              }
+              setPendingFileOpen({ path: absolutePath, nonce: Date.now(), line });
+            }}
+          />
+        )}
       </div>
       <StatusBar
         profile={activeProfile}
@@ -2506,6 +2558,7 @@ export function App() {
             setChangesVisible(false);
           } else {
             setGitPanelTab('changes');
+            setFindInFilesVisible(false);
             setChangesVisible(true);
           }
         }}
@@ -2514,6 +2567,7 @@ export function App() {
             setChangesVisible(false);
           } else {
             setGitPanelTab('tree');
+            setFindInFilesVisible(false);
             setChangesVisible(true);
           }
         }}
@@ -2527,23 +2581,6 @@ export function App() {
           onClose={() => setEditorOpen(false)}
           onStartIconGeneration={handleStartIconGeneration}
           pendingIconGenerations={pendingIconGenerations}
-        />
-      )}
-      {findInFilesVisible && activeProfile && (
-        <FindInFilesPanel
-          workingDirectory={activeProfile.workingDirectory}
-          onClose={() => setFindInFilesVisible(false)}
-          onOpenResult={(absolutePath, line) => {
-            setFindInFilesVisible(false);
-            if (activeViewKey) {
-              const key = activeViewKey;
-              setFilesViews((prev) => ensureInSet(prev, key));
-              setFilesRunning((prev) => ensureInSet(prev, key));
-              setKanbanViews((prev) => removeFromSet(prev, key));
-              setWebViews((prev) => removeFromSet(prev, key));
-            }
-            setPendingFileOpen({ path: absolutePath, nonce: Date.now(), line });
-          }}
         />
       )}
       {quickOpenVisible && activeProfile && (

@@ -15,6 +15,22 @@ import { ParallelAgentManager } from './parallel-agent-manager';
 import { applyAgentArgsGuards } from './agent-args-guard';
 import { sendCtrlCToPty, clearCtrlCState } from './windows-ctrlc';
 
+// Bundled ripgrep (@vscode/ripgrep) — Vyb ships its own `rg` binary so
+// cross-file search works without the user installing ripgrep, and
+// without relying on PATH (a packaged macOS app inherits almost none of
+// the user's shell PATH). When packaged, the binary lives under
+// app.asar.unpacked (see forge.config.ts asar.unpack), so rewrite the
+// asar segment to its on-disk location. In dev, rgPath points straight
+// into node_modules and the replace is a no-op.
+let rgBinaryPath: string | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { rgPath } = require('@vscode/ripgrep') as { rgPath: string };
+  rgBinaryPath = rgPath.replace(/\bapp\.asar\b/, 'app.asar.unpacked');
+} catch {
+  rgBinaryPath = null; // extremely unlikely; search falls back gracefully
+}
+
 
 let ptyManager: PtyManager;
 let statusDetector: StatusDetector;
@@ -3672,12 +3688,15 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         }
       }
       args.push('--', query, '.');
+      if (!rgBinaryPath) {
+        return { ...empty, fallbackUsed: true, error: 'bundled search engine unavailable' };
+      }
       return await new Promise<import('../shared/types').FileSearchResult>((resolve) => {
         let child: ReturnType<typeof spawn>;
         try {
-          child = spawn('rg', args, { cwd });
+          child = spawn(rgBinaryPath as string, args, { cwd });
         } catch {
-          resolve({ ...empty, fallbackUsed: true, error: 'ripgrep not installed' });
+          resolve({ ...empty, fallbackUsed: true, error: 'bundled search engine failed to start' });
           return;
         }
         let stdoutBuf = '';
@@ -3729,7 +3748,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         child.stderr?.on('data', (chunk: string) => { stderrBuf += chunk; });
         child.on('error', () => {
           clearTimeout(timer);
-          resolve({ ...empty, fallbackUsed: true, error: 'ripgrep not installed' });
+          resolve({ ...empty, fallbackUsed: true, error: 'bundled search engine failed to start' });
         });
         child.on('close', () => {
           clearTimeout(timer);
@@ -3741,6 +3760,127 @@ export function setupIpcHandlers(window: BrowserWindow): void {
           });
         });
       });
+    },
+  );
+
+  // Replace occurrences of the current search across files (VS Code-style
+  // "Replace in Files"). The renderer sends the same query/options the
+  // search ran with, plus explicit targets taken from the result list.
+  // Each file is re-read and re-matched NOW: if the file changed since the
+  // search and a requested (line, column) occurrence no longer exists, that
+  // occurrence is skipped and reported instead of replacing the wrong text.
+  // Matching mirrors the ripgrep flags with a JS RegExp (-F → escaped
+  // literal, -w → \b wrap, -i → case-insensitive); in regex mode the
+  // replacement supports $1…$n capture refs. Dialect differences between
+  // Rust regex and JS RegExp only matter for exotic patterns — those
+  // occurrences simply come back as "no longer present" rather than
+  // mis-replacing. Note: per-match offsets from ripgrep are byte-based;
+  // for non-ASCII lines they can disagree with JS string offsets, in which
+  // case the match is skipped (safe) rather than replaced at the wrong spot.
+  ipcMain.handle(
+    IPC_CHANNELS.FILE_REPLACE_IN_FILES,
+    async (
+      _,
+      cwd: string,
+      query: string,
+      opts: import('../shared/types').FileSearchOptions | undefined,
+      replaceText: string,
+      targets: import('../shared/types').FileReplaceTarget[],
+    ): Promise<import('../shared/types').FileReplaceResult> => {
+      const result: import('../shared/types').FileReplaceResult = { replacedMatches: 0, replacedFiles: 0, skipped: [] };
+      if (!cwd || !query || !Array.isArray(targets) || targets.length === 0) return result;
+
+      let source = query;
+      if (!opts?.regex) source = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (opts?.wholeWord) source = `\\b(?:${source})\\b`;
+      let re: RegExp;
+      try {
+        re = new RegExp(source, opts?.caseSensitive ? 'g' : 'gi');
+      } catch (err) {
+        return { ...result, error: `Invalid pattern: ${(err as Error).message}` };
+      }
+
+      for (const target of targets) {
+        // Paths come from our own search results (cwd-relative); reject
+        // anything absolute or escaping upward.
+        if (!target?.path || path.isAbsolute(target.path) || target.path.split('/').includes('..')) {
+          result.skipped.push({ path: target?.path ?? '?', reason: 'invalid path' });
+          continue;
+        }
+        const abs = path.join(cwd, target.path);
+        let content: string;
+        try {
+          content = fs.readFileSync(abs, 'utf-8');
+        } catch {
+          result.skipped.push({ path: target.path, reason: 'could not read file' });
+          continue;
+        }
+
+        // `wanted` = the specific occurrences to replace, keyed by
+        // "line:column"; null = every current match in the file.
+        const wanted = target.matches
+          ? new Set(target.matches.map((m) => `${m.lineNumber}:${m.matchStart}`))
+          : null;
+        const found = new Set<string>();
+
+        // Line-start offsets → translate absolute match offsets to
+        // (1-based line, 0-based column) to compare against the search.
+        const lineStarts: number[] = [0];
+        for (let i = 0; i < content.length; i++) {
+          if (content.charCodeAt(i) === 10) lineStarts.push(i + 1);
+        }
+        const lineColAt = (off: number): string => {
+          let lo = 0;
+          let hi = lineStarts.length - 1;
+          while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1;
+            if (lineStarts[mid] <= off) lo = mid; else hi = mid - 1;
+          }
+          return `${lo + 1}:${off - lineStarts[lo]}`;
+        };
+
+        let out = '';
+        let last = 0;
+        let replacedHere = 0;
+        re.lastIndex = 0;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(content)) !== null) {
+          if (m[0] === '') { re.lastIndex++; continue; } // zero-length-match guard
+          const key = lineColAt(m.index);
+          if (!wanted || wanted.has(key)) {
+            if (wanted) found.add(key);
+            // Capture-aware replacement: in regex mode, re-run the pattern
+            // against just the matched text so $1…$n resolve. Literal mode
+            // inserts the replacement verbatim.
+            const replacement = opts?.regex
+              ? m[0].replace(new RegExp(source, opts?.caseSensitive ? '' : 'i'), replaceText)
+              : replaceText;
+            out += content.slice(last, m.index) + replacement;
+            last = m.index + m[0].length;
+            replacedHere++;
+          }
+        }
+        out += content.slice(last);
+
+        if (wanted) {
+          for (const k of wanted) {
+            if (!found.has(k)) {
+              result.skipped.push({ path: target.path, reason: `match at ${k} no longer present` });
+            }
+          }
+        }
+
+        if (replacedHere > 0) {
+          try {
+            fs.writeFileSync(abs, out, 'utf-8');
+            result.replacedFiles++;
+            result.replacedMatches += replacedHere;
+          } catch {
+            result.skipped.push({ path: target.path, reason: 'could not write file' });
+          }
+        }
+      }
+      return result;
     },
   );
 

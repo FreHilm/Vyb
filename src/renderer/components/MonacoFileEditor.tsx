@@ -40,6 +40,17 @@ interface Props {
    * any git conflict markers in the file. Edit-only: resolving edits the
    * buffer; the host's normal save/stage flow is unchanged. */
   enableConflictLens?: boolean;
+  /** Cursor + file info for the host's editor status bar (Ln/Col, EOL).
+   * Fired once on mount and on every cursor move. */
+  onStatusInfo?: (info: EditorStatusInfo) => void;
+}
+
+/** Payload for the editor status bar (shared by the plain, diff, and
+ * merge editors). */
+export interface EditorStatusInfo {
+  line: number;
+  column: number;
+  eol: 'LF' | 'CRLF';
 }
 
 /**
@@ -61,7 +72,7 @@ export interface MonacoFileEditorHandle {
 }
 
 export const MonacoFileEditor = forwardRef<MonacoFileEditorHandle, Props>(function MonacoFileEditor({
-  path, initialContent, savedContent, language, fontSize, onChange, onSave, blame, onBlameSelect, onAdjustFontSize, enableConflictLens,
+  path, initialContent, savedContent, language, fontSize, onChange, onSave, blame, onBlameSelect, onAdjustFontSize, enableConflictLens, onStatusInfo,
 }: Props, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -84,9 +95,11 @@ export const MonacoFileEditor = forwardRef<MonacoFileEditorHandle, Props>(functi
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
   const onAdjustFontSizeRef = useRef(onAdjustFontSize);
+  const onStatusInfoRef = useRef(onStatusInfo);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
   onAdjustFontSizeRef.current = onAdjustFontSize;
+  onStatusInfoRef.current = onStatusInfo;
   // Blame decorations live in their own collection so they can be
   // refreshed independently of the editor lifecycle. A line→SHA map
   // resolves clicks on the injected blame column back to a commit.
@@ -144,6 +157,14 @@ export const MonacoFileEditor = forwardRef<MonacoFileEditorHandle, Props>(functi
       onChangeRef.current(value, value !== baselineRef.current);
     });
 
+    // Status-bar feed: Ln/Col + the model's EOL. Initial fire so the bar
+    // is correct the moment the file opens, then on every cursor move.
+    const emitStatus = (line: number, column: number) =>
+      onStatusInfoRef.current?.({ line, column, eol: model.getEOL() === '\r\n' ? 'CRLF' : 'LF' });
+    emitStatus(1, 1);
+    const cursorSub = editor.onDidChangeCursorPosition((e) =>
+      emitStatus(e.position.lineNumber, e.position.column));
+
     // Cmd/Ctrl+S → save. Monaco swallows the browser default itself.
     editor.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
@@ -194,6 +215,7 @@ export const MonacoFileEditor = forwardRef<MonacoFileEditorHandle, Props>(functi
 
     return () => {
       changeSub.dispose();
+      cursorSub.dispose();
       conflictLens?.dispose();
       conflictDeco?.dispose();
       dom?.removeEventListener('mousedown', onBlameClick, true);

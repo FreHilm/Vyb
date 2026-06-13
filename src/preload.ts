@@ -381,6 +381,22 @@ contextBridge.exposeInMainWorld('api', {
   searchInFiles: (cwd: string, query: string, opts?: import('./shared/types').FileSearchOptions) =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_SEARCH_IN_FILES, cwd, query, opts),
 
+  replaceInFiles: (
+    cwd: string,
+    query: string,
+    opts: import('./shared/types').FileSearchOptions | undefined,
+    replaceText: string,
+    targets: import('./shared/types').FileReplaceTarget[],
+  ): Promise<import('./shared/types').FileReplaceResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_REPLACE_IN_FILES, cwd, query, opts, replaceText, targets),
+
+  onMenuFindInFiles: (callback: (payload: { withReplace: boolean }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { withReplace: boolean }) =>
+      callback(payload);
+    ipcRenderer.on(IPC_CHANNELS.MENU_FIND_IN_FILES, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_FIND_IN_FILES, handler);
+  },
+
   formatDocument: (filePath: string, content: string): Promise<{ content?: string; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_FORMAT, filePath, content),
 

@@ -3,6 +3,7 @@ import * as monaco from 'monaco-editor';
 import '../lib/monaco-setup'; // side effect: wire workers before any editor is created
 import type { MergeRegion, HunkDecision } from '../lib/conflict-parse';
 import { buildConflictLineDecorations } from '../lib/monaco-conflict-lens';
+import type { EditorStatusInfo } from './MonacoFileEditor';
 
 // ── Reusable editable Monaco editor for merge-conflict resolution ──
 //
@@ -56,13 +57,16 @@ interface Props {
   highlightRanges?: [number, number][];
   /** CSS class for the highlight (e.g. 'merge-hl-ours'). */
   highlightClassName?: string;
+  /** Cursor + EOL info for the host's status bar (used by the editable
+   * result pane when embedded in the file editor). */
+  onStatusInfo?: (info: EditorStatusInfo) => void;
 }
 
 // Monotonic so each instance gets a unique model URI.
 let mergeEditorSeq = 0;
 
 export const MergeResultEditor = forwardRef<MergeResultEditorHandle, Props>(function MergeResultEditor(
-  { initialValue, language, eol = '\n', fontSize = 13, readOnly = false, onChange, onSave, conflictRegions, onRegionAction, highlightRanges, highlightClassName },
+  { initialValue, language, eol = '\n', fontSize = 13, readOnly = false, onChange, onSave, conflictRegions, onRegionAction, highlightRanges, highlightClassName, onStatusInfo },
   ref,
 ) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -73,9 +77,11 @@ export const MergeResultEditor = forwardRef<MergeResultEditorHandle, Props>(func
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
   const onRegionActionRef = useRef(onRegionAction);
+  const onStatusInfoRef = useRef(onStatusInfo);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
   onRegionActionRef.current = onRegionAction;
+  onStatusInfoRef.current = onStatusInfo;
 
   useImperativeHandle(ref, () => ({
     getValue: () => modelRef.current?.getValue() ?? '',
@@ -127,8 +133,17 @@ export const MergeResultEditor = forwardRef<MergeResultEditorHandle, Props>(func
     const sub = model.onDidChangeContent(() => onChangeRef.current?.(model.getValue()));
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => onSaveRef.current?.());
 
+    // Status-bar feed (Ln/Col + EOL) — used by the result pane when this
+    // editor is embedded in the FileExplorer's 3-way view.
+    const emitStatus = (line: number, column: number) =>
+      onStatusInfoRef.current?.({ line, column, eol: model.getEOL() === '\r\n' ? 'CRLF' : 'LF' });
+    emitStatus(1, 1);
+    const cursorSub = editor.onDidChangeCursorPosition((e) =>
+      emitStatus(e.position.lineNumber, e.position.column));
+
     return () => {
       sub.dispose();
+      cursorSub.dispose();
       decoRef.current?.clear();
       decoRef.current = null;
       hlDecoRef.current?.clear();

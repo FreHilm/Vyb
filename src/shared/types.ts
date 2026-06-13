@@ -151,6 +151,8 @@ export interface AppSettings {
    * has a manual input. Default 13 — matches the previous hard-
    * coded value before this setting existed. */
   editorFontSize: number;
+  /** Font size (px) for the file-tree rows in the Files view. */
+  fileTreeFontSize?: number;
   /** Which editor backs the file view. 'monaco' (the VS Code editor) is the
    * default and covers plain editing, the inline diff, blame, and markdown
    * editing. 'codemirror' is the legacy fallback. See docs/MONACO_MIGRATION.md. */
@@ -305,7 +307,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   formatOnSave: false,
   editorStickyScroll: true,
   showHiddenFiles: true,
-  editorFontSize: 13,
+  // Matches VS Code's default editor font size on macOS.
+  editorFontSize: 12,
+  fileTreeFontSize: 12,
   editorEngine: 'monaco',
   diffContextLines: 6,
   notificationsEnabled: true,
@@ -463,6 +467,10 @@ export const IPC_CHANNELS = {
   GIT_REBASE_INTERACTIVE: 'git:rebaseInteractive',
   FILE_LIST_PROJECT: 'file:listProject',
   FILE_SEARCH_IN_FILES: 'file:searchInFiles',
+  FILE_REPLACE_IN_FILES: 'file:replaceInFiles',
+  /** Main → renderer: Edit → Find/Replace in Files clicked. Payload is
+   * `{ withReplace: boolean }`. */
+  MENU_FIND_IN_FILES: 'menu:findInFiles',
   FILE_FORMAT: 'file:format',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
@@ -737,6 +745,26 @@ export interface FileSearchOptions {
   /** Comma- or newline-separated globs; files matching any are
    * skipped. */
   exclude?: string;
+}
+
+/** One file to apply replacements in. When `matches` is present only
+ * those occurrences (identified by line + column from the search
+ * results) are replaced; otherwise every current match in the file. */
+export interface FileReplaceTarget {
+  /** Path relative to the search cwd (as returned by the search). */
+  path: string;
+  matches?: { lineNumber: number; matchStart: number }[];
+}
+
+export interface FileReplaceResult {
+  /** Total occurrences replaced across all files. */
+  replacedMatches: number;
+  /** Files actually rewritten. */
+  replacedFiles: number;
+  /** Files (or specific matches) that could not be replaced — file
+   * unreadable, or the text changed since the search ran. */
+  skipped: { path: string; reason: string }[];
+  error?: string;
 }
 
 /** T-041: state of an in-progress `git bisect` session. `inProgress`

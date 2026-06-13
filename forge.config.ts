@@ -49,7 +49,12 @@ function copyModuleWithDeps(moduleName: string, srcBase: string, destBase: strin
 const config: ForgeConfig = {
   packagerConfig: {
     asar: {
-      unpack: '**/node_modules/node-pty/**/{*.node,spawn-helper}',
+      // node-pty's native bits + spawn-helper, and the bundled ripgrep
+      // binary (@vscode/ripgrep ships it in a platform package named
+      // @vscode/ripgrep-<os>-<arch>). Both must live OUTSIDE the asar so
+      // they're real executable files on disk. The AutoUnpackNatives
+      // plugin wraps this as `{<this>,<*.node>}`, so nested braces are OK.
+      unpack: '**/node_modules/{node-pty/**/{*.node,spawn-helper},@vscode/ripgrep*/bin/**}',
     },
     name: 'Vyb',
     // The product name (capitalized) controls the .app bundle name on

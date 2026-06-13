@@ -27,10 +27,12 @@ interface Props {
   showBase?: boolean;
   onChange: (content: string, isDirty: boolean) => void;
   onSave: () => void;
+  /** Cursor/EOL feed from the Result pane for the editor status bar. */
+  onStatusInfo?: (info: import('./MonacoFileEditor').EditorStatusInfo) => void;
 }
 
 export function ThreeWayFileEditor({
-  workingDirectory, filePath, relPath, initialContent, savedContent, language, fontSize, showBase, onChange, onSave,
+  workingDirectory, filePath, relPath, initialContent, savedContent, language, fontSize, showBase, onChange, onSave, onStatusInfo,
 }: Props) {
   const [content, setContent] = useState(initialContent);
   const [baseStage, setBaseStage] = useState('');
@@ -102,6 +104,7 @@ export function ThreeWayFileEditor({
         onResultChange={handleResultChange}
         onRegionAction={resolveBlock}
         onSave={onSave}
+        onStatusInfo={onStatusInfo}
       />
     </div>
   );

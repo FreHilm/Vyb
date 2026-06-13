@@ -18,6 +18,7 @@ with the MIT license of this project.
 | [@xterm/addon-serialize](https://github.com/xtermjs/xterm.js) | MIT | Terminal state serialization |
 | [@xterm/addon-web-links](https://github.com/xtermjs/xterm.js) | MIT | Clickable URLs in terminal |
 | [node-pty](https://github.com/microsoft/node-pty) | MIT | Native pseudo-terminal bindings |
+| [@vscode/ripgrep](https://github.com/microsoft/vscode-ripgrep) | MIT | Bundled ripgrep binary for cross-file search (Find/Replace in Files) |
 | [CodeMirror](https://codemirror.net/) (codemirror, @codemirror/*) | MIT | Code editor |
 | [@codemirror/theme-one-dark](https://github.com/codemirror/theme-one-dark) | MIT | Editor dark theme |
 | [react-markdown](https://github.com/remarkjs/react-markdown) | MIT | Markdown renderer |

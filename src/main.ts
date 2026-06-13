@@ -229,6 +229,11 @@ function buildMenu() {
         // (the handler no-ops when no editor is open). Save / Save As now
         // live in the File menu.
         { label: 'Find & Replace…', accelerator: 'CmdOrCtrl+Alt+F', enabled: hasFile, click: () => sendEditAction('find') },
+        // Project-wide search/replace — opens the docked Search panel.
+        // Always enabled (the renderer no-ops without an active profile).
+        { label: 'Find in Files…', accelerator: 'CmdOrCtrl+Shift+F', click: () => findInFiles(false) },
+        { label: 'Replace in Files…', accelerator: 'CmdOrCtrl+Shift+H', click: () => findInFiles(true) },
+        { type: 'separator' as const },
         { label: 'Format Document', accelerator: 'Shift+Alt+F', enabled: hasFile, click: () => sendEditAction('format') },
         { label: 'Reveal in File Tree', accelerator: 'CmdOrCtrl+Shift+E', enabled: hasFile, click: () => sendEditAction('reveal') },
         { label: 'Toggle Blame', enabled: hasFile, click: () => sendEditAction('blame') },
@@ -310,6 +315,12 @@ function openSettings() {
 function newProfile() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC_CHANNELS.MENU_NEW_PROFILE);
+  }
+}
+
+function findInFiles(withReplace: boolean) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC_CHANNELS.MENU_FIND_IN_FILES, { withReplace });
   }
 }
 

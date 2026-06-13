@@ -3948,6 +3948,26 @@ select option {
    bar can show just tabs. Background matches the editor body
    (`--c-base`) so the toolbar reads as part of the same surface;
    buttons right-aligned. */
+/* VS Code-style editor status bar — bottom of the editor pane. */
+.file-editor-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  height: 22px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--c-subtext0);
+  background: var(--c-mantle);
+  border-top: 1px solid var(--c-surface0);
+  user-select: none;
+}
+.file-editor-statusbar-item {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums; /* Ln/Col don't jitter while moving */
+}
+
 /* Floating editor controls (mode toggles), top-right of the editor body. */
 .file-editor-float {
   position: absolute;
@@ -4185,12 +4205,18 @@ select option {
   gap: 6px;
   padding: 4px 10px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--file-tree-font-size, 12px);
   color: var(--c-subtext0);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   transition: background 0.1s;
+}
+/* Icons track the tree font: +3px reproduces the original proportion
+   (13px font → 16px icon) across the whole settings range. */
+.file-tree-item .file-icon {
+  width: calc(var(--file-tree-font-size, 12px) + 3px);
+  height: calc(var(--file-tree-font-size, 12px) + 3px);
 }
 
 .file-tree-item:hover {
@@ -6643,20 +6669,21 @@ select option {
 .threeway-file-editor { width: 100%; height: 100%; min-height: 0; }
 
 /* T-044 Find in Files overlay */
+/* Docked on the right edge, same geometry as .git-changes-panel (the
+   two panels are mutually exclusive and share the resize affordance). */
 .find-in-files-panel {
-  position: fixed;
-  top: 60px;
-  right: 24px;
-  width: 480px;
-  max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 120px);
+  position: absolute;
+  top: 32px;
+  right: 0;
+  bottom: 0;
   background: var(--c-base);
-  border: 1px solid var(--c-surface1);
-  border-radius: 8px;
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+  border-left: 1px solid var(--c-surface0);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.3);
   display: flex;
   flex-direction: column;
-  z-index: 150;
+  z-index: 50;
+  min-width: 20%;
+  max-width: 80%;
 }
 .find-in-files-header {
   display: flex;
@@ -6744,10 +6771,23 @@ select option {
   padding: 4px 12px;
   background: var(--c-mantle);
   color: var(--c-text);
+  font-size: 12px;
+}
+/* Clickable main area inside a row (the row itself hosts hover actions). */
+.find-in-files-file-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  background: none;
   border: none;
+  color: inherit;
+  font: inherit;
   cursor: pointer;
   text-align: left;
-  font-size: 12px;
+  padding: 0;
+  overflow: hidden;
 }
 .find-in-files-file-row:hover { background: var(--c-surface0); }
 .find-in-files-filename { font-weight: 600; }
@@ -6768,17 +6808,29 @@ select option {
 }
 .find-in-files-line-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 2px 24px;
+  padding: 2px 12px 2px 24px;
   background: transparent;
   color: var(--c-text);
-  border: none;
-  cursor: pointer;
-  text-align: left;
   font-family: var(--font-mono);
   font-size: 11px;
+}
+.find-in-files-line-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  overflow: hidden;
 }
 .find-in-files-line-row:hover { background: var(--c-surface0); }
 .find-in-files-lineno {
@@ -6798,6 +6850,95 @@ select option {
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;
+}
+
+/* ── Replace UI (VS Code-style) ── */
+.find-in-files-search-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.find-in-files-replace-toggle {
+  flex-shrink: 0;
+  width: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--c-overlay1);
+  cursor: pointer;
+  padding: 0;
+}
+.find-in-files-replace-toggle:hover { background: var(--c-surface0); color: var(--c-text); }
+.find-in-files-inputs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.find-in-files-replace-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.find-in-files-replace-row .find-in-files-query { flex: 1; min-width: 0; }
+.find-in-files-replace-all {
+  flex-shrink: 0;
+  background: var(--c-surface0);
+  color: var(--c-text);
+  border: 1px solid var(--c-surface1);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.find-in-files-replace-all:hover:not(:disabled) { background: var(--c-surface1); }
+.find-in-files-replace-all:disabled { opacity: 0.4; cursor: default; }
+.find-in-files-replace-all.is-armed {
+  background: color-mix(in srgb, var(--c-yellow) 25%, var(--c-surface0));
+  border-color: var(--c-yellow);
+  color: var(--c-yellow);
+}
+
+/* Per-row replace/dismiss actions — appear on hover, like VS Code. */
+.find-in-files-row-actions {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.find-in-files-file-row:hover .find-in-files-row-actions,
+.find-in-files-line-row:hover .find-in-files-row-actions {
+  display: flex;
+}
+.find-in-files-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--c-overlay1);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.find-in-files-action:hover:not(:disabled) { background: var(--c-surface1); color: var(--c-text); }
+.find-in-files-action:disabled { opacity: 0.35; cursor: default; }
+
+/* Unsaved-changes marker on a file row (replace will skip the file). */
+.find-in-files-dirty {
+  flex-shrink: 0;
+  color: var(--c-yellow);
+  font-size: 9px;
 }
 
 /* T-045 format-error toast */

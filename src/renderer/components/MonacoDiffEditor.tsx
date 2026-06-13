@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as monaco from 'monaco-editor';
 import '../lib/monaco-setup'; // side effect: wire workers before any editor is created
+import type { EditorStatusInfo } from './MonacoFileEditor';
 
 interface Props {
   /** Absolute path of the file being diffed. Used only to build stable
@@ -31,6 +32,9 @@ interface Props {
   /** Cmd+= / Cmd++ grow, Cmd+- shrink, Cmd+0 reset the editor font size
    * (delegated to the host so it persists in settings). */
   onAdjustFontSize?: (delta: number) => void;
+  /** Cursor + EOL info for the host's status bar (tracks the editable
+   * modified side). */
+  onStatusInfo?: (info: EditorStatusInfo) => void;
 }
 
 /**
@@ -42,7 +46,7 @@ interface Props {
  * Monaco's built-in overview ruler.
  */
 export function MonacoDiffEditor({
-  path, original, modified, savedContent, language, fontSize, sideBySide, hideUnchanged, contextLines, onChange, onSave, onAdjustFontSize,
+  path, original, modified, savedContent, language, fontSize, sideBySide, hideUnchanged, contextLines, onChange, onSave, onAdjustFontSize, onStatusInfo,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
@@ -53,9 +57,11 @@ export function MonacoDiffEditor({
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
   const onAdjustFontSizeRef = useRef(onAdjustFontSize);
+  const onStatusInfoRef = useRef(onStatusInfo);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
   onAdjustFontSizeRef.current = onAdjustFontSize;
+  onStatusInfoRef.current = onStatusInfo;
   const baselineRef = useRef(savedContent);
 
   useEffect(() => {
@@ -114,6 +120,13 @@ export function MonacoDiffEditor({
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
       () => onSaveRef.current(),
     );
+
+    // Status-bar feed (Ln/Col + EOL of the working-tree side).
+    const emitStatus = (line: number, column: number) =>
+      onStatusInfoRef.current?.({ line, column, eol: modifiedModel.getEOL() === '\r\n' ? 'CRLF' : 'LF' });
+    emitStatus(1, 1);
+    const cursorSub = modEditor.onDidChangeCursorPosition((e) =>
+      emitStatus(e.position.lineNumber, e.position.column));
     // Font-size zoom (parity with the plain editor / CodeMirror).
     const adjustFont = (d: number) => onAdjustFontSizeRef.current?.(d);
     modEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Equal, () => adjustFont(1));
@@ -126,6 +139,7 @@ export function MonacoDiffEditor({
 
     return () => {
       changeSub.dispose();
+      cursorSub.dispose();
       diff.dispose();
       diffRef.current = null;
       try { originalModel.dispose(); } catch { /* gone */ }

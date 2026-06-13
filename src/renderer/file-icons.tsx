@@ -177,6 +177,9 @@ export function FileIcon({ filename, isDirectory, isExpanded }: {
 
   return (
     <svg
+      className="file-icon"
+      // Default size; contexts can override via CSS (the file tree scales
+      // it with --file-tree-font-size so icons follow the font setting).
       width="16"
       height="16"
       viewBox="0 0 16 16"

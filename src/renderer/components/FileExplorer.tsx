@@ -22,7 +22,7 @@ import { MermaidBlock } from './MermaidBlock';
 import { ExcalidrawEditor, type ExcalidrawEditorHandle } from './ExcalidrawEditor';
 import { FileHistoryView } from './FileHistoryView';
 import { ErrorBoundary } from './ErrorBoundary';
-import { MonacoFileEditor, monacoLanguageForFile, type MonacoFileEditorHandle } from './MonacoFileEditor';
+import { MonacoFileEditor, monacoLanguageForFile, type MonacoFileEditorHandle, type EditorStatusInfo } from './MonacoFileEditor';
 import { ThreeWayFileEditor } from './ThreeWayFileEditor';
 import { MonacoDiffEditor } from './MonacoDiffEditor';
 import { toastError, toastInfo, errMessage } from '../lib/toast';
@@ -82,7 +82,9 @@ interface FileExplorerProps {
   onAdjustEditorFontSize?: (delta: number) => void;
   /** Reports the basenames of files with unsaved edits whenever that set
    * changes. Drives the sidebar asterisk + the quit-time unsaved dialog. */
-  onDirtyChange?: (dirtyFileNames: string[]) => void;
+  /** Reports the ABSOLUTE paths of files with unsaved edits whenever the
+   * set changes. Consumers display basenames where appropriate. */
+  onDirtyChange?: (dirtyFilePaths: string[]) => void;
   /** Spike: which editor backs the plain file path. Defaults to
    * 'codemirror'. 'monaco' swaps the VS Code editor in for non-diff,
    * non-markdown files. See docs/MONACO_MIGRATION.md. */
@@ -783,6 +785,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   // Bumped to force a re-render when the open diff's HEAD baseline is
   // re-fetched after a refresh (e.g. a commit changed HEAD).
   const [, setDiffBaselineTick] = useState(0);
+  // Ln/Col + EOL for the editor status bar — fed by whichever Monaco
+  // editor (plain / diff / 3-way result) is currently mounted.
+  const [editorStatus, setEditorStatus] = useState<EditorStatusInfo | null>(null);
   // T-026: when set, render the FileHistoryView overlay for this path.
   // Cleared by the overlay's close button or Esc keypress.
   const [historyFile, setHistoryFile] = useState<{ path: string; name: string; initialSha?: string }| null>(null);
@@ -1294,7 +1299,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   const onDirtyChangeRef = useRef(onDirtyChange);
   onDirtyChangeRef.current = onDirtyChange;
   useEffect(() => {
-    onDirtyChangeRef.current?.([...modifiedSet].map((p) => fileName(p)));
+    onDirtyChangeRef.current?.([...modifiedSet]);
   }, [modifiedSet]);
 
   // T-045: format error (transient toast). Cleared after a few
@@ -2696,6 +2701,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
                   });
                 }}
                 onSave={handleSave}
+                onStatusInfo={setEditorStatus}
               />
             ) : (
             <MonacoFileEditor
@@ -2728,6 +2734,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
               }}
               onSave={handleSave}
               onAdjustFontSize={onAdjustEditorFontSize}
+              onStatusInfo={setEditorStatus}
             />
             )}
           </div>
@@ -2759,6 +2766,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
               }}
               onSave={handleSave}
               onAdjustFontSize={onAdjustEditorFontSize}
+              onStatusInfo={setEditorStatus}
             />
           </div>
         )}
@@ -2791,6 +2799,23 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
               <path d="M20 30h24M20 38h24M20 46h16" />
             </svg>
             <span>Select a file to view</span>
+          </div>
+        )}
+
+        {/* VS Code-style editor status bar — Ln/Col, encoding, EOL. Shown
+            while a Monaco-backed text editor is active (plain, diff, or
+            3-way; markdown edit mode included, rendered view excluded).
+            Encoding is a fixed label: Vyb reads and writes files as UTF-8. */}
+        {activeTabPath && !activeIsImage && !activeMdShowing
+          && (activeTabPath === monacoPath || activeTabPath === monacoDiffPath) && (
+          <div className="file-editor-statusbar">
+            <span className="file-editor-statusbar-item">
+              Ln {editorStatus?.line ?? 1}, Col {editorStatus?.column ?? 1}
+            </span>
+            <span className="file-editor-statusbar-item">UTF-8</span>
+            <span className="file-editor-statusbar-item" title="End-of-line sequence">
+              {editorStatus?.eol ?? 'LF'}
+            </span>
           </div>
         )}
       </div>

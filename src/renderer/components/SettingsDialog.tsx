@@ -150,7 +150,8 @@ export function SettingsDialog({
   const [darkness, setDarkness] = useState(settings.darkness);
   const [textLightness, setTextLightness] = useState(settings.textLightness);
   const [profileFontSize, setProfileFontSize] = useState(settings.profileFontSize);
-  const [editorFontSize, setEditorFontSize] = useState(settings.editorFontSize ?? 13);
+  const [editorFontSize, setEditorFontSize] = useState(settings.editorFontSize ?? 12);
+  const [fileTreeFontSize, setFileTreeFontSize] = useState(settings.fileTreeFontSize ?? 12);
   const [agentFontSize, setAgentFontSize] = useState(settings.agentFontSize);
   const [shellFontSize, setShellFontSize] = useState(settings.shellFontSize);
   const [profileFontWeight, setProfileFontWeight] = useState(settings.profileFontWeight);
@@ -225,6 +226,7 @@ export function SettingsDialog({
     textLightness: settings.textLightness,
     profileFontSize: settings.profileFontSize,
     profileFontWeight: settings.profileFontWeight,
+    fileTreeFontSize: settings.fileTreeFontSize ?? 12,
     flameIntensity: settings.flameIntensity,
     flameSpread: settings.flameSpread,
     flameLength: settings.flameLength,
@@ -244,6 +246,11 @@ export function SettingsDialog({
     flameIntensity, flameSpread, flameLength, flameSpeed,
   ]);
 
+  // Live-preview the file-tree font size (same pattern as applyTheme above).
+  useEffect(() => {
+    document.documentElement.style.setProperty('--file-tree-font-size', `${fileTreeFontSize}px`);
+  }, [fileTreeFontSize]);
+
   useEffect(() => {
     return () => {
       if (savedRef.current) return;
@@ -254,6 +261,7 @@ export function SettingsDialog({
         length: o.flameLength,
         speed: o.flameSpeed,
       }, o.profileFontWeight);
+      document.documentElement.style.setProperty('--file-tree-font-size', `${o.fileTreeFontSize}px`);
     };
   }, []);
 
@@ -268,7 +276,8 @@ export function SettingsDialog({
       darkness,
       textLightness,
       profileFontSize,
-      editorFontSize: Math.max(8, Math.min(32, editorFontSize || 13)),
+      editorFontSize: Math.max(8, Math.min(32, editorFontSize || 12)),
+      fileTreeFontSize: Math.max(9, Math.min(20, fileTreeFontSize || 12)),
       agentFontSize,
       shellFontSize,
       profileFontWeight,
@@ -704,6 +713,12 @@ export function SettingsDialog({
                       <td><input type="number" min={10} max={24} value={shellFontSize} onChange={(e) => setShellFontSize(Number(e.target.value))} /></td>
                       <td><input type="number" min={100} max={900} step={100} value={shellFontWeight} onChange={(e) => setShellFontWeight(Number(e.target.value))} /></td>
                       <td><input type="number" min={100} max={900} step={100} value={shellFontWeightBold} onChange={(e) => setShellFontWeightBold(Number(e.target.value))} /></td>
+                    </tr>
+                    <tr>
+                      <td>File tree (Files view)</td>
+                      <td><input type="number" min={9} max={20} value={fileTreeFontSize} onChange={(e) => setFileTreeFontSize(Number(e.target.value))} /></td>
+                      <td>—</td>
+                      <td>—</td>
                     </tr>
                     <tr>
                       <td>Editor (Cmd+= / Cmd+- / Cmd+0)</td>

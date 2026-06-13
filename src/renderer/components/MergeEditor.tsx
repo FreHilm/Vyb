@@ -5,6 +5,7 @@ import {
   type MergeRegion,
   type MergeRegionAction,
 } from './MergeResultEditor';
+import type { EditorStatusInfo } from './MonacoFileEditor';
 
 // ── 3-pane merge editor (T-059) ───────────────────────────────────
 //
@@ -40,10 +41,12 @@ interface MergeEditorProps {
   onResultChange: (value: string) => void;
   onRegionAction: (index: number, action: MergeRegionAction) => void;
   onSave: () => void;
+  /** Cursor/EOL feed from the editable Result pane (status bar). */
+  onStatusInfo?: (info: EditorStatusInfo) => void;
 }
 
 export const MergeEditor = forwardRef<MergeResultEditorHandle, MergeEditorProps>(function MergeEditor(
-  { filePath, language, eol, oursStage, theirsStage, oursLabel, theirsLabel, showBase, baseStage, fontSize, oursHighlight, theirsHighlight, resultValue, regions, onResultChange, onRegionAction, onSave },
+  { filePath, language, eol, oursStage, theirsStage, oursLabel, theirsLabel, showBase, baseStage, fontSize, oursHighlight, theirsHighlight, resultValue, regions, onResultChange, onRegionAction, onSave, onStatusInfo },
   ref,
 ) {
   return (
@@ -90,6 +93,7 @@ export const MergeEditor = forwardRef<MergeResultEditorHandle, MergeEditorProps>
             onRegionAction={onRegionAction}
             onChange={onResultChange}
             onSave={onSave}
+            onStatusInfo={onStatusInfo}
           />
         </div>
       </div>
