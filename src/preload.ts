@@ -7,8 +7,8 @@ contextBridge.exposeInMainWorld('api', {
   getProfiles: (): Promise<Profile[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.PROFILES_LOAD),
 
-  createTerminal: (profileId: string, profile: Profile): Promise<void> =>
-    ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_CREATE, profileId, profile),
+  createTerminal: (profileId: string, profile: Profile, cols?: number, rows?: number, overrideArgs?: string[]): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_CREATE, profileId, profile, cols, rows, overrideArgs),
 
   sendInput: (profileId: string, data: string): void =>
     ipcRenderer.send(IPC_CHANNELS.TERMINAL_INPUT, profileId, data),
@@ -390,6 +390,9 @@ contextBridge.exposeInMainWorld('api', {
   ): Promise<import('./shared/types').FileReplaceResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_REPLACE_IN_FILES, cwd, query, opts, replaceText, targets),
 
+  listAgentSessions: (command: string, cwd: string): Promise<import('./shared/types').AgentSessionList> =>
+    ipcRenderer.invoke(IPC_CHANNELS.AGENT_LIST_SESSIONS, command, cwd),
+
   onMenuFindInFiles: (callback: (payload: { withReplace: boolean }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: { withReplace: boolean }) =>
       callback(payload);
@@ -502,6 +505,15 @@ contextBridge.exposeInMainWorld('api', {
     task: { id: string; title: string; filePath?: string },
   ): Promise<ParallelAgent | { error: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_AGENT_SPAWN, profileId, task),
+
+  spawnParallelSession: (
+    profileId: string,
+    opts: { sessionId: string | null; label: string },
+  ): Promise<ParallelAgent | { error: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_AGENT_SPAWN_SESSION, profileId, opts),
+
+  resumeParallelSession: (id: string): Promise<ParallelAgent | { error: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_AGENT_RESUME_SESSION, id),
 
   destroyParallelAgent: (id: string, discardWork?: boolean): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_AGENT_DESTROY, id, discardWork === true),

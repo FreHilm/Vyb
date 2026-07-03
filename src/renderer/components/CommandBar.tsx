@@ -7,6 +7,9 @@ export type CommandBarTab = 'agent' | 'files' | 'kanban' | 'web';
 
 interface CommandBarProps {
   profile: Profile | null;
+  /** Directory for folder/external-app actions — the selected session's
+   * worktree when one is active, else the profile's directory. */
+  workingDirectory: string;
   shellOpen: boolean;
   /** Currently active main-view tab. Files/Kanban replace the agent
    * terminal in the same panel; Agent shows the terminal. */
@@ -66,6 +69,7 @@ const ICON_PROPS = {
 
 export function CommandBar({
   profile,
+  workingDirectory,
   shellOpen,
   activeTab,
   onSelectTab,
@@ -131,11 +135,11 @@ export function CommandBar({
   if (!profile) return <div className="command-bar" />;
 
   const handleOpenFolder = () => {
-    window.api.openInFinder(profile.workingDirectory);
+    window.api.openInFinder(workingDirectory || profile.workingDirectory);
   };
 
   const handleOpenExternal = (app: ExternalApp) => {
-    window.api.openExternal(app.command, profile.workingDirectory);
+    window.api.openExternal(app.command, workingDirectory || profile.workingDirectory);
   };
 
   // Nav-badge indices MUST match App.tsx `navActions` order exactly, which

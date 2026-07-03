@@ -237,6 +237,22 @@
   padding: 4px 0;
   justify-content: center;
 }
+/* Compact mode collapses the row to just the status dot, so the default
+   faint background/border for the selected row is invisible. Give the
+   active parallel agent a clear pill + a ring around its dot so the
+   selected session reads at a glance. */
+.app-sidebar-compact .parallel-agent-row-active {
+  background: var(--c-surface1);
+  border-color: transparent;
+  border-radius: 8px;
+  margin: 0 6px;
+}
+.app-sidebar-compact .parallel-agent-row-active .parallel-agent-dot {
+  width: 9px;
+  height: 9px;
+  outline: 2px solid var(--c-text);
+  outline-offset: 2px;
+}
 .app-sidebar-compact .parallel-agent-list {
   padding-left: 0;
   padding-right: 0;
@@ -3960,6 +3976,67 @@ select option {
    bar can show just tabs. Background matches the editor body
    (`--c-base`) so the toolbar reads as part of the same surface;
    buttons right-aligned. */
+/* ── Agent session picker ── */
+.session-picker { width: 460px; max-width: 90vw; }
+.session-picker-hint {
+  font-size: 12px;
+  color: var(--c-subtext0);
+  margin-bottom: 10px;
+}
+.session-picker-warn {
+  font-size: 12px;
+  color: var(--c-yellow);
+  margin: 6px 0;
+}
+.session-list {
+  max-height: 360px;
+  overflow-y: auto;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.session-empty {
+  font-size: 12px;
+  color: var(--c-overlay0);
+  padding: 10px 4px;
+}
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 7px 10px;
+  color: var(--c-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.session-row:hover:not(:disabled) { background: var(--c-surface0); }
+.session-row:disabled { opacity: 0.4; cursor: default; }
+.session-row-new { border-color: var(--c-surface1); margin-bottom: 4px; }
+.session-new-plus { color: var(--c-green); font-weight: 700; }
+.session-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-time { font-size: 11px; color: var(--c-overlay0); flex-shrink: 0; }
+.session-start {
+  font-size: 11px;
+  color: var(--c-subtext0);
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.session-row:hover:not(:disabled) .session-start { opacity: 1; }
+
 /* VS Code-style editor status bar — bottom of the editor pane. */
 .file-editor-statusbar {
   display: flex;

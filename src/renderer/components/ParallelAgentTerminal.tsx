@@ -11,12 +11,16 @@ interface Props {
   agent: ParallelAgent;
   settings: AppSettings;
   hidden: boolean;
+  /** When set (split mode), this terminal is the LEFT pane: it takes this
+   * width % and a negative flex order so it sits ahead of the resize handle
+   * and the right-pane overlay. Null = normal full-pane flex. */
+  splitWidth?: number | null;
 }
 
 /** Renders the xterm.js view for a single parallel-agent PTY (`parallel:<id>`).
  * Stays mounted while the agent is alive so switching to/from it preserves
  * scrollback and selection. */
-export function ParallelAgentTerminal({ agent, settings, hidden }: Props) {
+export function ParallelAgentTerminal({ agent, settings, hidden, splitWidth = null }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<{ terminal: Terminal; fitAddon: FitAddon; webglAddon?: WebglAddon } | null>(null);
   const ptyId = `parallel:${agent.id}`;
@@ -118,7 +122,15 @@ export function ParallelAgentTerminal({ agent, settings, hidden }: Props) {
   return (
     <div
       className="parallel-agent-terminal"
-      style={hidden ? { display: 'none' } : { display: 'flex', flex: 1, flexDirection: 'column', minHeight: 0 }}
+      style={
+        hidden
+          ? { display: 'none' }
+          : splitWidth != null
+            // Split-mode LEFT pane: fixed width + negative order so flex
+            // places it ahead of the resize handle and the right overlay.
+            ? { display: 'flex', flex: `0 0 ${splitWidth}%`, order: -2, flexDirection: 'column', minHeight: 0, overflow: 'hidden' }
+            : { display: 'flex', flex: 1, flexDirection: 'column', minHeight: 0 }
+      }
     >
       <div ref={containerRef} className="parallel-agent-terminal-container" />
     </div>

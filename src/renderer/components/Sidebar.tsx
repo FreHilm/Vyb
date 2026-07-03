@@ -27,6 +27,8 @@ interface SidebarProps {
   onAddProfile: () => void;
   onStopProfile: (profileId: string) => void;
   onReloadProfile: (profileId: string) => void;
+  /** Right-click on a profile — opens the agent session menu. */
+  onProfileContextMenu?: (e: React.MouseEvent, profile: Profile) => void;
   initialized: Set<string>;
   showAgentBadge: boolean;
   parallelAgents: ParallelAgent[];
@@ -62,6 +64,7 @@ const PARALLEL_PHASE_COLORS: Record<string, string> = {
   pushing: '#3b82f6',
   completed: '#22c55e',
   failed: '#ef4444',
+  stopped: '#6b7280',
 };
 
 const PARALLEL_PHASE_LABELS: Record<string, string> = {
@@ -71,6 +74,7 @@ const PARALLEL_PHASE_LABELS: Record<string, string> = {
   pushing: 'Pushing & opening PR',
   completed: 'Completed',
   failed: 'Failed',
+  stopped: 'Stopped — select to resume',
 };
 
 function ParallelAgentRow({
@@ -110,7 +114,9 @@ function ParallelAgentRow({
       <span className="parallel-agent-dot" style={{ backgroundColor: dotColor }} />
       <div className="parallel-agent-text">
         <span className="parallel-agent-task">
-          {agent.taskId} · {agent.taskTitle}
+          {/* Sessions have no task id (taskId holds the resumed session's
+              UUID or 'new') — show just the title. */}
+          {agent.kind === 'session' ? agent.taskTitle : `${agent.taskId} · ${agent.taskTitle}`}
         </span>
         <span className="parallel-agent-meta">
           {label}
@@ -202,6 +208,7 @@ export function Sidebar({
   onLayoutChange: notifyLayoutChange,
   onSelectProfile,
   onEditProfile,
+  onProfileContextMenu,
   onAddProfile,
   onStopProfile,
   onReloadProfile,
@@ -565,6 +572,7 @@ export function Sidebar({
             onEdit={() => onEditProfile(profile)}
             onStop={() => onStopProfile(profile.id)}
             onReload={() => onReloadProfile(profile.id)}
+            onContextMenu={onProfileContextMenu ? (e) => onProfileContextMenu(e, profile) : undefined}
           />
         </div>
         {subAgents.length > 0 && (

@@ -25,6 +25,10 @@ interface TerminalPaneProps {
    * the embedded Web tab (via a window event consumed by App.tsx).
    * When false, they fall through to shell.openExternal — the OS browser. */
   webEnabled?: boolean;
+  /** Returns one-shot agent args for the next PTY creation of `profileId`
+   * (e.g. `--resume <id>` for a chosen session), consuming them. Used to
+   * start a specific session in place. */
+  consumeStartupArgs?: (profileId: string) => string[] | undefined;
 }
 
 interface TerminalInstance {
@@ -439,7 +443,12 @@ export function TerminalPane({
   shellOpen,
   splitWidth = null,
   webEnabled = false,
+  consumeStartupArgs,
 }: TerminalPaneProps) {
+  // Keep the latest consumer in a ref — the PTY-creation callback is set up
+  // once per terminal, so a captured prop could go stale.
+  const consumeStartupArgsRef = useRef(consumeStartupArgs);
+  consumeStartupArgsRef.current = consumeStartupArgs;
   // Mirror webEnabled into a ref so the WebLinksAddon callback (captured
   // once per agent terminal at openTerminal time) reads the latest value
   // instead of the one in scope when the addon was attached.
@@ -553,7 +562,8 @@ export function TerminalPane({
             instance.ptyCreated = true;
             const profile = profiles.find((p) => p.id === id);
             if (profile) {
-              window.api.createTerminal(id, profile).then(() => {
+              const startupArgs = consumeStartupArgsRef.current?.(id);
+              window.api.createTerminal(id, profile, undefined, undefined, startupArgs).then(() => {
                 instance.lastCols = instance.terminal.cols;
                 instance.lastRows = instance.terminal.rows;
                 window.api.resizeTerminal(id, instance.terminal.cols, instance.terminal.rows);

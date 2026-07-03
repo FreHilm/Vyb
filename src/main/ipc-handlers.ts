@@ -14,6 +14,7 @@ import { OrdnaManager } from './ordna-manager';
 import { ParallelAgentManager } from './parallel-agent-manager';
 import { applyAgentArgsGuards } from './agent-args-guard';
 import { sendCtrlCToPty, clearCtrlCState } from './windows-ctrlc';
+import { listSessions as listAgentSessions, sessionCaps } from './agent-sessions';
 
 // Bundled ripgrep (@vscode/ripgrep) — Vyb ships its own `rg` binary so
 // cross-file search works without the user installing ripgrep, and
@@ -449,19 +450,22 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
   ipcMain.handle(
     IPC_CHANNELS.TERMINAL_CREATE,
-    (_, profileId: string, profile: Profile, cols?: number, rows?: number) => {
+    (_, profileId: string, profile: Profile, cols?: number, rows?: number, overrideArgs?: string[]) => {
       // Resolve agent config from settings
       const settings = loadSettings();
       const agents = settings.agents || DEFAULT_AGENTS;
       const resolved = resolveAgent(profile, agents);
 
-      // Build effective profile with resolved command/args, then drop any
-      // resume flags whose required state directory doesn't exist in cwd.
-      const effectiveProfile = applyAgentArgsGuards({
-        ...profile,
-        command: resolved.command,
-        args: resolved.args,
-      });
+      // `overrideArgs` is set when starting a specific session in place (the
+      // renderer already computed the exact resume/new args via
+      // buildSessionArgs). Use them verbatim and SKIP applyAgentArgsGuards —
+      // the guard would strip an explicit `--resume` in a cwd with no local
+      // conversation, which is precisely what we're overriding. Otherwise
+      // build the effective profile and drop resume flags whose required
+      // state directory doesn't exist in cwd.
+      const effectiveProfile = overrideArgs
+        ? { ...profile, command: resolved.command, args: overrideArgs }
+        : applyAgentArgsGuards({ ...profile, command: resolved.command, args: resolved.args });
 
       statusDetector.register(profileId, effectiveProfile);
       ptyManager.create(profileId, effectiveProfile, cols, rows);
@@ -3884,6 +3888,20 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     },
   );
 
+  // List an agent's past sessions for a project (session browser). Keyed by
+  // the resolved command; `caps` tells the renderer which session actions
+  // the agent supports. The renderer only calls this for built-in agents.
+  ipcMain.handle(
+    IPC_CHANNELS.AGENT_LIST_SESSIONS,
+    async (_, command: string, cwd: string): Promise<import('../shared/types').AgentSessionList> => {
+      if (!command || !cwd) return { sessions: [], caps: null };
+      const caps = sessionCaps(command);
+      if (!caps) return { sessions: [], caps: null };
+      const sessions = await listAgentSessions(command, cwd);
+      return { sessions, caps };
+    },
+  );
+
   // Format a buffer through Prettier (T-045). Prettier infers the
   // parser from `filepath`; we pass the file path so it works for
   // .ts vs .tsx vs .json. Project config (.prettierrc, etc.) is
@@ -4255,6 +4273,30 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       }
     },
   );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PARALLEL_AGENT_SPAWN_SESSION,
+    async (_, profileId: string, opts: { sessionId: string | null; label: string }) => {
+      const profile = profiles.find((p) => p.id === profileId);
+      if (!profile) return { error: 'profile not found' };
+      const settings = loadSettings();
+      const agentsCfg = settings.agents || DEFAULT_AGENTS;
+      try {
+        return await parallelManager.spawnSession(profile, agentsCfg, opts);
+      } catch (err) {
+        return { error: (err as Error).message };
+      }
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.PARALLEL_AGENT_RESUME_SESSION, (_, id: string) => {
+    const agent = parallelManager.get(id);
+    if (!agent) return { error: 'session not found' };
+    const profile = profiles.find((p) => p.id === agent.profileId);
+    if (!profile) return { error: 'the profile this session belongs to no longer exists' };
+    const settings = loadSettings();
+    return parallelManager.resumeSession(profile, settings.agents || DEFAULT_AGENTS, id);
+  });
 
   ipcMain.handle(IPC_CHANNELS.PARALLEL_AGENT_DESTROY, async (_, id: string, discardWork?: boolean) => {
     await parallelManager.destroy(id, discardWork === true);

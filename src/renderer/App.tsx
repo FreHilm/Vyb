@@ -9,6 +9,8 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { ResizeHandle } from './components/ResizeHandle';
 import { FileExplorer, type FileExplorerHandle } from './components/FileExplorer';
 import { QuickOpenDialog } from './components/QuickOpenDialog';
+import { SessionPickerDialog } from './components/SessionPickerDialog';
+import { toastError } from './lib/toast';
 import { FindInFilesPanel } from './components/FindInFilesPanel';
 import { KanbanViewer } from './components/KanbanViewer';
 import { WebViewer } from './components/WebViewer';
@@ -18,7 +20,7 @@ import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { HotkeyHints } from './components/HotkeyHints';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, Workspace, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitMergePreviewResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult, FileReplaceTarget, FileReplaceResult } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, Workspace, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitMergePreviewResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult, FileReplaceTarget, FileReplaceResult, AgentSessionList, DEFAULT_AGENTS, resolveAgent, buildSessionArgs } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -80,7 +82,7 @@ declare global {
       getPathForFile: (file: File) => string;
       getProfiles: () => Promise<Profile[]>;
       saveProfiles: (profiles: Profile[]) => Promise<void>;
-      createTerminal: (profileId: string, profile: Profile) => Promise<void>;
+      createTerminal: (profileId: string, profile: Profile, cols?: number, rows?: number, overrideArgs?: string[]) => Promise<void>;
       sendInput: (profileId: string, data: string) => void;
       resizeTerminal: (profileId: string, cols: number, rows: number) => void;
       destroyTerminal: (profileId: string) => Promise<void>;
@@ -214,6 +216,7 @@ declare global {
       listProjectFiles: (cwd: string) => Promise<string[]>;
       searchInFiles: (cwd: string, query: string, opts?: FileSearchOptions) => Promise<FileSearchResult>;
       replaceInFiles: (cwd: string, query: string, opts: FileSearchOptions | undefined, replaceText: string, targets: FileReplaceTarget[]) => Promise<FileReplaceResult>;
+      listAgentSessions: (command: string, cwd: string) => Promise<AgentSessionList>;
       onMenuFindInFiles: (callback: (payload: { withReplace: boolean }) => void) => () => void;
       formatDocument: (filePath: string, content: string) => Promise<{ content?: string; error?: string }>;
       readFile: (filePath: string) => Promise<string | null>;
@@ -264,6 +267,11 @@ declare global {
         profileId: string,
         task: { id: string; title: string; filePath?: string },
       ) => Promise<ParallelAgent | { error: string }>;
+      spawnParallelSession: (
+        profileId: string,
+        opts: { sessionId: string | null; label: string },
+      ) => Promise<ParallelAgent | { error: string }>;
+      resumeParallelSession: (id: string) => Promise<ParallelAgent | { error: string }>;
       destroyParallelAgent: (id: string, discardWork?: boolean) => Promise<void>;
       listParallelAgents: (profileId?: string) => Promise<ParallelAgent[]>;
       finishParallelAgent: (id: string) => Promise<void>;
@@ -380,6 +388,66 @@ export function App() {
   // confirm-dialog asking whether to discard the agent's work or save
   // it as a WIP commit on its branch.
   const [stopParallelTarget, setStopParallelTarget] = useState<string | null>(null);
+
+  // ── Agent session selection (right-click profile → start/resume) ──
+  // Built-in agents only. The menu opens at the cursor; the picker lists
+  // the agent's past sessions for the project. Starting a session uses the
+  // profile's terminal when idle, or a worktree when it's already running.
+  const [sessionMenu, setSessionMenu] = useState<{ profile: Profile; x: number; y: number } | null>(null);
+  const [sessionPickerProfile, setSessionPickerProfile] = useState<Profile | null>(null);
+  // Per-profile args consumed by TerminalPane on the next (in-place) PTY
+  // creation, so a chosen session launches with `--resume <id>` (or fresh).
+  const startupArgsRef = useRef<Map<string, string[]>>(new Map());
+
+  const isBuiltinAgentProfile = useCallback(
+    (p: Profile) => !!p.agentId && DEFAULT_AGENTS.some((a) => a.id === p.agentId),
+    [],
+  );
+
+  const openSessionMenu = useCallback((e: React.MouseEvent, profile: Profile) => {
+    e.preventDefault(); // suppress the native menu on any profile right-click
+    if (!isBuiltinAgentProfile(profile)) return; // sessions are built-in-only
+    setSessionMenu({ profile, x: e.clientX, y: e.clientY });
+  }, [isBuiltinAgentProfile]);
+
+  // Launch a session for `profile`: in the profile's own terminal when the
+  // agent isn't running yet, otherwise in a fresh git worktree.
+  const startAgentSession = useCallback((profile: Profile, sessionId: string | null, label: string) => {
+    const agents = settingsRef.current.agents || DEFAULT_AGENTS;
+    const resolved = resolveAgent(profile, agents);
+    if (initialized.has(profile.id)) {
+      // Already running → worktree session (persistent, user-closed).
+      window.api.spawnParallelSession(profile.id, { sessionId, label }).then((res) => {
+        if (res && 'id' in res) setSelectedParallelId(res.id);
+        else if (res && 'error' in res) toastError(`Could not start session: ${res.error}`);
+      }).catch((): void => { toastError('Could not start session.'); });
+    } else {
+      // Idle → start in place with the resume/new args.
+      startupArgsRef.current.set(profile.id, buildSessionArgs(resolved.command, resolved.args, sessionId));
+      handleSelectProfile(profile.id);
+    }
+  }, [initialized]);
+
+  const consumeStartupArgs = useCallback((profileId: string): string[] | undefined => {
+    const a = startupArgsRef.current.get(profileId);
+    if (a) startupArgsRef.current.delete(profileId);
+    return a;
+  }, []);
+
+  // Select a parallel agent row. For a session restored from a previous
+  // run (phase 'stopped') this also respawns its agent inside the
+  // surviving worktree — safe, because the agent's terminal is already
+  // mounted (hidden) and listening, so no output is lost.
+  const selectParallel = useCallback((id: string | null) => {
+    setSelectedParallelId(id);
+    if (!id) return;
+    const agent = parallelAgents.get(id);
+    if (agent?.phase === 'stopped') {
+      window.api.resumeParallelSession(id).then((res) => {
+        if (res && 'error' in res) toastError(`Could not resume session: ${res.error}`);
+      }).catch((): void => { toastError('Could not resume session.'); });
+    }
+  }, [parallelAgents]);
   // When the user selects a profile whose working directory no longer
   // exists on disk, this holds the profileId so the modal below can
   // prompt for relocate / delete / cancel. The selection is deferred
@@ -426,6 +494,10 @@ export function App() {
   const activeViewCwd = selectedParallel
     ? selectedParallel.worktreePath
     : profiles.find((p) => p.id === activeProfileId)?.workingDirectory || '';
+  // Mirror into a ref so callbacks (openFolder, etc.) target the selected
+  // session's worktree instead of the parent profile's directory.
+  const activeViewCwdRef = useRef(activeViewCwd);
+  activeViewCwdRef.current = activeViewCwd;
 
   // Derived: visible state for the currently-active view
   const filesVisible = activeViewKey ? filesViews.has(activeViewKey) : false;
@@ -868,6 +940,19 @@ export function App() {
       const message = buildOrdnaTaskMessage(payload);
       window.api.sendInput(target, message + '\r');
     });
+
+    // Seed with any sessions restored from a previous run (persisted
+    // worktree sessions come back as phase 'stopped'; selecting one
+    // respawns its agent). Without this fetch the sidebar would only
+    // learn about agents via change events.
+    window.api.listParallelAgents().then((agents) => {
+      if (!agents || agents.length === 0) return;
+      setParallelAgents((prev) => {
+        const next = new Map(prev);
+        for (const a of agents) if (!next.has(a.id)) next.set(a.id, a);
+        return next;
+      });
+    }).catch((): void => undefined);
 
     // Mirror parallel-agent state from main into the renderer
     const unsubParallelChange = window.api.onParallelAgentChange((agent) => {
@@ -1830,12 +1915,16 @@ export function App() {
   );
   // Track which profiles have ever had shell opened (so previously-opened
   // shells stay mounted across switches)
+  // Shell state is keyed by VIEW (activeViewKey): a profile's parent view
+  // uses the profileId, a selected session uses `${profileId}|${parallelId}`
+  // — so a session gets its own shells, rooted in its worktree, separate
+  // from the parent profile's shells.
   const shellOpenedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (activeProfileId && shellOpenSet.has(activeProfileId)) {
-      shellOpenedRef.current.add(activeProfileId);
+    if (activeViewKey && shellOpenSet.has(activeViewKey)) {
+      shellOpenedRef.current.add(activeViewKey);
     }
-  }, [activeProfileId, shellOpenSet]);
+  }, [activeViewKey, shellOpenSet]);
 
   // Build ordered list of profile IDs for keyboard navigation
   const effectiveLayout = useMemo(() => {
@@ -1936,15 +2025,16 @@ export function App() {
     : kanbanVisible ? 'kanban'
     : webVisible ? 'web'
     : 'agent';
-  const shellOpen = activeProfileId ? shellOpenSet.has(activeProfileId) : false;
-  // Split mode is per-view-key (so each profile + each parallel agent
-  // remembers its own state). For now we restrict to parent views — a
-  // selected parallel agent always occupies the full pane.
-  const splitMode = !!(activeViewKey && !selectedParallelId && splitViews.has(activeViewKey));
+  const shellOpen = activeViewKey ? shellOpenSet.has(activeViewKey) : false;
+  // Split mode is per-view-key, so each profile AND each parallel session
+  // remembers its own split state. For a session the LEFT pane is the
+  // session's own terminal (ParallelAgentTerminal) instead of the main
+  // TerminalPane (see the hidden/splitWidth wiring below).
+  const splitMode = !!(activeViewKey && splitViews.has(activeViewKey));
 
   const toggleSplit = useCallback(() => {
     const key = activeViewKey;
-    if (!key || selectedParallelId) return;
+    if (!key) return;
     setSplitViews((prev) => {
       const next = new Set(prev);
       if (next.has(key)) {
@@ -1964,7 +2054,7 @@ export function App() {
       }
       return next;
     });
-  }, [activeViewKey, selectedParallelId, filesViews, kanbanViews, webViews]);
+  }, [activeViewKey, filesViews, kanbanViews, webViews]);
 
   const agentSplitRef = useRef<HTMLDivElement>(null);
   const handleAgentSplitResize = useCallback((delta: number) => {
@@ -1981,14 +2071,14 @@ export function App() {
   }, [savePaneSizes]);
 
   const toggleShell = useCallback(() => {
-    if (!activeProfileId) return;
+    if (!activeViewKey) return;
     setShellOpenSet((prev) => {
       const next = new Set(prev);
-      if (next.has(activeProfileId)) next.delete(activeProfileId);
-      else next.add(activeProfileId);
+      if (next.has(activeViewKey)) next.delete(activeViewKey);
+      else next.add(activeViewKey);
       return next;
     });
-  }, [activeProfileId]);
+  }, [activeViewKey]);
 
   // Persist profile memory when shell state changes
   const memSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2009,8 +2099,11 @@ export function App() {
   }, [shellOpenSet, profiles]);
 
   const openFolder = useCallback(() => {
-    if (activeProfile) window.api.openInFinder(activeProfile.workingDirectory);
-  }, [activeProfile]);
+    // Worktree-aware: opens the selected session's worktree when one is
+    // active, else the active profile's directory.
+    const dir = activeViewCwdRef.current;
+    if (dir) window.api.openInFinder(dir);
+  }, []);
 
   const toggleGit = useCallback(() => {
     setGitPanelTab('changes');
@@ -2066,7 +2159,7 @@ export function App() {
     },
     onPaneLeft: () => {
       if (!activeProfileId) return;
-      const shellOpen = shellOpenSet.has(activeProfileId);
+      const shellOpen = activeViewKey ? shellOpenSet.has(activeViewKey) : false;
       if (!shellOpen) return;
       const count = shellCountRef.current;
 
@@ -2082,7 +2175,7 @@ export function App() {
     },
     onPaneRight: () => {
       if (!activeProfileId) return;
-      const shellOpen = shellOpenSet.has(activeProfileId);
+      const shellOpen = activeViewKey ? shellOpenSet.has(activeViewKey) : false;
       if (!shellOpen) return;
       const count = shellCountRef.current;
 
@@ -2184,8 +2277,8 @@ export function App() {
         {activeProfile && (
           <>
             <span className="titlebar-name">{activeProfile.name}</span>
-            <span className="titlebar-path" title={activeProfile.workingDirectory}>
-              {activeProfile.workingDirectory.replace(/^\/Users\/[^/]+/, '~')}
+            <span className="titlebar-path" title={activeViewCwd}>
+              {activeViewCwd.replace(/^\/Users\/[^/]+/, '~')}
             </span>
           </>
         )}
@@ -2205,6 +2298,7 @@ export function App() {
         onAddProfile={handleAddProfile}
         onStopProfile={handleStopProfile}
         onReloadProfile={handleReloadProfile}
+        onProfileContextMenu={openSessionMenu}
         workspaces={settings.workspaces}
         activeWorkspaceId={settings.activeWorkspaceId}
         onSelectWorkspace={handleSelectWorkspace}
@@ -2217,7 +2311,7 @@ export function App() {
         parallelAgents={[...parallelAgents.values()]}
         selectedParallelId={selectedParallelId}
         pendingIconGenerations={pendingIconGenerations}
-        onSelectParallel={(id) => setSelectedParallelId(id)}
+        onSelectParallel={selectParallel}
         onRunParallel={(id) => submitParallelTask(id)}
         onStopParallel={(id) => {
           // Show a confirmation dialog so an accidental Stop click doesn't
@@ -2233,6 +2327,7 @@ export function App() {
       <div className="main-area">
         <CommandBar
           profile={activeProfile}
+          workingDirectory={activeViewCwd}
           shellOpen={shellOpen}
           activeTab={activeTab}
           onSelectTab={selectTab}
@@ -2302,12 +2397,13 @@ export function App() {
               activeProfileId={activeProfileId}
               initialized={initialized}
               shellOpen={shellOpen}
-              hidden={!splitMode && (filesVisible || kanbanVisible || webVisible || selectedParallelId !== null)}
+              hidden={selectedParallelId !== null || (!splitMode && (filesVisible || kanbanVisible || webVisible))}
               settings={settings}
               focusedPane={focusedPane}
               navActive={navActive}
-              splitWidth={splitMode ? agentSplitPercent : null}
+              splitWidth={splitMode && !selectedParallelId ? agentSplitPercent : null}
               webEnabled={settings.functionWebEnabled !== false}
+              consumeStartupArgs={consumeStartupArgs}
             />
             {splitMode && (
               <ResizeHandle direction="horizontal" onResize={handleAgentSplitResize} />
@@ -2445,17 +2541,21 @@ export function App() {
             })}
             {/* Mount one ParallelAgentTerminal per parallel agent so each PTY's
                 xterm.js stays alive and switching between them is just CSS.
-                In split mode the parent's agent terminal occupies the left,
-                so we hide all parallels — split is intentionally a
-                parent-profile-only layout. */}
-            {[...parallelAgents.values()].map((sa) => (
-              <ParallelAgentTerminal
-                key={sa.id}
-                agent={sa}
-                settings={settings}
-                hidden={splitMode || !(selectedParallelId === sa.id && activeProfileId === sa.profileId && !filesVisible && !kanbanVisible && !webVisible)}
-              />
-            ))}
+                The selected session is shown; in split mode it becomes the
+                LEFT pane (negative flex order pulls it ahead of the resize
+                handle + right-pane overlay) at agentSplitPercent width. */}
+            {[...parallelAgents.values()].map((sa) => {
+              const isSelected = selectedParallelId === sa.id && activeProfileId === sa.profileId;
+              return (
+                <ParallelAgentTerminal
+                  key={sa.id}
+                  agent={sa}
+                  settings={settings}
+                  hidden={!isSelected || (!splitMode && (filesVisible || kanbanVisible || webVisible))}
+                  splitWidth={isSelected && splitMode ? agentSplitPercent : null}
+                />
+              );
+            })}
           </div>
           {shellOpen && (
             <ResizeHandle direction="vertical" onResize={handleTerminalSplitResize} />
@@ -2468,26 +2568,34 @@ export function App() {
                 : { display: 'none' }
             }
           >
-            {profiles.map((p) => {
-              const isVisible = shellOpen && p.id === activeProfileId;
-              const wasOpened = shellOpenedRef.current.has(p.id);
+            {[
+              // One shell view per profile (parent), plus one per parallel
+              // session — each session keyed by its viewKey and rooted in
+              // its worktree, so its shells are isolated and land in the
+              // worktree dir (the session behaves like a regular profile).
+              ...profiles.map((p) => ({ key: p.id, cwd: p.workingDirectory, isSession: false })),
+              ...[...parallelAgents.values()].map((a) => ({
+                key: `${a.profileId}|${a.id}`, cwd: a.worktreePath, isSession: true,
+              })),
+            ].map((v) => {
+              const isVisible = shellOpenSet.has(v.key) && v.key === activeViewKey;
+              const wasOpened = shellOpenedRef.current.has(v.key);
               if (!wasOpened && !isVisible) return null;
               return (
                 <div
-                  key={p.id}
+                  key={v.key}
                   style={{ display: isVisible ? 'block' : 'none', width: '100%', height: '100%' }}
                 >
                   <ShellPane
-                    profileId={p.id}
-                    workingDirectory={p.workingDirectory}
+                    profileId={v.key}
+                    workingDirectory={v.cwd}
                     hidden={!isVisible}
                     settings={settings}
                     webEnabled={settings.functionWebEnabled !== false}
                     onAllClosed={() => {
-                      if (!activeProfileId) return;
                       setShellOpenSet((prev) => {
                         const next = new Set(prev);
-                        next.delete(activeProfileId);
+                        next.delete(v.key);
                         return next;
                       });
                       setFocusedPane({ pane: 'agent', shellIndex: 0 });
@@ -2497,16 +2605,18 @@ export function App() {
                     navActive={navActive && isVisible}
                     navFocusedPane={focusedPane}
                     onShellCountChange={(count) => {
-                      if (p.id === activeProfileId) shellCountRef.current = count;
-                      if (count > 0) {
+                      if (v.key === activeViewKey) shellCountRef.current = count;
+                      // Persist shell count for profiles only; sessions are
+                      // transient worktrees and aren't restored across launches.
+                      if (!v.isSession && count > 0) {
                         const memory = { ...profileMemoryRef.current };
-                        if (!memory[p.id]) memory[p.id] = { shellOpen: true, shellCount: 1 };
-                        memory[p.id].shellCount = count;
+                        if (!memory[v.key]) memory[v.key] = { shellOpen: true, shellCount: 1 };
+                        memory[v.key].shellCount = count;
                         profileMemoryRef.current = memory;
                         window.api.saveProfileMemory(memory);
                       }
                     }}
-                    initialShellCount={profileMemoryRef.current[p.id]?.shellCount || 1}
+                    initialShellCount={(!v.isSession && profileMemoryRef.current[v.key]?.shellCount) || 1}
                   />
                 </div>
               );
@@ -2515,7 +2625,7 @@ export function App() {
         </div>
         {changesVisible && activeProfile && (
           <GitChangesPanel
-            workingDirectory={activeProfile.workingDirectory}
+            workingDirectory={activeViewCwd}
             widthPercent={changesWidth}
             onWidthChange={setChangesWidth}
             onClose={() => setChangesVisible(false)}
@@ -2530,7 +2640,7 @@ export function App() {
         )}
         {findInFilesVisible && activeProfile && (
           <FindInFilesPanel
-            workingDirectory={activeProfile.workingDirectory}
+            workingDirectory={activeViewCwd}
             widthPercent={searchWidth}
             onWidthChange={setSearchWidth}
             onClose={() => setFindInFilesVisible(false)}
@@ -2550,7 +2660,9 @@ export function App() {
         )}
       </div>
       <StatusBar
-        profile={activeProfile}
+        profile={activeProfile && selectedParallel
+          ? { ...activeProfile, workingDirectory: activeViewCwd }
+          : activeProfile}
         onToggleChanges={() => {
           // Toggle off only if the panel is already open on this tab;
           // otherwise open (or switch from the tree tab) and keep it open.
@@ -2585,7 +2697,7 @@ export function App() {
       )}
       {quickOpenVisible && activeProfile && (
         <QuickOpenDialog
-          workingDirectory={activeProfile.workingDirectory}
+          workingDirectory={activeViewCwd}
           onClose={() => setQuickOpenVisible(false)}
           onPick={(relativePath) => {
             setQuickOpenVisible(false);
@@ -2599,7 +2711,9 @@ export function App() {
               setKanbanViews((prev) => removeFromSet(prev, key));
               setWebViews((prev) => removeFromSet(prev, key));
             }
-            const absolute = `${activeProfile.workingDirectory.replace(/\/+$/, '')}/${relativePath}`;
+            // Resolve against the view's cwd (worktree for a session) — the
+            // picker listed files relative to that same directory.
+            const absolute = `${activeViewCwd.replace(/\/+$/, '')}/${relativePath}`;
             setPendingFileOpen({ path: absolute, nonce: Date.now() });
           }}
         />
@@ -2752,6 +2866,48 @@ export function App() {
               </div>
             </div>
           </div>
+        );
+      })()}
+      {sessionMenu && (
+        <>
+          {/* click-away catcher */}
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 999 }}
+            onClick={() => setSessionMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setSessionMenu(null); }}
+          />
+          <div
+            className="file-context-menu"
+            style={{ position: 'fixed', left: sessionMenu.x, top: sessionMenu.y, zIndex: 1000 }}
+          >
+            <button
+              className="file-ctx-item"
+              onClick={() => { const p = sessionMenu.profile; setSessionMenu(null); setSessionPickerProfile(p); }}
+            >
+              Start from session…
+            </button>
+            <button
+              className="file-ctx-item"
+              onClick={() => { const p = sessionMenu.profile; setSessionMenu(null); startAgentSession(p, null, 'New session'); }}
+            >
+              New session
+            </button>
+          </div>
+        </>
+      )}
+      {sessionPickerProfile && (() => {
+        const p = sessionPickerProfile;
+        const resolved = resolveAgent(p, settings.agents || DEFAULT_AGENTS);
+        const agentName = (settings.agents || DEFAULT_AGENTS).find((a) => a.id === p.agentId)?.name || resolved.command;
+        return (
+          <SessionPickerDialog
+            agentName={agentName}
+            agentCommand={resolved.command}
+            workingDirectory={p.workingDirectory}
+            running={initialized.has(p.id)}
+            onClose={() => setSessionPickerProfile(null)}
+            onStart={(sessionId, label) => { setSessionPickerProfile(null); startAgentSession(p, sessionId, label); }}
+          />
         );
       })()}
       <ToastContainer />

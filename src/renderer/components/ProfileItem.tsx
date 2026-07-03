@@ -48,6 +48,8 @@ interface ProfileItemProps {
   onEdit: () => void;
   onStop: () => void;
   onReload: () => void;
+  /** Right-click — opens the session menu (built-in agents only). */
+  onContextMenu?: (e: React.MouseEvent) => void;
 }
 
 const STATUS_COLORS: Record<AgentStatus, string> = {
@@ -78,6 +80,7 @@ export function ProfileItem({
   onEdit,
   onStop,
   onReload,
+  onContextMenu,
 }: ProfileItemProps) {
   const [bouncing, setBouncing] = useState(false);
   const [pendingAction, setPendingAction] = useState<'reload' | 'stop' | null>(null);
@@ -115,6 +118,7 @@ export function ProfileItem({
       className={`profile-item ${isActive ? 'active' : ''} ${hasUpdate && !isActive ? 'has-update' : ''} ${isActive && (isAnimated || isCalm) ? 'active-working' : ''}`}
       style={itemStyle}
       onClick={onClick}
+      onContextMenu={onContextMenu}
       title={profile.name}
     >
       {isActive && (

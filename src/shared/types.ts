@@ -330,6 +330,25 @@ export function resolveAgent(profile: Profile, agents: AgentConfig[]): { command
   return { command: profile.command, args: [...profile.args] };
 }
 
+/** Build the agent CLI args to start or resume a session. With a sessionId
+ * → the agent's resume invocation; null → a fresh session (resume/continue
+ * flags stripped from the base args). Mirrors the resume mechanics verified
+ * per agent: claude/gemini `--resume <id>`, codex `resume <id>`, opencode
+ * `--session <id>`. */
+export function buildSessionArgs(command: string, baseArgs: string[], sessionId: string | null): string[] {
+  if (sessionId) {
+    switch (command) {
+      case 'claude': return ['--resume', sessionId];
+      case 'codex': return ['resume', sessionId];
+      case 'gemini': return ['--resume', sessionId];
+      case 'opencode': return ['--session', sessionId];
+      default: return [...baseArgs];
+    }
+  }
+  const RESUME = new Set(['--continue', '--resume', 'resume', '--session']);
+  return baseArgs.filter((a) => !RESUME.has(a));
+}
+
 export interface SidebarFolder {
   id: string;
   name: string;
@@ -471,6 +490,14 @@ export const IPC_CHANNELS = {
   /** Main → renderer: Edit → Find/Replace in Files clicked. Payload is
    * `{ withReplace: boolean }`. */
   MENU_FIND_IN_FILES: 'menu:findInFiles',
+  /** List an agent's past sessions for a project (built-in agents only). */
+  AGENT_LIST_SESSIONS: 'agent:listSessions',
+  /** Spawn a free-form agent session in its own worktree (persistent,
+   * user-closed) — like a parallel agent but not task-bound. */
+  PARALLEL_AGENT_SPAWN_SESSION: 'parallelAgent:spawnSession',
+  /** Respawn the agent of a 'stopped' session (restored after an app
+   * restart) inside its surviving worktree. */
+  PARALLEL_AGENT_RESUME_SESSION: 'parallelAgent:resumeSession',
   FILE_FORMAT: 'file:format',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
@@ -560,7 +587,9 @@ export type ParallelAgentPhase =
   | 'running'       // PTY running task
   | 'completed'     // agent reached ready after working; PR may be open
   | 'pushing'       // commit + push + gh pr create in flight
-  | 'failed';       // worktree, push, or PR creation failed
+  | 'failed'        // worktree, push, or PR creation failed
+  | 'stopped';      // session restored after an app restart — worktree
+                    // intact, no PTY; selecting it respawns the agent
 
 export interface ParallelAgent {
   id: string;            // unique id, used as PTY id `parallel:<id>`
@@ -574,6 +603,10 @@ export interface ParallelAgent {
   prUrl?: string;
   errorMessage?: string;
   createdAt: number;
+  /** 'task' = Kanban-dispatched (auto-finishes when the task is done);
+   * 'session' = a free-form agent session worktree, closed only by the
+   * user. Defaults to 'task' when absent. */
+  kind?: 'task' | 'session';
 }
 
 export interface OrdnaTask {
@@ -754,6 +787,31 @@ export interface FileReplaceTarget {
   /** Path relative to the search cwd (as returned by the search). */
   path: string;
   matches?: { lineNumber: number; matchStart: number }[];
+}
+
+/** One past agent session for the session picker. `id` is the resume
+ * identifier passed to the agent (UUID / session id). */
+export interface AgentSessionInfo {
+  id: string;
+  title: string;
+  /** Epoch ms of last activity (0 if unknown). */
+  lastActive: number;
+}
+
+/** What session operations an agent supports (keyed by resolved command). */
+export interface SessionCaps {
+  canList: boolean;
+  canResumeInPlace: boolean;
+  /** Resuming a specific session inside a fresh git worktree. */
+  canResumeInWorktree: boolean;
+}
+
+/** Result of AGENT_LIST_SESSIONS: the sessions plus the agent's caps so the
+ * renderer can disable unsupported actions. `caps` is null for non-built-in
+ * agents (session handling is built-in-only). */
+export interface AgentSessionList {
+  sessions: AgentSessionInfo[];
+  caps: SessionCaps | null;
 }
 
 export interface FileReplaceResult {

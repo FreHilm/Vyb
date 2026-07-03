@@ -526,6 +526,16 @@ export class PtyManager {
     }
   }
 
+  /** Destroy every PTY whose id starts with `prefix`. Used to reap the
+   * shell terminals belonging to a parallel/session view
+   * (`shell:<profileId>|<agentId>:N`) when that agent's worktree is torn
+   * down — otherwise those shells keep running in a deleted directory. */
+  destroyByPrefix(prefix: string): void {
+    for (const id of [...this.ptys.keys()]) {
+      if (id.startsWith(prefix)) this.destroy(id);
+    }
+  }
+
   destroyAll(): void {
     // Flag shutdown so the (node-pty internal) async exit callbacks
     // that fire after kill() don't run the normal exit path.
