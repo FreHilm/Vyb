@@ -91,6 +91,7 @@
 .app-sidebar-compact .profile-update-indicator,
 .app-sidebar-compact .parallel-agent-text,
 .app-sidebar-compact .parallel-agent-controls,
+.app-sidebar-compact .parallel-agent-update-indicator,
 .app-sidebar-compact .sidebar-empty,
 .app-sidebar-compact .flame-indicator {
   display: none !important;
@@ -5193,6 +5194,28 @@ select option {
   height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+/* Unseen-update bell on a session/parallel row (expanded sidebar only —
+   compact mode hides it and pulses the dot instead, below). Tinted by the
+   row's current status via --update-color, like the profile bell. */
+.parallel-agent-update-indicator {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: var(--update-color, #22c55e);
+  pointer-events: none;
+}
+
+/* Compact mode: rows collapse to just the dot, so signal the unseen
+   update with a pulsing halo ring around it. */
+@keyframes parallel-dot-halo {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--update-color, #22c55e) 70%, transparent); }
+  70% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--update-color, #22c55e) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--update-color, #22c55e) 0%, transparent); }
+}
+.app-sidebar-compact .parallel-agent-row-update .parallel-agent-dot {
+  animation: parallel-dot-halo 1.6s ease-out infinite;
 }
 
 .parallel-agent-text {

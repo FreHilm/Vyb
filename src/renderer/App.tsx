@@ -441,6 +441,15 @@ export function App() {
   const selectParallel = useCallback((id: string | null) => {
     setSelectedParallelId(id);
     if (!id) return;
+    // Visiting the session acknowledges its unseen-update badge (same
+    // semantics as handleSelectProfile for profile rows).
+    setHasUpdates((prev) => {
+      const key = `parallel:${id}`;
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
     const agent = parallelAgents.get(id);
     if (agent?.phase === 'stopped') {
       window.api.resumeParallelSession(id).then((res) => {

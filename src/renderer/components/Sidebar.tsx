@@ -81,6 +81,7 @@ function ParallelAgentRow({
   agent,
   status,
   selected,
+  hasUpdate,
   onSelect,
   onRun,
   onStop,
@@ -88,6 +89,9 @@ function ParallelAgentRow({
   agent: ParallelAgent;
   status: AgentStatus | undefined;
   selected: boolean;
+  /** Unseen update (completion / needs-input while not selected) — shows
+   * the bell (expanded) / dot halo (compact) until the row is visited. */
+  hasUpdate: boolean;
   onSelect: () => void;
   onRun: () => void;
   onStop: () => void;
@@ -105,11 +109,13 @@ function ParallelAgentRow({
     label = 'Idle';
   }
 
+  const showUpdate = hasUpdate && !selected;
   return (
     <div
-      className={`parallel-agent-row ${selected ? 'parallel-agent-row-active' : ''}`}
+      className={`parallel-agent-row ${selected ? 'parallel-agent-row-active' : ''} ${showUpdate ? 'parallel-agent-row-update' : ''}`}
       onClick={onSelect}
       title={agent.errorMessage || label}
+      style={showUpdate ? ({ '--update-color': dotColor } as React.CSSProperties) : undefined}
     >
       <span className="parallel-agent-dot" style={{ backgroundColor: dotColor }} />
       <div className="parallel-agent-text">
@@ -123,6 +129,17 @@ function ParallelAgentRow({
           {agent.prUrl && ' · PR opened'}
         </span>
       </div>
+      {showUpdate && (
+        // Same bell as ProfileItem's unseen-update indicator, tinted by the
+        // current status color. Hidden in compact mode (the dot halo takes
+        // over there — see .app-sidebar-compact rules).
+        <span className="parallel-agent-update-indicator" title={`Unseen update — ${label}`}>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M4 11V8a4 4 0 0 1 8 0v3l1.2 1.2H2.8L4 11Z" />
+            <path d="M6.5 13.5a1.5 1.5 0 0 0 3 0" />
+          </svg>
+        </span>
+      )}
       <div className="parallel-agent-controls">
         {phase === 'awaiting' && (
           <button
@@ -583,6 +600,7 @@ export function Sidebar({
                 agent={sa}
                 status={statuses.get(`parallel:${sa.id}`)}
                 selected={selectedParallelId === sa.id && profile.id === activeProfileId}
+                hasUpdate={hasUpdates.has(`parallel:${sa.id}`)}
                 onSelect={() => {
                   onSelectProfile(profile.id);
                   onSelectParallel(sa.id);
