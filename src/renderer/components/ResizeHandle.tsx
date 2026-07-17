@@ -3,9 +3,12 @@ import { useCallback, useRef } from 'react';
 interface ResizeHandleProps {
   direction: 'horizontal' | 'vertical';
   onResize: (delta: number) => void;
+  /** Fired on mouseup at the end of a drag. Lets consumers reset
+   * per-drag state (e.g. the raw cursor position tracked for snapping). */
+  onResizeEnd?: () => void;
 }
 
-export function ResizeHandle({ direction, onResize }: ResizeHandleProps) {
+export function ResizeHandle({ direction, onResize, onResizeEnd }: ResizeHandleProps) {
   const startPos = useRef(0);
 
   const handleMouseDown = useCallback(
@@ -41,6 +44,7 @@ export function ResizeHandle({ direction, onResize }: ResizeHandleProps) {
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
         overlay.remove();
+        onResizeEnd?.();
       };
 
       document.body.style.cursor = cursor;
@@ -49,7 +53,7 @@ export function ResizeHandle({ direction, onResize }: ResizeHandleProps) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
     },
-    [direction, onResize],
+    [direction, onResize, onResizeEnd],
   );
 
   const className =

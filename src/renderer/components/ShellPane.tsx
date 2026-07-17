@@ -26,6 +26,14 @@ interface ShellPaneProps {
    * shell output open in the in-app Web tab; when false they go to
    * the OS browser via shell.openExternal. */
   webEnabled?: boolean;
+  /** Divider-snap support: returns the x-positions (in % of the pane
+   * width) of vertical dividers in the row above (the agent|editor
+   * split) that a dragged shell divider should magnetically align to. */
+  getSnapTargets?: () => number[];
+  /** Reports this pane's own divider positions (cumulative %, one per
+   * inner divider) so the split divider above can snap to them.
+   * Only fired while visible. */
+  onDividersChange?: (positions: number[]) => void;
 }
 
 interface ShellInfo {
@@ -48,6 +56,8 @@ export function ShellPane({
   onShellCountChange,
   initialShellCount,
   webEnabled = false,
+  getSnapTargets,
+  onDividersChange,
 }: ShellPaneProps) {
   // Mirror webEnabled into a ref so the WebLinksAddon click handler
   // (captured once at terminal-creation time) always reads the latest
@@ -418,6 +428,11 @@ export function ShellPane({
     });
   }, [settings.baseHue, settings.darkness, settings.shellFontSize, settings.shellFontWeight, settings.shellFontWeightBold, hidden]);
 
+  // Raw (cursor-following) cumulative position of the divider being
+  // dragged, so the magnetic snap is escapable — see App's divider-snap
+  // block for the counterpart on the agent|editor split.
+  const dragRawRef = useRef<{ index: number; cum: number } | null>(null);
+
   const handleResize = useCallback((index: number, delta: number) => {
     const container = document.querySelector(`[data-shell-profile="${profileId}"]`);
     if (!container) return;
@@ -427,15 +442,48 @@ export function ShellPane({
 
     setWidths((prev) => {
       const next = [...prev];
-      const newLeft = next[index] + deltaPercent;
-      const newRight = next[index + 1] - deltaPercent;
+      // Cumulative x of this divider (in %) before applying the delta.
+      let cumBefore = 0;
+      for (let i = 0; i <= index; i++) cumBefore += next[i];
+      const rawBase = dragRawRef.current?.index === index ? dragRawRef.current.cum : cumBefore;
+      const raw = rawBase + deltaPercent;
+      dragRawRef.current = { index, cum: raw };
+      // Subtle snap: align with the split divider above when close.
+      const thresholdPct = (8 / totalWidth) * 100;
+      let target = raw;
+      for (const t of getSnapTargets?.() ?? []) {
+        if (Math.abs(raw - t) <= thresholdPct) { target = t; break; }
+      }
+      const applied = target - cumBefore;
+      const newLeft = next[index] + applied;
+      const newRight = next[index + 1] - applied;
       if (newLeft >= 10 && newRight >= 10) {
         next[index] = newLeft;
         next[index + 1] = newRight;
       }
       return next;
     });
-  }, [profileId]);
+  }, [profileId, getSnapTargets]);
+
+  const handleResizeEnd = useCallback(() => {
+    dragRawRef.current = null;
+  }, []);
+
+  // Report divider positions (cumulative %) upward so the agent|editor
+  // split divider can snap to them. Hidden panes stay silent — if they
+  // reported [], a profile switch could clobber the newly-visible pane's
+  // report (shared ref, effect order undefined). The consumer gates on
+  // shellOpen instead, so stale positions are never used.
+  useEffect(() => {
+    if (!onDividersChange || hidden) return;
+    const positions: number[] = [];
+    let cum = 0;
+    for (let i = 0; i < widths.length - 1; i++) {
+      cum += widths[i];
+      positions.push(cum);
+    }
+    onDividersChange(positions);
+  }, [widths, hidden, onDividersChange]);
 
   return (
     <div className="shell-pane-container" data-shell-profile={profileId}>
@@ -451,6 +499,7 @@ export function ShellPane({
               <ResizeHandle
                 direction="horizontal"
                 onResize={(delta) => handleResize(idx - 1, delta)}
+                onResizeEnd={handleResizeEnd}
               />
             )}
             <button

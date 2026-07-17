@@ -2090,18 +2090,60 @@ export function App() {
   }, [activeViewKey, filesViews, kanbanViews, webViews]);
 
   const agentSplitRef = useRef<HTMLDivElement>(null);
+  // ── Divider snap (subtle magnetic alignment) ──────────────────────
+  // The agent|editor split divider (top) and the shell-terminal dividers
+  // (bottom) are vertical lines stacked in the same width space. While
+  // dragging one, it snaps when it lines up with one from the other row.
+  // The raw (cursor-following) position is tracked per drag so the snap
+  // is escapable — drag past the threshold and it releases.
+  const SNAP_PX = 8;
+  const shellDividersRef = useRef<number[]>([]);
+  const reportShellDividers = useCallback((positions: number[]) => {
+    shellDividersRef.current = positions;
+  }, []);
+  const agentSplitPercentRef = useRef(agentSplitPercent);
+  agentSplitPercentRef.current = agentSplitPercent;
+  // splitMode/shellOpen are derived ABOVE this block — mirror them here
+  // (safe: refs assigned during render, read only inside event handlers).
+  const splitModeRef = useRef(false);
+  splitModeRef.current = splitMode;
+  const shellOpenRef = useRef(false);
+  shellOpenRef.current = shellOpen;
+  const agentSplitRawRef = useRef<number | null>(null);
+
+  const snapValue = (value: number, targets: number[], thresholdPct: number): number => {
+    for (const t of targets) {
+      if (Math.abs(value - t) <= thresholdPct) return t;
+    }
+    return value;
+  };
+
   const handleAgentSplitResize = useCallback((delta: number) => {
     const container = agentSplitRef.current;
     if (!container) return;
     const totalWidth = container.clientWidth;
     if (totalWidth === 0) return;
     const deltaPct = (delta / totalWidth) * 100;
-    setAgentSplitPercent((p) => {
-      const next = Math.max(20, Math.min(80, p + deltaPct));
-      savePaneSizes({ agentSplitPercent: next });
-      return next;
-    });
+    const raw = Math.max(20, Math.min(80,
+      (agentSplitRawRef.current ?? agentSplitPercentRef.current) + deltaPct));
+    agentSplitRawRef.current = raw;
+    // Snap only to the shells actually visible below; a closed shell pane
+    // must not leave stale magnetic targets behind.
+    const targets = shellOpenRef.current ? shellDividersRef.current : [];
+    const next = snapValue(raw, targets, (SNAP_PX / totalWidth) * 100);
+    setAgentSplitPercent(next);
+    savePaneSizes({ agentSplitPercent: next });
   }, [savePaneSizes]);
+
+  const handleAgentSplitResizeEnd = useCallback(() => {
+    agentSplitRawRef.current = null;
+  }, []);
+
+  // Snap targets for a shell divider being dragged: the split divider
+  // above it (when split mode is showing one).
+  const getShellSnapTargets = useCallback((): number[] => {
+    return splitModeRef.current ? [agentSplitPercentRef.current] : [];
+  }, []);
 
   const toggleShell = useCallback(() => {
     if (!activeViewKey) return;
@@ -2440,7 +2482,7 @@ export function App() {
               consumeStartupArgs={consumeStartupArgs}
             />
             {splitMode && (
-              <ResizeHandle direction="horizontal" onResize={handleAgentSplitResize} />
+              <ResizeHandle direction="horizontal" onResize={handleAgentSplitResize} onResizeEnd={handleAgentSplitResizeEnd} />
             )}
             {/* Mount one FileExplorer per view in filesRunning. Same
                 persist-in-background pattern as Kanban / Web — keeps open
@@ -2626,6 +2668,8 @@ export function App() {
                     hidden={!isVisible}
                     settings={settings}
                     webEnabled={settings.functionWebEnabled !== false}
+                    getSnapTargets={getShellSnapTargets}
+                    onDividersChange={reportShellDividers}
                     onAllClosed={() => {
                       setShellOpenSet((prev) => {
                         const next = new Set(prev);
