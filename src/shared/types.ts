@@ -920,6 +920,13 @@ export interface GitCheckoutResult {
   error?: 'dirty' | 'failed' | 'not-git';
   /** Underlying git error message when `error: 'failed'`. */
   message?: string;
+  /** With error:'dirty' — true when the target resolves to the SAME commit
+   * as HEAD, so a stash → checkout → pop carry is conflict-free and the UI
+   * can offer it. */
+  sameCommit?: boolean;
+  /** Set when ok but something non-fatal happened (e.g. re-applying the
+   * carried stash failed; the changes remain in the stash). */
+  warning?: string;
 }
 
 export interface GitCommitResult {

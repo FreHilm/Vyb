@@ -3558,7 +3558,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   // clean structured error so the UI can show a helpful message.
   ipcMain.handle(
     IPC_CHANNELS.GIT_CHECKOUT_COMMIT,
-    (_, cwd: string, target: string): GitCheckoutResult => {
+    (_, cwd: string, target: string, stashCarry?: boolean): GitCheckoutResult => {
       // Defence in depth: SHAs and branch names only — block anything that
       // could break out of the argv (shell metacharacters, leading dash so
       // git won't treat it as a flag, parent-traversal `..`).
@@ -3579,7 +3579,46 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         const dirty = execSync('git status --porcelain', {
           cwd, timeout: 5000, encoding: 'utf-8',
         }).trim();
-        if (dirty) return { ok: false, error: 'dirty' };
+        if (dirty && !stashCarry) {
+          // Tell the renderer whether the target sits on the SAME commit
+          // as HEAD — in that case a stash → checkout → pop carry is
+          // conflict-free and the UI offers it as a dialog.
+          let sameCommit = false;
+          try {
+            const headSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, timeout: 5000, encoding: 'utf-8' }).trim();
+            const targetSha = execFileSync('git', ['rev-parse', `${target}^{commit}`], { cwd, timeout: 5000, encoding: 'utf-8' }).trim();
+            sameCommit = !!headSha && headSha === targetSha;
+          } catch { /* unknown ref — plain dirty error */ }
+          return { ok: false, error: 'dirty', sameCommit };
+        }
+
+        if (dirty && stashCarry) {
+          // Carry the uncommitted changes across the switch:
+          // stash (incl. untracked) → checkout → pop.
+          execFileSync('git', ['stash', 'push', '-u', '-m', `Vyb: carry changes to ${target}`], {
+            cwd, timeout: 30000, encoding: 'utf-8',
+          });
+          try {
+            execFileSync('git', ['checkout', target], { cwd, timeout: 15000, encoding: 'utf-8' });
+          } catch (err) {
+            // Checkout failed — restore the original state so the user
+            // isn't left with their changes hidden in a stash.
+            try { execFileSync('git', ['stash', 'pop'], { cwd, timeout: 30000, encoding: 'utf-8' }); } catch { /* keep stashed */ }
+            return { ok: false, error: 'failed', message: (err as Error).message };
+          }
+          try {
+            execFileSync('git', ['stash', 'pop'], { cwd, timeout: 30000, encoding: 'utf-8' });
+          } catch {
+            // Switched, but the pop conflicted/failed — never lose work:
+            // the changes stay in the stash and the user is told how to
+            // recover them.
+            return {
+              ok: true,
+              warning: `Switched to ${target}, but re-applying your changes failed — they are kept in the stash (run \`git stash pop\`).`,
+            };
+          }
+          return { ok: true };
+        }
 
         // Use execFileSync so the target is passed as a single argv entry
         // (no shell parsing on top of the regex check above).

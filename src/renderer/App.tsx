@@ -165,7 +165,7 @@ declare global {
       getGitFileAtHead: (cwd: string, filePath: string) => Promise<string | null>;
       getGitLog: (cwd: string, limit: number) => Promise<GitCommit[]>;
       getGitRefs: (cwd: string) => Promise<GitRef[]>;
-      gitCheckoutCommit: (cwd: string, sha: string) => Promise<GitCheckoutResult>;
+      gitCheckoutCommit: (cwd: string, sha: string, stashCarry?: boolean) => Promise<GitCheckoutResult>;
       gitStage: (cwd: string, filePath: string) => Promise<boolean>;
       gitUnstage: (cwd: string, filePath: string) => Promise<boolean>;
       gitDiscardFile: (cwd: string, filePath: string, untracked: boolean) => Promise<boolean>;

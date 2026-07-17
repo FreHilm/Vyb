@@ -369,8 +369,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.GIT_LOG, cwd, limit),
   getGitRefs: (cwd: string): Promise<GitRef[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_LIST_REFS, cwd),
-  gitCheckoutCommit: (cwd: string, sha: string): Promise<GitCheckoutResult> =>
-    ipcRenderer.invoke(IPC_CHANNELS.GIT_CHECKOUT_COMMIT, cwd, sha),
+  gitCheckoutCommit: (cwd: string, sha: string, stashCarry?: boolean): Promise<GitCheckoutResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_CHECKOUT_COMMIT, cwd, sha, stashCarry === true),
 
   listDir: (dirPath: string): Promise<FileEntry[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_DIR, dirPath),

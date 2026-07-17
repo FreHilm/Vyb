@@ -348,6 +348,9 @@ export function useGitRefOps({
   const [confirmRebase, setConfirmRebase] = useState<{ ontoRef: string } | null>(null);
   // Merge preview (dry-run) dialog state (T-060).
   const [previewDialog, setPreviewDialog] = useState<{ ref: string; loading: boolean; result: GitMergePreviewResult | null } | null>(null);
+  // Dirty-tree branch switch where the target is on the SAME commit —
+  // dialog offering stash → checkout → pop (conflict-free carry).
+  const [stashCarryDialog, setStashCarryDialog] = useState<{ target: string } | null>(null);
   // Commit-level dialogs.
   const [newTagDialog, setNewTagDialog] = useState<{ commitRef: string } | null>(null);
   const [newTagName, setNewTagName] = useState('');
@@ -374,6 +377,12 @@ export function useGitRefOps({
     setOpError(null);
     const result = await window.api.gitCheckoutCommit(workingDirectory, target);
     if (!result.ok) {
+      if (result.error === 'dirty' && result.sameCommit) {
+        // The target sits on the SAME commit as HEAD, so the uncommitted
+        // changes can be carried across conflict-free — offer it.
+        setStashCarryDialog({ target });
+        return;
+      }
       setOpError(
         result.error === 'dirty'
           ? 'Working tree has uncommitted changes — commit or stash first.'
@@ -381,6 +390,18 @@ export function useGitRefOps({
             ? `Checkout failed: ${result.message ?? 'unknown error'}`
             : `Checkout failed (${result.error}).`,
       );
+    }
+    await onAfterOp();
+  }, [workingDirectory, onAfterOp]);
+
+  const confirmStashCarry = useCallback(async (target: string) => {
+    setStashCarryDialog(null);
+    setOpError(null);
+    const result = await window.api.gitCheckoutCommit(workingDirectory, target, true);
+    if (!result.ok) {
+      setOpError(`Checkout failed: ${result.message ?? result.error ?? 'unknown error'}`);
+    } else if (result.warning) {
+      setOpError(result.warning);
     }
     await onAfterOp();
   }, [workingDirectory, onAfterOp]);
@@ -846,6 +867,36 @@ export function useGitRefOps({
                   onClick={() => { const ref = previewDialog.ref; setPreviewDialog(null); handleMergeInto(ref); }}
                 >
                   Merge now
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {stashCarryDialog && (
+        <div className="modal-overlay" onClick={() => setStashCarryDialog(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Switch branch with uncommitted changes</h3></div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 8 }}>
+                Switch to <code>{stashCarryDialog.target}</code>? You have uncommitted
+                changes — they will be stashed, the branch switched, and the changes
+                re-applied on <code>{stashCarryDialog.target}</code>.
+              </p>
+              <p style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--c-overlay0)' }}>
+                Both branches point at the same commit, so re-applying is conflict-free.
+                Untracked files are carried along too.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <div className="modal-footer-right">
+                <button className="cancel-btn" onClick={() => setStashCarryDialog(null)}>Cancel</button>
+                <button
+                  className="save-btn"
+                  onClick={() => { void confirmStashCarry(stashCarryDialog.target); }}
+                >
+                  Stash &amp; switch
                 </button>
               </div>
             </div>
