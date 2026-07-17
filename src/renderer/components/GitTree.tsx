@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { Fragment, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { GitBisectStatus, GitCommit, GitRef, GitReflogEntry, GitStatus } from '../../shared/types';
 import { RebaseInteractiveDialog } from './RebaseInteractiveDialog';
 import { buildGraph, GraphRow, maxLane } from '../git-graph';
@@ -364,6 +364,27 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
+  // Files changed in the selected commit — the accordion under its row.
+  // null = loading (or nothing selected). Selecting another commit
+  // replaces the selection, so only one commit is ever expanded.
+  const [commitFiles, setCommitFiles] = useState<
+    { path: string; added: number; deleted: number; status: string }[] | null
+  >(null);
+
+  // git's well-known empty-tree object — the diff base for a root commit
+  // (no parents), so its file list shows everything as added.
+  const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+  useEffect(() => {
+    if (!selectedSha) { setCommitFiles(null); return; }
+    let cancelled = false;
+    setCommitFiles(null);
+    const commit = commits.find((cm) => cm.sha === selectedSha);
+    const base = commit && commit.parents.length > 0 ? commit.parents[0] : EMPTY_TREE;
+    window.api.gitCompareFiles(workingDirectory, base, selectedSha, false)
+      .then((files) => { if (!cancelled) setCommitFiles(files); })
+      .catch((): void => { if (!cancelled) setCommitFiles([]); });
+    return () => { cancelled = true; };
+  }, [selectedSha, workingDirectory, commits]);
   const [confirmCheckout, setConfirmCheckout] = useState<string | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1006,8 +1027,8 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
           // stay continuous.
           const isDimmed = appliedQuery && !matchesQuery(c);
           return (
+            <Fragment key={row.sha}>
             <div
-              key={row.sha}
               data-sha={row.sha}
               className={`git-tree-row${isSelected ? ' git-tree-row-selected' : ''}${isHead ? ' git-tree-row-head' : ''}${isDimmed ? ' git-tree-row-dim' : ''}`}
               onClick={() => setSelectedSha((s) => (s === row.sha ? null : row.sha))}
@@ -1073,6 +1094,32 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
                 </div>
               )}
             </div>
+            {/* Accordion: files changed in the selected commit, with the
+                same status letters/colors as the Changes tab. Selecting
+                another commit swaps the expansion (selectedSha is single). */}
+            {isSelected && (
+              <div className="git-tree-commit-files" onClick={(e) => e.stopPropagation()}>
+                {commitFiles === null ? (
+                  <div className="git-tree-commit-files-empty">Loading…</div>
+                ) : commitFiles.length === 0 ? (
+                  <div className="git-tree-commit-files-empty">No file changes</div>
+                ) : (
+                  commitFiles.map((f) => (
+                    <div className="git-tree-commit-file" key={f.path} title={f.path}>
+                      <span className="git-tree-commit-file-path">{f.path}</span>
+                      <span className="git-changes-counts">
+                        {f.added > 0 && <span className="git-changes-added">+{f.added}</span>}
+                        {f.deleted > 0 && <span className="git-changes-deleted">−{f.deleted}</span>}
+                      </span>
+                      <span className="git-changes-status" data-status={f.status}>
+                        {f.status === 'added' ? 'A' : f.status === 'deleted' ? 'D' : f.status === 'renamed' ? 'R' : 'M'}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+            </Fragment>
           );
         })}
       </div>
