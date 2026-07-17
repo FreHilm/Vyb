@@ -15,22 +15,34 @@ import { ParallelAgentManager } from './parallel-agent-manager';
 import { applyAgentArgsGuards } from './agent-args-guard';
 import { sendCtrlCToPty, clearCtrlCState } from './windows-ctrlc';
 import { listSessions as listAgentSessions, sessionCaps } from './agent-sessions';
+import { searchInFilesJs } from './js-search';
 
 // Bundled ripgrep (@vscode/ripgrep) — Vyb ships its own `rg` binary so
-// cross-file search works without the user installing ripgrep, and
-// without relying on PATH (a packaged macOS app inherits almost none of
-// the user's shell PATH). When packaged, the binary lives under
-// app.asar.unpacked (see forge.config.ts asar.unpack), so rewrite the
-// asar segment to its on-disk location. In dev, rgPath points straight
-// into node_modules and the replace is a no-op.
-let rgBinaryPath: string | null = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { rgPath } = require('@vscode/ripgrep') as { rgPath: string };
-  rgBinaryPath = rgPath.replace(/\bapp\.asar\b/, 'app.asar.unpacked');
-} catch {
-  rgBinaryPath = null; // extremely unlikely; search falls back gracefully
+// cross-file search works without the user installing anything (the same
+// approach VS Code uses; this package is VS Code's ripgrep distribution).
+//
+// The path is computed by hand instead of `require('@vscode/ripgrep')`:
+// v1.18 is an ESM-only package ("type": "module"), which a CommonJS
+// Electron main process cannot require — that silent failure is exactly
+// what broke search. All the library does is build this path anyway.
+// When packaged, the binary lives under app.asar.unpacked (see
+// forge.config.ts asar.unpack), hence the rewrite.
+function resolveRgBinary(): string | null {
+  const binName = process.platform === 'win32' ? 'rg.exe' : 'rg';
+  const appRoot = app.getAppPath();
+  const candidates = [
+    // v1.18+ layout: per-platform optional package.
+    path.join(appRoot, 'node_modules', `@vscode/ripgrep-${process.platform}-${process.arch}`, 'bin', binName),
+    // Older layout: binary downloaded into the main package.
+    path.join(appRoot, 'node_modules', '@vscode/ripgrep', 'bin', binName),
+  ];
+  for (const c of candidates) {
+    const real = c.replace(/\bapp\.asar\b/, 'app.asar.unpacked');
+    if (fs.existsSync(real)) return real;
+  }
+  return null;
 }
+const rgBinaryPath: string | null = resolveRgBinary();
 
 
 let ptyManager: PtyManager;
@@ -3731,15 +3743,18 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         }
       }
       args.push('--', query, '.');
+      // No bundled rg (or it can't start)? Use the built-in pure-JS
+      // engine — slower on huge repos but fully self-contained, so
+      // Find in Files never depends on anything outside the app.
       if (!rgBinaryPath) {
-        return { ...empty, fallbackUsed: true, error: 'bundled search engine unavailable' };
+        return searchInFilesJs(cwd, query, opts);
       }
       return await new Promise<import('../shared/types').FileSearchResult>((resolve) => {
         let child: ReturnType<typeof spawn>;
         try {
           child = spawn(rgBinaryPath as string, args, { cwd });
         } catch {
-          resolve({ ...empty, fallbackUsed: true, error: 'bundled search engine failed to start' });
+          resolve(searchInFilesJs(cwd, query, opts));
           return;
         }
         let stdoutBuf = '';
@@ -3791,7 +3806,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         child.stderr?.on('data', (chunk: string) => { stderrBuf += chunk; });
         child.on('error', () => {
           clearTimeout(timer);
-          resolve({ ...empty, fallbackUsed: true, error: 'bundled search engine failed to start' });
+          resolve(searchInFilesJs(cwd, query, opts));
         });
         child.on('close', () => {
           clearTimeout(timer);
