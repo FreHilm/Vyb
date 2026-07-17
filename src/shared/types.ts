@@ -120,6 +120,10 @@ export interface AppSettings {
    * view of that kind is closed. Both default to true. */
   functionKanbanEnabled: boolean;
   functionWebEnabled: boolean;
+  /** When true, a profile opened for the FIRST time (no remembered split
+   * state) starts in split view (agent | editor). Once the user toggles
+   * split for a profile, that explicit choice persists and wins. */
+  defaultSplitView?: boolean;
   /** Default Pull strategy used by the panel's primary Pull button.
    * 'merge' = plain `git pull` (the current behaviour).
    * 'rebase' = `git pull --rebase` (linear history).
@@ -253,9 +257,11 @@ export interface ExternalApp {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  // Default look: grayscale UI (360) at darkness 53 — a deep near-black
+  // theme with dim, low-glare text.
   baseHue: 360,
-  darkness: 0,
-  textLightness: 12,
+  darkness: 53,
+  textLightness: 16,
   profileFontSize: 14,
   agentFontSize: 11,
   shellFontSize: 10,
@@ -305,6 +311,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   parallelAgentAutoRun: true,
   functionKanbanEnabled: true,
   functionWebEnabled: true,
+  defaultSplitView: false,
   pullStrategy: 'merge',
   pushTagsStrategy: 'off',
   diffViewMode: 'unified',

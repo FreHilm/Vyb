@@ -356,6 +356,11 @@ export function App() {
   // via `settings.openFunctionTabs` — parallel-agent keys are
   // session-bound and excluded from the persisted snapshot.
   const [splitViews, setSplitViews] = useState<Set<string>>(new Set());
+  // Views where the user EXPLICITLY turned split off. Together with
+  // splitViews this forms a tri-state per view: explicit-on / explicit-off
+  // / unset. Unset views follow `settings.defaultSplitView` on first
+  // activation; explicit choices persist (as split:false) and always win.
+  const [splitOffViews, setSplitOffViews] = useState<Set<string>>(new Set());
   // Per-view-key: when true, the FileExplorer's "show only git-changed
   // files" toggle is on. Lifted from FileExplorer so each profile (and
   // each parallel agent view) remembers the state and so we can persist
@@ -678,11 +683,15 @@ export function App() {
         const web = new Set<string>();
         const split = new Set<string>();
         const showChanged = new Set<string>();
+        const splitOff = new Set<string>();
         for (const [key, state] of Object.entries(remembered)) {
           if (state?.files) files.add(key);
           if (state?.kanban) kanban.add(key);
           if (state?.web) web.add(key);
           if (state?.split) split.add(key);
+          // split === false is the EXPLICIT "user turned split off" marker
+          // (vs. absent = unset → follows settings.defaultSplitView).
+          if (state?.split === false) splitOff.add(key);
           if (state?.showChanged) showChanged.add(key);
         }
         if (files.size > 0) {
@@ -698,6 +707,7 @@ export function App() {
           setWebRunning(new Set(web));
         }
         if (split.size > 0) setSplitViews(split);
+        if (splitOff.size > 0) setSplitOffViews(splitOff);
         if (showChanged.size > 0) setShowChangedFilesViews(showChanged);
       }
 
@@ -1853,10 +1863,18 @@ export function App() {
     collect(webViews, 'web');
     collect(splitViews, 'split');
     collect(showChangedFilesViews, 'showChanged');
+    // Explicit "split off" choices persist as split:false so the
+    // defaultSplitView setting never re-applies to them (tri-state:
+    // true / false / absent-means-follow-default).
+    for (const k of splitOffViews) {
+      if (k.includes('|') || !profileIds.has(k)) continue;
+      if (!acc[k]) acc[k] = {};
+      acc[k].split = false;
+    }
     const current = settingsRef.current.openFunctionTabs || {};
     if (JSON.stringify(current) === JSON.stringify(acc)) return;
     savePaneSizes({ openFunctionTabs: acc });
-  }, [filesViews, kanbanViews, webViews, splitViews, showChangedFilesViews, profiles, savePaneSizes]);
+  }, [filesViews, kanbanViews, webViews, splitViews, splitOffViews, showChangedFilesViews, profiles, savePaneSizes]);
 
   // Persist the FileExplorer open-tab snapshot. Separate effect because
   // the payload (arrays of absolute paths) is larger than the booleans
@@ -2073,13 +2091,16 @@ export function App() {
       if (next.has(key)) {
         // Exiting split — drop back to agent-only and clear every
         // right-pane overlay so the user gets the "original" view.
+        // Record the EXPLICIT off so defaultSplitView never re-applies.
         next.delete(key);
+        setSplitOffViews((p) => ensureInSet(p, key));
         setFilesViews((p) => removeFromSet(p, key));
         setKanbanViews((p) => removeFromSet(p, key));
         setWebViews((p) => removeFromSet(p, key));
       } else {
         // Entering split — guarantee one of Files/Kanban/Web is the right pane.
         next.add(key);
+        setSplitOffViews((p) => removeFromSet(p, key));
         if (!filesViews.has(key) && !kanbanViews.has(key) && !webViews.has(key)) {
           setFilesViews((p) => ensureInSet(p, key));
           setFilesRunning((p) => ensureInSet(p, key));
@@ -2088,6 +2109,22 @@ export function App() {
       return next;
     });
   }, [activeViewKey, filesViews, kanbanViews, webViews]);
+
+  // defaultSplitView: a parent-profile view activated with NO remembered
+  // split choice (neither explicit-on nor explicit-off) starts in split.
+  // Materialized into splitViews so from then on it persists exactly like
+  // a hand-toggled split (the setting only seeds first use).
+  useEffect(() => {
+    const key = activeViewKey;
+    if (!key || key.includes('|')) return; // parent profiles only
+    if (settings.defaultSplitView !== true) return;
+    if (splitViews.has(key) || splitOffViews.has(key)) return;
+    setSplitViews((prev) => ensureInSet(prev, key));
+    if (!filesViews.has(key) && !kanbanViews.has(key) && !webViews.has(key)) {
+      setFilesViews((p) => ensureInSet(p, key));
+      setFilesRunning((p) => ensureInSet(p, key));
+    }
+  }, [activeViewKey, settings.defaultSplitView, splitViews, splitOffViews, filesViews, kanbanViews, webViews]);
 
   const agentSplitRef = useRef<HTMLDivElement>(null);
   // ── Divider snap (subtle magnetic alignment) ──────────────────────

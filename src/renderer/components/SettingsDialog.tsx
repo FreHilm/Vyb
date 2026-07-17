@@ -196,6 +196,7 @@ export function SettingsDialog({
   const [parallelAgentAutoRun, setParallelAgentAutoRun] = useState(settings.parallelAgentAutoRun !== false);
   const [functionKanbanEnabled, setFunctionKanbanEnabled] = useState(settings.functionKanbanEnabled !== false);
   const [functionWebEnabled, setFunctionWebEnabled] = useState(settings.functionWebEnabled !== false);
+  const [defaultSplitView, setDefaultSplitView] = useState(settings.defaultSplitView === true);
   const [showAuthorAvatars, setShowAuthorAvatars] = useState(settings.showAuthorAvatars !== false);
   const [formatOnSave, setFormatOnSave] = useState(settings.formatOnSave === true);
   const [editorStickyScroll, setEditorStickyScroll] = useState(settings.editorStickyScroll !== false);
@@ -311,6 +312,7 @@ export function SettingsDialog({
       parallelAgentAutoRun,
       functionKanbanEnabled,
       functionWebEnabled,
+      defaultSplitView,
       showAuthorAvatars,
       formatOnSave,
       editorStickyScroll,
@@ -421,6 +423,22 @@ export function SettingsDialog({
                 The Kanban tab embeds Ordna (web or TUI mode — configured under
                 Settings → Kanban) so tasks dispatched from the board open
                 directly in the agent.
+              </span>
+              <label className="field field-row-toggle">
+                <span className="field-label">Split view by default</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={defaultSplitView}
+                    onChange={(e) => setDefaultSplitView(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+              <span className="field-hint">
+                Open profiles in split view (agent on the left, editor on the
+                right) the first time they&apos;re used. Once you toggle split for
+                a profile, that choice is remembered and wins over this default.
               </span>
 
               <label className="field field-row-toggle" style={{ marginTop: 12 }}>
