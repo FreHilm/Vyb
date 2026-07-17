@@ -35,6 +35,11 @@ export interface Profile {
 export interface Workspace {
   id: string;
   name: string;
+  /** Optional reference image for AI icon generation, like
+   * SidebarFolder.referenceImage. Resolution order when generating a
+   * profile icon: folder (section) → workspace → global
+   * `settings.iconReferenceImage`. */
+  referenceImage?: string;
 }
 
 export interface ProfileMemory {

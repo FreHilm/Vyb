@@ -8,6 +8,9 @@ interface Props {
   onSelect: (workspaceId: string) => void;
   onAdd: (name: string) => void;
   onRename: (workspaceId: string, name: string) => void;
+  /** Workspace settings modal save — name + icon reference image (same
+   * settings as a sidebar folder/section). */
+  onUpdate: (workspaceId: string, patch: { name?: string; referenceImage?: string }) => void;
   onDelete: (workspaceId: string) => void;
   /** Drop target — a profile or folder dropped on a workspace row in
    * the menu moves into that workspace. Sidebar drag payloads come
@@ -19,6 +22,9 @@ interface Props {
   /** Per-workspace profile counts, rendered as "(N)" next to each
    * workspace name in the menu. Keyed by workspace id. */
   profileCounts?: Record<string, number>;
+  /** Per-workspace folder (section) counts — with profileCounts, gates
+   * the delete affordance: only empty workspaces are deletable. */
+  folderCounts?: Record<string, number>;
 }
 
 /** The workspace picker that sits at the top of the sidebar in place
@@ -27,8 +33,8 @@ interface Props {
  * double-click name to rename), a separator, and a "+ New workspace"
  * inline-input row. Outside-click or Escape closes. */
 export function WorkspaceDropdown({
-  workspaces, activeWorkspaceId, onSelect, onAdd, onRename, onDelete,
-  onMoveToWorkspace, profileCounts,
+  workspaces, activeWorkspaceId, onSelect, onAdd, onRename, onUpdate, onDelete,
+  onMoveToWorkspace, profileCounts, folderCounts,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -36,6 +42,11 @@ export function WorkspaceDropdown({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // Workspace Settings modal (name + icon reference image) — mirrors the
+  // sidebar folder-config modal. Opened via the row's gear/pencil button.
+  const [configId, setConfigId] = useState<string | null>(null);
+  const [configName, setConfigName] = useState('');
+  const [configRef, setConfigRef] = useState('');
   // Drag-and-drop highlights. `dragOverWsId` marks the row the cursor
   // is currently over; `dragActive` styles the trigger while ANY drag
   // (profile or folder) is in flight so the user gets a visual hint
@@ -142,6 +153,24 @@ export function WorkspaceDropdown({
     if (name) onRename(id, name);
     setRenamingId(null);
     setRenameValue('');
+  };
+
+  const openConfig = (w: Workspace) => {
+    setConfigId(w.id);
+    setConfigName(w.name);
+    setConfigRef(w.referenceImage ?? '');
+    setOpen(false); // close the menu; the modal takes over
+  };
+
+  const saveConfig = () => {
+    if (!configId) return;
+    onUpdate(configId, { name: configName, referenceImage: configRef });
+    setConfigId(null);
+  };
+
+  const browseConfigRef = async () => {
+    const file = await window.api.selectFile();
+    if (file) setConfigRef(file);
   };
 
   return (
@@ -269,19 +298,19 @@ export function WorkspaceDropdown({
                     )}
                   </span>
                 )}
-                {/* Rename button — hover-revealed pencil. Explicit
-                    affordance for the same action as double-clicking the
-                    name. Hidden while renaming or confirming a delete. */}
+                {/* Settings button — hover-revealed pencil. Opens the
+                    Workspace Settings modal (name + icon reference image,
+                    same settings as a sidebar section). Quick inline rename
+                    stays available by double-clicking the name. */}
                 {!isRenaming && !isConfirmingDelete && (
                   <button
                     type="button"
                     className="workspace-dropdown-rename"
-                    title="Rename workspace"
+                    title="Workspace settings (name, icon reference image)"
                     onClick={(e) => {
                       e.stopPropagation();
                       setConfirmDeleteId(null);
-                      setRenamingId(w.id);
-                      setRenameValue(w.name);
+                      openConfig(w);
                     }}
                   >
                     <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -289,16 +318,17 @@ export function WorkspaceDropdown({
                     </svg>
                   </button>
                 )}
-                {/* Delete button — only shown for workspaces that have
-                    no profiles in them, so deleting can't surprise-move
-                    the user's agents to another workspace. Also hidden
-                    when only one workspace remains (last one is
-                    un-deletable) or while a rename is in progress.
-                    First click on × asks inline confirmation; second
-                    click commits. */}
+                {/* Delete button — only shown for workspaces with no
+                    profiles AND no folders/sections, so deleting can't
+                    surprise-move the user's agents or sections to another
+                    workspace. Also hidden when only one workspace remains
+                    (last one is un-deletable) or while a rename is in
+                    progress. First click on × asks inline confirmation;
+                    second click commits. */}
                 {workspaces.length > 1
                   && !isRenaming
                   && (profileCounts?.[w.id] ?? 0) === 0
+                  && (folderCounts?.[w.id] ?? 0) === 0
                   && (
                   isConfirmingDelete ? (
                     <span className="workspace-dropdown-confirm" onClick={(e) => e.stopPropagation()}>
@@ -366,6 +396,63 @@ export function WorkspaceDropdown({
               <span className="workspace-dropdown-label">New workspace…</span>
             </button>
           )}
+        </div>,
+        document.body,
+      )}
+
+      {/* Workspace Settings modal — same fields as the sidebar folder
+          (section) config: name + AI-icon reference image. Icon
+          resolution order at generation time: section → workspace →
+          global (Settings → Icons). */}
+      {configId && createPortal(
+        <div className="modal-overlay" onClick={() => setConfigId(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Workspace Settings</h3>
+            </div>
+            <div className="modal-body">
+              <label className="field">
+                <span className="field-label">Name</span>
+                <input
+                  type="text"
+                  value={configName}
+                  onChange={(e) => setConfigName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveConfig(); } }}
+                  autoFocus
+                />
+              </label>
+              <label className="field">
+                <span className="field-label">Icon reference image</span>
+                <span className="field-hint" style={{ marginBottom: 6 }}>
+                  When set, AI icon generation for profiles in this workspace
+                  uses this image as the style reference. A section&apos;s own
+                  reference image still wins; without either, the global one
+                  in Settings → Icons is used.
+                </span>
+                <div className="field-with-btn">
+                  <input
+                    type="text"
+                    value={configRef}
+                    onChange={(e) => setConfigRef(e.target.value)}
+                    placeholder="(use global default)"
+                  />
+                  <button className="browse-btn" onClick={browseConfigRef}>Browse</button>
+                  <button
+                    className="browse-btn"
+                    onClick={() => setConfigRef('')}
+                    disabled={!configRef}
+                    title="Clear the workspace reference; sections/global settings apply again"
+                  >
+                    Reset
+                  </button>
+                </div>
+              </label>
+            </div>
+            <div className="modal-footer">
+              <button className="cancel-btn" onClick={() => setConfigId(null)}>Cancel</button>
+              <button className="save-btn" onClick={saveConfig}>Save</button>
+            </div>
+          </div>
         </div>,
         document.body,
       )}

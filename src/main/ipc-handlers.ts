@@ -4319,17 +4319,26 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       const settings = loadSettings();
       const prompt = `Make a project icon for the project "${projectName}" that matches the following universe: ${settings.iconPromptPrefix}`;
 
-      // Resolve the reference image: prefer the containing folder's
-      // `referenceImage` (set via the folder-config modal) when present,
-      // otherwise fall back to the global `settings.iconReferenceImage`.
+      // Resolve the reference image, most specific wins:
+      //   1. the containing folder/section's `referenceImage`
+      //   2. the profile's workspace `referenceImage`
+      //   3. the global `settings.iconReferenceImage`
       let referenceImagePath = settings.iconReferenceImage;
+      const profile = profiles.find((p) => p.id === profileId);
+      // Legacy profiles without a workspaceId belong to the first
+      // (Default) workspace — same rule as the sidebar's filtering.
+      const wsId = profile?.workspaceId || settings.workspaces?.[0]?.id;
+      const ws = settings.workspaces?.find((w) => w.id === wsId);
+      if (ws?.referenceImage && fs.existsSync(ws.referenceImage)) {
+        referenceImagePath = ws.referenceImage;
+      }
       try {
         const layout = loadLayout();
         const folder = layout.folders.find((f) => f.profileIds.includes(profileId));
         if (folder?.referenceImage && fs.existsSync(folder.referenceImage)) {
           referenceImagePath = folder.referenceImage;
         }
-      } catch { /* layout may be empty/missing — stick with the global */ }
+      } catch { /* layout may be empty/missing — keep workspace/global */ }
 
       // Load reference image if configured
       let refImageBase64: string | null = null;

@@ -48,6 +48,8 @@ interface SidebarProps {
   onSelectWorkspace: (workspaceId: string) => void;
   onAddWorkspace: (name: string) => void;
   onRenameWorkspace: (workspaceId: string, name: string) => void;
+  /** Workspace settings modal save (name + icon reference image). */
+  onUpdateWorkspace: (workspaceId: string, patch: { name?: string; referenceImage?: string }) => void;
   onDeleteWorkspace: (workspaceId: string) => void;
   /** Move a profile (or a folder + every profile inside it) into the
    * target workspace. Fired by the workspace-dropdown drop handler. */
@@ -246,6 +248,7 @@ export function Sidebar({
   onSelectWorkspace,
   onAddWorkspace,
   onRenameWorkspace,
+  onUpdateWorkspace,
   onDeleteWorkspace,
   onMoveToWorkspace,
 }: SidebarProps) {
@@ -344,6 +347,19 @@ export function Sidebar({
     }
     return counts;
   }, [profiles, workspaces, defaultWorkspaceId]);
+
+  // Folder (section) counts per workspace — the delete affordance only
+  // appears for workspaces with no profiles AND no folders, so deleting
+  // never surprise-moves the user's sections elsewhere.
+  const folderCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const w of workspaces) counts[w.id] = 0;
+    for (const f of fullLayout.folders) {
+      const wsId = f.workspaceId || defaultWorkspaceId;
+      if (wsId in counts) counts[wsId] += 1;
+    }
+    return counts;
+  }, [fullLayout.folders, workspaces, defaultWorkspaceId]);
   const effective = buildEffectiveLayout(layout, visibleProfiles);
   const folderMap = new Map(effective.folders.map((f) => [f.id, f]));
   const profileMap = new Map(profiles.map((p) => [p.id, p]));
@@ -676,6 +692,8 @@ export function Sidebar({
           onSelect={onSelectWorkspace}
           onAdd={onAddWorkspace}
           onRename={onRenameWorkspace}
+          onUpdate={onUpdateWorkspace}
+          folderCounts={folderCounts}
           onDelete={onDeleteWorkspace}
           onMoveToWorkspace={onMoveToWorkspace}
           profileCounts={profileCounts}

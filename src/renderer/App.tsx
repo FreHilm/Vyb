@@ -1338,6 +1338,30 @@ export function App() {
     window.api.saveSettings(next).catch((): void => undefined);
   }, [settings]);
 
+  // Workspace settings modal (name + icon reference image) — same shape
+  // as the folder-config save. Empty referenceImage clears the override.
+  const handleUpdateWorkspace = useCallback((workspaceId: string, patch: { name?: string; referenceImage?: string }) => {
+    const name = patch.name?.trim();
+    const next = {
+      ...settings,
+      workspaces: settings.workspaces.map((w) =>
+        w.id === workspaceId
+          ? {
+              ...w,
+              ...(name ? { name } : {}),
+              // Only touch the reference when the key is present in the
+              // patch; '' explicitly clears the override.
+              ...('referenceImage' in patch
+                ? { referenceImage: patch.referenceImage || undefined }
+                : {}),
+            }
+          : w,
+      ),
+    };
+    setSettings(next);
+    window.api.saveSettings(next).catch((): void => undefined);
+  }, [settings]);
+
   // Select a profile that may live in a different workspace than the
   // one currently shown — switches the sidebar to the profile's
   // workspace first so it's actually visible. Used by paths that can
@@ -2313,6 +2337,7 @@ export function App() {
         onSelectWorkspace={handleSelectWorkspace}
         onAddWorkspace={handleAddWorkspace}
         onRenameWorkspace={handleRenameWorkspace}
+        onUpdateWorkspace={handleUpdateWorkspace}
         onDeleteWorkspace={handleDeleteWorkspace}
         onMoveToWorkspace={handleMoveToWorkspace}
         initialized={initialized}
