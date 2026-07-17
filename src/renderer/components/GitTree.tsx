@@ -6,6 +6,7 @@ import {
   RefMenuNode, RefContextMenu, useGitRefOps,
 } from './git-ref-ops';
 import { AuthorAvatar } from './AuthorAvatar';
+import { FileDiff } from './GitChangesPanel';
 
 interface GitTreeProps {
   workingDirectory: string;
@@ -371,20 +372,50 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
     { path: string; added: number; deleted: number; status: string }[] | null
   >(null);
 
+  // Per-file inline diffs inside the accordion — same interaction as the
+  // Changes tab: click a file row to expand/collapse its diff. Cached per
+  // path; both reset when the selected commit changes.
+  const [expandedCommitFiles, setExpandedCommitFiles] = useState<Set<string>>(new Set());
+  const [commitFileDiffs, setCommitFileDiffs] = useState<Map<string, string>>(new Map());
+
   // git's well-known empty-tree object — the diff base for a root commit
   // (no parents), so its file list shows everything as added.
   const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+  const commitDiffBase = useCallback((sha: string): string => {
+    const commit = commits.find((cm) => cm.sha === sha);
+    return commit && commit.parents.length > 0 ? commit.parents[0] : EMPTY_TREE;
+  }, [commits]);
+
   useEffect(() => {
+    setExpandedCommitFiles(new Set());
+    setCommitFileDiffs(new Map());
     if (!selectedSha) { setCommitFiles(null); return; }
     let cancelled = false;
     setCommitFiles(null);
-    const commit = commits.find((cm) => cm.sha === selectedSha);
-    const base = commit && commit.parents.length > 0 ? commit.parents[0] : EMPTY_TREE;
-    window.api.gitCompareFiles(workingDirectory, base, selectedSha, false)
+    window.api.gitCompareFiles(workingDirectory, commitDiffBase(selectedSha), selectedSha, false)
       .then((files) => { if (!cancelled) setCommitFiles(files); })
       .catch((): void => { if (!cancelled) setCommitFiles([]); });
     return () => { cancelled = true; };
-  }, [selectedSha, workingDirectory, commits]);
+  }, [selectedSha, workingDirectory, commitDiffBase]);
+
+  const toggleCommitFile = useCallback(async (path: string) => {
+    if (!selectedSha) return;
+    if (expandedCommitFiles.has(path)) {
+      setExpandedCommitFiles((prev) => {
+        const next = new Set(prev);
+        next.delete(path);
+        return next;
+      });
+      return;
+    }
+    if (!commitFileDiffs.has(path)) {
+      const diff = await window.api.gitCompareFileDiff(
+        workingDirectory, commitDiffBase(selectedSha), selectedSha, path, false,
+      );
+      setCommitFileDiffs((prev) => new Map(prev).set(path, diff));
+    }
+    setExpandedCommitFiles((prev) => new Set(prev).add(path));
+  }, [selectedSha, expandedCommitFiles, commitFileDiffs, workingDirectory, commitDiffBase]);
   const [confirmCheckout, setConfirmCheckout] = useState<string | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1104,18 +1135,40 @@ export function GitTree({ workingDirectory, reloadEpoch = 0, onCompareWith, onRe
                 ) : commitFiles.length === 0 ? (
                   <div className="git-tree-commit-files-empty">No file changes</div>
                 ) : (
-                  commitFiles.map((f) => (
-                    <div className="git-tree-commit-file" key={f.path} title={f.path}>
-                      <span className="git-tree-commit-file-path">{f.path}</span>
-                      <span className="git-changes-counts">
-                        {f.added > 0 && <span className="git-changes-added">+{f.added}</span>}
-                        {f.deleted > 0 && <span className="git-changes-deleted">−{f.deleted}</span>}
-                      </span>
-                      <span className="git-changes-status" data-status={f.status}>
-                        {f.status === 'added' ? 'A' : f.status === 'deleted' ? 'D' : f.status === 'renamed' ? 'R' : 'M'}
-                      </span>
-                    </div>
-                  ))
+                  commitFiles.map((f) => {
+                    const fileExpanded = expandedCommitFiles.has(f.path);
+                    const fileDiff = commitFileDiffs.get(f.path);
+                    return (
+                      <Fragment key={f.path}>
+                        <button
+                          className={`git-tree-commit-file${fileExpanded ? ' git-tree-commit-file-open' : ''}`}
+                          title={f.path}
+                          onClick={() => { void toggleCommitFile(f.path); }}
+                        >
+                          <span className={`git-tree-commit-file-chevron${fileExpanded ? ' is-open' : ''}`} aria-hidden>
+                            <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="6 3 11 8 6 13" />
+                            </svg>
+                          </span>
+                          <span className="git-tree-commit-file-path">{f.path}</span>
+                          <span className="git-changes-counts">
+                            {f.added > 0 && <span className="git-changes-added">+{f.added}</span>}
+                            {f.deleted > 0 && <span className="git-changes-deleted">−{f.deleted}</span>}
+                          </span>
+                          <span className="git-changes-status" data-status={f.status}>
+                            {f.status === 'added' ? 'A' : f.status === 'deleted' ? 'D' : f.status === 'renamed' ? 'R' : 'M'}
+                          </span>
+                        </button>
+                        {fileExpanded && (
+                          <div className="git-tree-commit-file-diff">
+                            {fileDiff === undefined
+                              ? <div className="git-tree-commit-files-empty">Loading…</div>
+                              : <FileDiff diff={fileDiff} mode="unified" />}
+                          </div>
+                        )}
+                      </Fragment>
+                    );
+                  })
                 )}
               </div>
             )}

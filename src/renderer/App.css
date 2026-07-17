@@ -3341,17 +3341,44 @@ select option {
   background: var(--c-mantle);
   border-bottom: 1px solid var(--c-surface0);
   padding: 4px 12px 6px 34px; /* indent past the graph lane column */
-  max-height: 260px;
+  max-height: 55vh; /* roomy enough for inline diffs, still scrollable */
   overflow-y: auto;
 }
 .git-tree-commit-file {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   padding: 2px 0;
   font-size: 11px;
   color: var(--c-subtext0);
   min-width: 0;
+  background: none;
+  border: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.git-tree-commit-file:hover { color: var(--c-text); background: var(--c-surface0); }
+.git-tree-commit-file-open { color: var(--c-text); }
+.git-tree-commit-file-chevron {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: var(--c-overlay0);
+  transition: transform 0.12s;
+}
+.git-tree-commit-file-chevron.is-open { transform: rotate(90deg); }
+/* Inline diff under an expanded file — reuses the Changes tab's .git-diff
+   styles; this wrapper just frames and constrains it. */
+.git-tree-commit-file-diff {
+  margin: 2px 0 6px 17px;
+  border: 1px solid var(--c-surface0);
+  border-radius: 6px;
+  overflow: auto;
+  max-height: 320px;
+  background: var(--c-base);
 }
 .git-tree-commit-file-path {
   flex: 1;
