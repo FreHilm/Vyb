@@ -534,10 +534,31 @@ export class TelegramTransport {
     }
 
     if (!sawTopicMarkers) {
+      // History is inconclusive (fresh chat, or an old one from before
+      // topic mode). With the bot token we can ask authoritatively:
+      // getMe.has_topics_enabled says whether this bot's DMs use topics.
+      const enabled = await this.botTopicsEnabled(profile.remoteAgent?.botToken);
+      if (enabled === true) {
+        b.hasTopics = true;
+        return {
+          isForum: true,
+          topics: [{ id: '1', title: 'General', lastActive: 0 }],
+          canCreate: true,
+        };
+      }
+      if (enabled === false) {
+        // getMe reflects only the BOT-GLOBAL topic mode. The user can
+        // still enable topics PER-CHAT (bot profile → Topics) and no API
+        // exposes that state — so this is "probably off", not definitive.
+        // The pane shows the splash but keeps + available (with the bot
+        // token) as the probe: createForumTopic succeeds iff the chat
+        // really has topics.
+        return { isForum: false, topics: [], topicsOff: true, canCreate: true };
+      }
       return {
         isForum: false,
         topics: [],
-        reason: 'no topics found in this chat yet — if the bot uses topics, send a message in one from Telegram first, or bind the forum GROUP instead',
+        reason: 'no topics found in this chat yet — if the bot uses topics, send a message in one from Telegram first, or add the bot token to the profile so Vyb can check',
       };
     }
 
@@ -553,6 +574,31 @@ export class TelegramTransport {
     // but the BOT can do it via the Bot API — possible when the profile
     // carries the bot's token (the user runs Hermes, so they own it).
     return { isForum: true, topics, canCreate: !!profile.remoteAgent?.botToken };
+  }
+
+  // getMe.has_topics_enabled per bot token, cached briefly so topic
+  // refreshes don't hammer the Bot API. null = couldn't determine
+  // (no token, or the call failed).
+  private topicsEnabledCache = new Map<string, { value: boolean; ts: number }>();
+
+  /** Ask the Bot API whether this bot has DM topic mode enabled
+   * (User.has_topics_enabled, Bot API 9.3+). Returns null when there is
+   * no token or the check fails — callers fall back to heuristics. */
+  private async botTopicsEnabled(botToken: string | undefined): Promise<boolean | null> {
+    const token = botToken?.trim();
+    if (!token) return null;
+    const cached = this.topicsEnabledCache.get(token);
+    if (cached && Date.now() - cached.ts < 60_000) return cached.value;
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+      const body = await res.json() as { ok: boolean; result?: { has_topics_enabled?: boolean } };
+      if (!body.ok) return null;
+      const value = body.result?.has_topics_enabled === true;
+      this.topicsEnabledCache.set(token, { value, ts: Date.now() });
+      return value;
+    } catch {
+      return null;
+    }
   }
 
   /** Create a new topic (a fresh discussion). Forum groups use the
@@ -578,7 +624,14 @@ export class TelegramTransport {
         });
         const body = await res.json() as { ok: boolean; description?: string; result?: { message_thread_id?: number } };
         if (!body.ok || !body.result?.message_thread_id) {
-          return { error: `bot API: ${body.description ?? `HTTP ${res.status}`}` };
+          const desc = body.description ?? `HTTP ${res.status}`;
+          // Most common failure: the BOT's topic mode is off (a BotFather
+          // setting — the per-chat threads toggle isn't enough).
+          return {
+            error: /not a forum/i.test(desc)
+              ? 'the bot\'s Topic mode is off — enable it in @BotFather (/mybots → Bot Settings → Topics), then try again'
+              : `bot API: ${desc}`,
+          };
         }
         b.hasTopics = true;
         return { id: String(body.result.message_thread_id), title, lastActive: Date.now() };

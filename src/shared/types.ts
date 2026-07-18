@@ -878,10 +878,16 @@ export interface RemoteChatTopics {
   /** Why topics are unavailable (private chat / resolution error) — shown
    * as a hint in the pane so misconfiguration isn't silent. */
   reason?: string;
-  /** Whether Vyb can create topics here. True for forum groups; false for
-   * bot-DM topics (creation isn't exposed at our MTProto layer — create
-   * them from the Telegram app instead). */
+  /** Whether Vyb can create topics here. True for forum groups and for
+   * bot DMs when the profile has the bot token (Bot API createForumTopic);
+   * false otherwise. */
   canCreate?: boolean;
+  /** True when topics LOOK disabled (getMe.has_topics_enabled === false
+   * and no topic traces in history). Not fully definitive — getMe only
+   * reflects the bot-global mode, and the per-chat toggle isn't readable
+   * by any API. The pane shows a friendly "enable Topics" splash and
+   * keeps + as the probe (createForumTopic succeeds iff really enabled). */
+  topicsOff?: boolean;
 }
 
 /** Connection/login state for the remote-chat transport. */

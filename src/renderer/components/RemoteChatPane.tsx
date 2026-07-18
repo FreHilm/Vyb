@@ -119,6 +119,9 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
     });
   }, [preview, profile.id]);
   const [newTopicTitle, setNewTopicTitle] = useState('');
+  // Session-local dismiss for the "topics not enabled" splash — it comes
+  // back on next app start (gentle reminder, not nagging).
+  const [topicsOffDismissed, setTopicsOffDismissed] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
 
@@ -317,14 +320,22 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
     setNewTopicTitle('');
     const res = await window.api.remoteChatCreateTopic(profile.id, title);
     if ('error' in res) {
-      setSendError(`Could not create topic: ${res.error}`);
+      setSendError(`Could not create chat: ${res.error}`);
       return;
     }
-    setTopics((prev) => prev
-      ? { ...prev, topics: [{ ...res, lastActive: Date.now() }, ...prev.topics.filter((t) => t.id !== res.id)] }
-      : prev);
+    if (topicsRef.current?.isForum) {
+      setTopics((prev) => prev
+        ? { ...prev, topics: [{ ...res, lastActive: Date.now() }, ...prev.topics.filter((t) => t.id !== res.id)] }
+        : prev);
+    } else {
+      // The + probe succeeded while topics LOOKED off (getMe only sees the
+      // bot-global mode, not the per-chat toggle) — so this chat does have
+      // topics. Re-detect: the new topic's service message flips the scan
+      // and the full topics UI comes up.
+      await loadTopics(false);
+    }
     setActiveTopicId(res.id);
-  }, [newTopicTitle, profile.id]);
+  }, [newTopicTitle, profile.id, loadTopics]);
 
   const connected = state.state === 'connected';
 
@@ -377,7 +388,7 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
               className="remote-chat-topic-select"
               value={activeTopicId}
               onChange={(e) => setActiveTopicId(e.target.value)}
-              title="Topics — each is a separate discussion with the agent"
+              title="Chats — each is a separate discussion with the agent"
             >
               {topics.topics.map((t) => (
                 <option key={t.id} value={t.id}>{t.title}</option>
@@ -400,9 +411,29 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
             >🧹</button>
             <button
               className="remote-chat-newtopic-btn"
-              title="Refresh topics"
+              title="Refresh chats"
               onClick={() => { void loadTopics(false); }}
             >⟳</button>
+          </span>
+        )}
+        {/* Single-conversation mode still gets the reset broom — /new is
+            just as valid without topics. With the bot token, + stays too:
+            it doubles as the probe for per-chat topics (no API can read
+            that toggle; createForumTopic succeeds iff it's on). */}
+        {connected && topics && !topics.isForum && (
+          <span className="remote-chat-topicbar">
+            {topics.canCreate === true && (
+              <button
+                className="remote-chat-newtopic-btn"
+                title="New chat — works once Topics are enabled for this bot"
+                onClick={() => setNewTopicOpen((v) => !v)}
+              >+</button>
+            )}
+            <button
+              className="remote-chat-newtopic-btn"
+              title="Reset this conversation — the agent forgets its history (asks to confirm first)"
+              onClick={() => { void resetChat(); }}
+            >🧹</button>
           </span>
         )}
         <span className={`remote-chat-conn remote-chat-conn-${state.state}`}>
@@ -420,9 +451,25 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
       </div>
 
 
-      {/* Topics unavailable — say WHY (silent hiding made a misconfigured
-          group binding look like a missing feature). */}
-      {connected && topics && !topics.isForum && topics.reason && (
+      {/* Topic mode definitively OFF — friendly, dismissible splash (it's a
+          supported mode, not an error): single conversation, with a pointer
+          to BotFather for enabling parallel chats. */}
+      {connected && topics?.topicsOff && !topicsOffDismissed && (
+        <div className="remote-chat-topicsoff-splash">
+          <span>
+            Single-conversation mode — Topics look disabled for this bot. To run
+            multiple parallel chats, enable Topics in the bot&apos;s profile
+            (Telegram app) or via @BotFather. Already enabled? Just hit + to
+            start a new chat.
+          </span>
+          <button onClick={() => { void loadTopics(false); }}>Check again</button>
+          <button onClick={() => setTopicsOffDismissed(true)} title="Dismiss">✕</button>
+        </div>
+      )}
+
+      {/* Topics unavailable for an UNKNOWN reason — say WHY (silent hiding
+          made a misconfigured group binding look like a missing feature). */}
+      {connected && topics && !topics.isForum && !topics.topicsOff && topics.reason && (
         <div className="remote-chat-topics-hint">No topics: {topics.reason}</div>
       )}
 
@@ -431,7 +478,7 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
           <input
             autoFocus
             type="text"
-            placeholder="New topic title…"
+            placeholder="New chat name…"
             value={newTopicTitle}
             onChange={(e) => setNewTopicTitle(e.target.value)}
             onKeyDown={(e) => {
