@@ -26,6 +26,18 @@ export interface Profile {
    * Default workspace. Optional in the type only so the migration step
    * can read pre-migration files cleanly. */
   workspaceId?: string;
+  /** Remote (non-PTY) agent binding. When set, the agent pane renders a
+   * chat view driven by the named transport instead of spawning a
+   * terminal. v1: Hermes (Nous Research) reached through its Telegram
+   * bot — Vyb logs into the user's Telegram account (settings.telegram)
+   * and converses with `botUsername`'s chat. */
+  remoteAgent?: {
+    kind: 'hermes-telegram';
+    /** Bot @username (without the @), e.g. "MyHermesBot". */
+    botUsername: string;
+    /** Resolved numeric chat id, cached after first resolution. */
+    chatId?: string;
+  };
 }
 
 /** A Workspace is a top-level grouping of Agent Profiles. The sidebar
@@ -75,6 +87,11 @@ export interface AppSettings {
   openaiApiKey: string; // OpenAI API key
   iconPromptPrefix: string; // Universe/style description for generated icons
   iconReferenceImage: string; // Path to reference image for style consistency
+  /** Telegram account credentials for remote-agent transports (Hermes bot
+   * chat). apiId/apiHash come from my.telegram.org/apps; `session` is the
+   * GramJS string session persisted after the one-time phone/code login.
+   * Stored in settings.json alongside the other API keys. */
+  telegram?: { apiId: number; apiHash: string; session?: string };
   sidebarWidth: number; // pixels, default 250 — the "expanded" width
   /** When true, the sidebar renders in a narrow icon-only mode. Drives the
    * snap behaviour: dragging the resizer below ~110 px snaps to compact;
@@ -510,6 +527,19 @@ export const IPC_CHANNELS = {
   /** Respawn the agent of a 'stopped' session (restored after an app
    * restart) inside its surviving worktree. */
   PARALLEL_AGENT_RESUME_SESSION: 'parallelAgent:resumeSession',
+  /** Remote-agent chat transport (v1: Hermes over Telegram). Names are
+   * transport-agnostic so a direct-API transport can share them later. */
+  REMOTE_CHAT_STATE: 'remoteChat:state',                 // invoke → current connection/login state
+  REMOTE_CHAT_LOGIN_START: 'remoteChat:loginStart',      // invoke(apiId, apiHash, phone)
+  REMOTE_CHAT_LOGIN_CODE: 'remoteChat:loginCode',        // invoke(code)
+  REMOTE_CHAT_LOGIN_PASSWORD: 'remoteChat:loginPassword',// invoke(2fa password)
+  REMOTE_CHAT_LOGOUT: 'remoteChat:logout',               // invoke — drop session
+  REMOTE_CHAT_HISTORY: 'remoteChat:history',             // invoke(profile, topicId?) → RemoteChatMessage[]
+  REMOTE_CHAT_SEND: 'remoteChat:send',                   // invoke(profile, text, topicId?)
+  REMOTE_CHAT_SEND_FILE: 'remoteChat:sendFile',          // invoke(profile, filePath, topicId?)
+  REMOTE_CHAT_TOPICS: 'remoteChat:topics',               // invoke(profile) → RemoteChatTopics
+  REMOTE_CHAT_CREATE_TOPIC: 'remoteChat:createTopic',    // invoke(profile, title) → RemoteChatTopic | {error}
+  REMOTE_CHAT_EVENT: 'remoteChat:event',                 // main → renderer stream
   FILE_FORMAT: 'file:format',
   GIT_DISCARD_FILE: 'git:discardFile',
   GIT_PUSH: 'git:push',
@@ -800,6 +830,60 @@ export interface FileReplaceTarget {
   path: string;
   matches?: { lineNumber: number; matchStart: number }[];
 }
+
+/** One message in a remote-agent chat (Hermes over Telegram). */
+export interface RemoteChatMessage {
+  /** Transport message id (Telegram message id as string). */
+  id: string;
+  /** 'user' = sent by the user's account; 'agent' = the bot. */
+  role: 'user' | 'agent';
+  text: string;
+  /** Epoch ms. */
+  date: number;
+  /** True while the agent is still editing this message (streaming). */
+  streaming?: boolean;
+  /** Forum topic (thread) id when the chat is a Telegram forum group.
+   * '1' = the General topic. Absent for plain private chats. */
+  topicId?: string;
+}
+
+/** One Telegram forum topic — a separate discussion with the agent. */
+export interface RemoteChatTopic {
+  id: string;
+  title: string;
+  /** Epoch ms of the last message (0 if unknown). */
+  lastActive: number;
+}
+
+/** Topic listing result. `isForum: false` = plain private chat (topics UI
+ * hidden); the message flow then ignores topic ids entirely. */
+export interface RemoteChatTopics {
+  isForum: boolean;
+  topics: RemoteChatTopic[];
+  /** Why topics are unavailable (private chat / resolution error) — shown
+   * as a hint in the pane so misconfiguration isn't silent. */
+  reason?: string;
+  /** Whether Vyb can create topics here. True for forum groups; false for
+   * bot-DM topics (creation isn't exposed at our MTProto layer — create
+   * them from the Telegram app instead). */
+  canCreate?: boolean;
+}
+
+/** Connection/login state for the remote-chat transport. */
+export type RemoteChatState =
+  | { state: 'unconfigured' }                 // no telegram settings yet
+  | { state: 'disconnected'; error?: string } // creds exist, not connected
+  | { state: 'connecting' }
+  | { state: 'awaiting-code' }                // login: SMS/app code requested
+  | { state: 'awaiting-password' }            // login: 2FA password needed
+  | { state: 'connected'; user?: string };    // ready
+
+/** Events streamed main → renderer over REMOTE_CHAT_EVENT. */
+export type RemoteChatEvent =
+  | { type: 'message'; profileId: string; message: RemoteChatMessage }
+  | { type: 'edit'; profileId: string; message: RemoteChatMessage }
+  | { type: 'settled'; profileId: string; messageId: string } // streaming done
+  | { type: 'state'; state: RemoteChatState };
 
 /** One past agent session for the session picker. `id` is the resume
  * identifier passed to the agent (UUID / session id). */

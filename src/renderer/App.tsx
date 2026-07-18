@@ -10,6 +10,7 @@ import { ResizeHandle } from './components/ResizeHandle';
 import { FileExplorer, type FileExplorerHandle } from './components/FileExplorer';
 import { QuickOpenDialog } from './components/QuickOpenDialog';
 import { SessionPickerDialog } from './components/SessionPickerDialog';
+import { RemoteChatPane } from './components/RemoteChatPane';
 import { toastError } from './lib/toast';
 import { FindInFilesPanel } from './components/FindInFilesPanel';
 import { KanbanViewer } from './components/KanbanViewer';
@@ -20,7 +21,7 @@ import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { HotkeyHints } from './components/HotkeyHints';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, Workspace, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitMergePreviewResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult, FileReplaceTarget, FileReplaceResult, AgentSessionList, DEFAULT_AGENTS, resolveAgent, buildSessionArgs } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, Workspace, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitMergePreviewResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult, FileReplaceTarget, FileReplaceResult, AgentSessionList, DEFAULT_AGENTS, resolveAgent, buildSessionArgs, RemoteChatState, RemoteChatMessage, RemoteChatEvent, RemoteChatTopics, RemoteChatTopic } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -217,6 +218,17 @@ declare global {
       searchInFiles: (cwd: string, query: string, opts?: FileSearchOptions) => Promise<FileSearchResult>;
       replaceInFiles: (cwd: string, query: string, opts: FileSearchOptions | undefined, replaceText: string, targets: FileReplaceTarget[]) => Promise<FileReplaceResult>;
       listAgentSessions: (command: string, cwd: string) => Promise<AgentSessionList>;
+      remoteChatState: () => Promise<RemoteChatState>;
+      remoteChatLoginStart: (apiId: number, apiHash: string, phone: string) => Promise<RemoteChatState>;
+      remoteChatLoginCode: (code: string) => Promise<void>;
+      remoteChatLoginPassword: (password: string) => Promise<void>;
+      remoteChatLogout: () => Promise<void>;
+      remoteChatHistory: (profileId: string, topicId?: string) => Promise<RemoteChatMessage[]>;
+      remoteChatSend: (profileId: string, text: string, topicId?: string) => Promise<{ ok: boolean; error?: string }>;
+      remoteChatSendFile: (profileId: string, filePath: string, topicId?: string) => Promise<{ ok: boolean; error?: string }>;
+      remoteChatTopics: (profileId: string) => Promise<RemoteChatTopics>;
+      remoteChatCreateTopic: (profileId: string, title: string) => Promise<RemoteChatTopic | { error: string }>;
+      onRemoteChatEvent: (callback: (event: RemoteChatEvent) => void) => () => void;
       onMenuFindInFiles: (callback: (payload: { withReplace: boolean }) => void) => () => void;
       formatDocument: (filePath: string, content: string) => Promise<{ content?: string; error?: string }>;
       readFile: (filePath: string) => Promise<string | null>;
@@ -1563,7 +1575,10 @@ export function App() {
     (profileId: string) => {
       if (initialized.has(profileId)) return;
       const profile = profiles.find((p) => p.id === profileId);
-      if (profile) {
+      // Remote-agent profiles (Hermes over Telegram) have no PTY/xterm —
+      // the chat pane connects on its own. Keeping them out of
+      // `initialized` also hides the stop/reload PTY controls.
+      if (profile && !profile.remoteAgent) {
         setInitialized((prev) => new Set(prev).add(profileId));
       }
     },
@@ -2506,11 +2521,11 @@ export function App() {
                 left in split mode. In normal mode it lives at the top of
                 the flex column (hidden when Files/Kanban is selected). */}
             <TerminalPane
-              profiles={profiles}
+              profiles={profiles.filter((p) => !p.remoteAgent)}
               activeProfileId={activeProfileId}
               initialized={initialized}
               shellOpen={shellOpen}
-              hidden={selectedParallelId !== null || (!splitMode && (filesVisible || kanbanVisible || webVisible))}
+              hidden={selectedParallelId !== null || !!activeProfile?.remoteAgent || (!splitMode && (filesVisible || kanbanVisible || webVisible))}
               settings={settings}
               focusedPane={focusedPane}
               navActive={navActive}
@@ -2666,6 +2681,20 @@ export function App() {
                   settings={settings}
                   hidden={!isSelected || (!splitMode && (filesVisible || kanbanVisible || webVisible))}
                   splitWidth={isSelected && splitMode ? agentSplitPercent : null}
+                />
+              );
+            })}
+            {/* Remote-agent chat panes (Hermes over Telegram) — one per
+                remote profile, persistent like the other panes. Takes the
+                agent slot; in split mode it becomes the LEFT pane. */}
+            {profiles.filter((p) => p.remoteAgent).map((p) => {
+              const isActive = p.id === activeProfileId && selectedParallelId === null;
+              return (
+                <RemoteChatPane
+                  key={p.id}
+                  profile={p}
+                  hidden={!isActive || (!splitMode && (filesVisible || kanbanVisible || webVisible))}
+                  splitWidth={isActive && splitMode ? agentSplitPercent : null}
                 />
               );
             })}

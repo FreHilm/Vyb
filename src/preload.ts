@@ -393,6 +393,33 @@ contextBridge.exposeInMainWorld('api', {
   listAgentSessions: (command: string, cwd: string): Promise<import('./shared/types').AgentSessionList> =>
     ipcRenderer.invoke(IPC_CHANNELS.AGENT_LIST_SESSIONS, command, cwd),
 
+  // Remote-agent chat (Hermes over Telegram).
+  remoteChatState: (): Promise<import('./shared/types').RemoteChatState> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_STATE),
+  remoteChatLoginStart: (apiId: number, apiHash: string, phone: string): Promise<import('./shared/types').RemoteChatState> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_LOGIN_START, apiId, apiHash, phone),
+  remoteChatLoginCode: (code: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_LOGIN_CODE, code),
+  remoteChatLoginPassword: (password: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_LOGIN_PASSWORD, password),
+  remoteChatLogout: (): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_LOGOUT),
+  remoteChatHistory: (profileId: string, topicId?: string): Promise<import('./shared/types').RemoteChatMessage[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_HISTORY, profileId, topicId),
+  remoteChatSend: (profileId: string, text: string, topicId?: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_SEND, profileId, text, topicId),
+  remoteChatSendFile: (profileId: string, filePath: string, topicId?: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_SEND_FILE, profileId, filePath, topicId),
+  remoteChatTopics: (profileId: string): Promise<import('./shared/types').RemoteChatTopics> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_TOPICS, profileId),
+  remoteChatCreateTopic: (profileId: string, title: string): Promise<import('./shared/types').RemoteChatTopic | { error: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_CREATE_TOPIC, profileId, title),
+  onRemoteChatEvent: (callback: (event: import('./shared/types').RemoteChatEvent) => void): (() => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, event: import('./shared/types').RemoteChatEvent) => callback(event);
+    ipcRenderer.on(IPC_CHANNELS.REMOTE_CHAT_EVENT, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.REMOTE_CHAT_EVENT, handler);
+  },
+
   onMenuFindInFiles: (callback: (payload: { withReplace: boolean }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: { withReplace: boolean }) =>
       callback(payload);

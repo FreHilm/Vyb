@@ -40,6 +40,15 @@ const AGENT_ICONS: Record<string, { viewBox: string; paths: string[]; color: str
       'M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4M9.2 3 6.8 13',
     ],
   },
+  // Hermes (Nous Research): winged mark — remote agent over Telegram.
+  'hermes-telegram': {
+    viewBox: '0 0 16 16',
+    color: '#8b5cf6',
+    stroke: true,
+    paths: [
+      'M2 12.5c4.5 0 7-2 8-5.5M4 9c3 0 5-1.5 6.5-4M8.5 14c3-1 5-3.5 5.5-6.5',
+    ],
+  },
 };
 import { hueToPreviewColor, applyTheme } from '../theme';
 import { APP_ICONS, APP_ICON_LABELS } from '../icons';

@@ -4036,6 +4036,181 @@ select option {
    bar can show just tabs. Background matches the editor body
    (`--c-base`) so the toolbar reads as part of the same surface;
    buttons right-aligned. */
+/* ── Remote-agent chat pane (Hermes over Telegram) ── */
+.remote-chat-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--c-base);
+}
+.remote-chat-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--c-surface0);
+  background: var(--c-mantle);
+  flex-shrink: 0;
+}
+.remote-chat-title { font-size: 12px; font-weight: 600; color: var(--c-text); }
+.remote-chat-conn { font-size: 11px; color: var(--c-overlay0); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remote-chat-conn-connected { color: var(--c-green); }
+.remote-chat-conn-disconnected { color: var(--c-yellow); }
+.remote-chat-connect-btn {
+  flex-shrink: 0;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  color: var(--c-text);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.remote-chat-connect-btn:hover { background: var(--c-surface1); }
+/* Topic switcher (Telegram forum groups: one discussion per topic). */
+.remote-chat-topicbar { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.remote-chat-topic-select {
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  color: var(--c-text);
+  font-size: 11px;
+  border-radius: 5px;
+  padding: 2px 6px;
+  max-width: 220px;
+}
+.remote-chat-newtopic-btn {
+  width: 20px;
+  height: 20px;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  color: var(--c-text);
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.remote-chat-newtopic-btn:hover { background: var(--c-surface1); }
+.remote-chat-newtopic-row {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--c-surface0);
+  background: var(--c-mantle);
+}
+.remote-chat-newtopic-row input {
+  flex: 1;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
+  border-radius: 5px;
+  color: var(--c-text);
+  font-size: 12px;
+  padding: 4px 8px;
+}
+.remote-chat-newtopic-row button {
+  background: var(--c-blue);
+  color: var(--c-base);
+  border: none;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.remote-chat-newtopic-row button:disabled { opacity: 0.4; cursor: default; }
+.remote-chat-pane { position: relative; }
+.remote-chat-drop-overlay {
+  position: absolute;
+  inset: 6px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--c-blue);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--c-base) 82%, transparent);
+  color: var(--c-text);
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.remote-chat-uploading {
+  font-size: 11px;
+  color: var(--c-blue);
+  padding: 3px 12px;
+  border-bottom: 1px solid var(--c-surface0);
+  background: var(--c-mantle);
+}
+.remote-chat-topics-hint {
+  font-size: 11px;
+  color: var(--c-yellow);
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--c-surface0);
+  background: var(--c-mantle);
+}
+.remote-chat-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.remote-chat-empty { color: var(--c-overlay0); font-size: 12px; max-width: 480px; margin: 24px auto; text-align: center; line-height: 1.6; }
+.remote-chat-msg { display: flex; flex-direction: column; max-width: 78%; }
+.remote-chat-msg-user { align-self: flex-end; align-items: flex-end; }
+.remote-chat-msg-agent { align-self: flex-start; align-items: flex-start; }
+.remote-chat-bubble {
+  padding: 7px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.remote-chat-msg-user .remote-chat-bubble { background: var(--c-surface1); color: var(--c-text); border-bottom-right-radius: 4px; }
+.remote-chat-msg-agent .remote-chat-bubble { background: var(--c-mantle); color: var(--c-text); border: 1px solid var(--c-surface0); border-bottom-left-radius: 4px; }
+.remote-chat-bubble p { margin: 0 0 6px; }
+.remote-chat-bubble p:last-child { margin-bottom: 0; }
+.remote-chat-bubble pre { background: var(--c-crust, #000); border-radius: 6px; padding: 8px; overflow-x: auto; font-size: 12px; }
+.remote-chat-bubble code { font-size: 12px; }
+.remote-chat-streaming { display: inline-block; margin-left: 4px; color: var(--c-blue); animation: remote-chat-blink 1s steps(2) infinite; }
+@keyframes remote-chat-blink { 50% { opacity: 0; } }
+.remote-chat-time { font-size: 10px; color: var(--c-overlay0); margin-top: 2px; }
+.remote-chat-error { color: var(--c-red, #ef4444); font-size: 11px; padding: 4px 14px; }
+.remote-chat-inputrow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 10px 12px;
+  border-top: 1px solid var(--c-surface0);
+  background: var(--c-mantle);
+  flex-shrink: 0;
+}
+.remote-chat-input {
+  flex: 1;
+  resize: none;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
+  border-radius: 8px;
+  color: var(--c-text);
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  outline: none;
+}
+.remote-chat-input:focus { border-color: var(--c-blue); }
+.remote-chat-send {
+  background: var(--c-blue);
+  color: var(--c-base);
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.remote-chat-send:disabled { opacity: 0.4; cursor: default; }
+
 /* ── Agent session picker ── */
 .session-picker { width: 460px; max-width: 90vw; }
 .session-picker-hint {

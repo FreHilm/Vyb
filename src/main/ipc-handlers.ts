@@ -16,6 +16,7 @@ import { applyAgentArgsGuards } from './agent-args-guard';
 import { sendCtrlCToPty, clearCtrlCState } from './windows-ctrlc';
 import { listSessions as listAgentSessions, sessionCaps } from './agent-sessions';
 import { searchInFilesJs } from './js-search';
+import { TelegramTransport } from './telegram-transport';
 
 // Bundled ripgrep (@vscode/ripgrep) — Vyb ships its own `rg` binary so
 // cross-file search works without the user installing anything (the same
@@ -455,6 +456,56 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   });
   initOrdnaHookServer();
 
+  // Remote-agent chat transport (Hermes over Telegram). Statuses are
+  // synthesized onto the normal PROFILE_STATUS_CHANGE channel so sidebar
+  // flames / dots behave exactly like PTY agents.
+  const telegramTransport = new TelegramTransport(
+    (event) => safeSend(IPC_CHANNELS.REMOTE_CHAT_EVENT, event),
+    (profileId, status) => safeSend(IPC_CHANNELS.PROFILE_STATUS_CHANGE, { profileId, status, hasNewContent: false }),
+  );
+  ipcMain.handle(IPC_CHANNELS.REMOTE_CHAT_STATE, () => telegramTransport.getState());
+  ipcMain.handle(IPC_CHANNELS.REMOTE_CHAT_LOGIN_START, (_, apiId: number, apiHash: string, phone: string) =>
+    telegramTransport.loginStart(Number(apiId), String(apiHash), String(phone)));
+  ipcMain.handle(IPC_CHANNELS.REMOTE_CHAT_LOGIN_CODE, (_, code: string) => telegramTransport.submitCode(String(code)));
+  ipcMain.handle(IPC_CHANNELS.REMOTE_CHAT_LOGIN_PASSWORD, (_, pw: string) => telegramTransport.submitPassword(String(pw)));
+  ipcMain.handle(IPC_CHANNELS.REMOTE_CHAT_LOGOUT, () => telegramTransport.logout());
+  ipcMain.handle(IPC_CHANNELS.REMOTE_CHAT_HISTORY, async (_, profileId: string, topicId?: string) => {
+    const profile = profiles.find((p) => p.id === profileId);
+    if (!profile) return [];
+    try {
+      return await telegramTransport.history(profile, 50, topicId);
+    } catch {
+      return []; // state events already explain why (unconfigured / expired)
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.REMOTE_CHAT_SEND, async (_, profileId: string, text: string, topicId?: string) => {
+    const profile = profiles.find((p) => p.id === profileId);
+    if (!profile) return { ok: false, error: 'profile not found' };
+    return telegramTransport.send(profile, String(text), topicId);
+  });
+  ipcMain.handle(IPC_CHANNELS.REMOTE_CHAT_SEND_FILE, async (_, profileId: string, filePath: string, topicId?: string) => {
+    const profile = profiles.find((p) => p.id === profileId);
+    if (!profile) return { ok: false, error: 'profile not found' };
+    if (!filePath || !fs.existsSync(filePath)) return { ok: false, error: 'file not found' };
+    return telegramTransport.sendFile(profile, filePath, topicId);
+  });
+  ipcMain.handle(IPC_CHANNELS.REMOTE_CHAT_TOPICS, async (_, profileId: string) => {
+    const profile = profiles.find((p) => p.id === profileId);
+    if (!profile) return { isForum: false, topics: [], reason: 'profile not found' };
+    try {
+      return await telegramTransport.topics(profile);
+    } catch (err) {
+      // Never silent — the pane shows the reason so misconfiguration
+      // (wrong group name, expired session) is diagnosable.
+      return { isForum: false, topics: [], reason: (err as Error).message };
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.REMOTE_CHAT_CREATE_TOPIC, async (_, profileId: string, title: string) => {
+    const profile = profiles.find((p) => p.id === profileId);
+    if (!profile) return { error: 'profile not found' };
+    return telegramTransport.createTopic(profile, String(title));
+  });
+
   ipcMain.handle(IPC_CHANNELS.PROFILES_LOAD, () => {
     profiles = loadProfiles();
     return profiles;
@@ -816,7 +867,14 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   });
 
   ipcMain.handle(IPC_CHANNELS.SETTINGS_SAVE, (_, settings: AppSettings) => {
-    saveSettings(settings);
+    // `telegram` is MAIN-owned (written by TelegramTransport during the
+    // login flow, mid-session). The renderer's settings copy was loaded at
+    // startup and never carries it — so a blind overwrite here would wipe
+    // the persisted login session on the next pane-size/tab save (exactly
+    // the "have to log in to Telegram every launch" bug). Always carry the
+    // disk value through renderer-initiated saves.
+    const telegram = loadSettings().telegram;
+    saveSettings({ ...settings, ...(telegram ? { telegram } : {}) });
   });
 
   ipcMain.handle(IPC_CHANNELS.LAYOUT_LOAD, () => {

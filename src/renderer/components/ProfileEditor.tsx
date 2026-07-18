@@ -7,6 +7,8 @@ const AGENT_ICONS: Record<string, { viewBox: string; paths: string[]; color: str
   codex: { viewBox: '0 0 16 16', color: '#10a37f', paths: ['M8 1L2.5 4.5v7L8 15l5.5-3.5v-7L8 1zm0 2.5L11 5.5v2L8 9.5 5 7.5v-2L8 3.5z'] },
   gemini: { viewBox: '0 0 16 16', color: '#4285f4', paths: ['M8 0C8 4.4 4.4 8 0 8c4.4 0 8 3.6 8 8 0-4.4 3.6-8 8-8-4.4 0-8-3.6-8-8z'] },
   opencode: { viewBox: '0 0 16 16', color: '#fbbf24', stroke: true, paths: ['M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4M9.2 3 6.8 13'] },
+  // Hermes (Nous Research) — winged glyph; remote agent over Telegram.
+  'hermes-telegram': { viewBox: '0 0 16 16', color: '#8b5cf6', stroke: true, paths: ['M2 12.5c4.5 0 7-2 8-5.5M4 9c3 0 5-1.5 6.5-4M8.5 14c3-1 5-3.5 5.5-6.5'] },
 };
 
 function AgentIcon({ agentId, size = 16 }: { agentId: string; size?: number }) {
@@ -69,6 +71,9 @@ export function ProfileEditor({
   const [icon, setIcon] = useState('');
   const [workingDirectory, setWorkingDirectory] = useState('');
   const [agentId, setAgentId] = useState('claude');
+  // Hermes-over-Telegram: bot @username (the sentinel agentId
+  // 'hermes-telegram' switches the form to remote-agent mode).
+  const [botUsername, setBotUsername] = useState('');
   const [parallelAgentEnabled, setParallelAgentEnabled] = useState(false);
   const [parallelAgentAutoPush, setParallelAgentAutoPush] = useState(false);
   const [genError, setGenError] = useState('');
@@ -95,6 +100,7 @@ export function ProfileEditor({
     agentId: profile?.agentId ?? 'claude',
     parallelAgentEnabled: profile?.parallelAgentEnabled === true,
     parallelAgentAutoPush: profile?.parallelAgentAutoPush === true,
+    botUsername: profile?.remoteAgent?.botUsername ?? '',
   });
   // Whether the user has saved this session — `handleSave` flips this to
   // true so the "are you sure?" prompt skips after a normal save+close.
@@ -109,12 +115,16 @@ export function ProfileEditor({
       setWorkingDirectory(profile.workingDirectory);
       setParallelAgentEnabled(profile.parallelAgentEnabled === true);
       setParallelAgentAutoPush(profile.parallelAgentAutoPush === true);
-      // Resolve agentId: use stored agentId, or match by command
-      const resolvedAgentId = profile.agentId
-        || agents.find((a) => a.command === profile.command)?.id
-        || agents[0]?.id
-        || 'claude';
+      // Resolve agentId: remote profiles use the 'hermes-telegram'
+      // sentinel; otherwise the stored agentId or command match.
+      const resolvedAgentId = profile.remoteAgent?.kind === 'hermes-telegram'
+        ? 'hermes-telegram'
+        : profile.agentId
+          || agents.find((a) => a.command === profile.command)?.id
+          || agents[0]?.id
+          || 'claude';
       setAgentId(resolvedAgentId);
+      setBotUsername(profile.remoteAgent?.botUsername ?? '');
       initialSnapshotRef.current = {
         name: profile.name,
         icon: profile.icon,
@@ -122,6 +132,7 @@ export function ProfileEditor({
         agentId: resolvedAgentId,
         parallelAgentEnabled: profile.parallelAgentEnabled === true,
         parallelAgentAutoPush: profile.parallelAgentAutoPush === true,
+        botUsername: profile.remoteAgent?.botUsername ?? '',
       };
     }
   }, [profile, agents]);
@@ -181,8 +192,11 @@ export function ProfileEditor({
     };
   }, [pendingProfileId]);
 
+  const isRemoteHermes = agentId === 'hermes-telegram';
+
   const handleSave = () => {
     if (!name.trim() || !workingDirectory.trim()) return;
+    if (isRemoteHermes && !botUsername.trim()) return;
 
     const agent = agents.find((a) => a.id === agentId);
 
@@ -190,18 +204,36 @@ export function ProfileEditor({
     // the late-arriving icon updates this saved profile rather than an
     // orphan id.
     const id = pendingProfileId ?? profile?.id ?? generateId(name);
-    const saved: Profile = {
-      id,
-      name: name.trim(),
-      icon,
-      workingDirectory: workingDirectory.trim(),
-      agentId,
-      parallelAgentEnabled,
-      parallelAgentAutoPush,
-      // Store resolved command/args for backwards compat with older versions
-      command: agent?.command || 'claude',
-      args: agent?.args || [],
-    };
+    const saved: Profile = isRemoteHermes
+      ? {
+          id,
+          name: name.trim(),
+          icon,
+          workingDirectory: workingDirectory.trim(),
+          // No agentId / command — the chat pane runs the transport.
+          command: '',
+          args: [],
+          remoteAgent: {
+            kind: 'hermes-telegram',
+            botUsername: botUsername.trim().replace(/^@/, ''),
+            // Keep the cached chat id when the bot didn't change.
+            chatId: profile?.remoteAgent?.botUsername === botUsername.trim().replace(/^@/, '')
+              ? profile?.remoteAgent?.chatId
+              : undefined,
+          },
+        }
+      : {
+          id,
+          name: name.trim(),
+          icon,
+          workingDirectory: workingDirectory.trim(),
+          agentId,
+          parallelAgentEnabled,
+          parallelAgentAutoPush,
+          // Store resolved command/args for backwards compat with older versions
+          command: agent?.command || 'claude',
+          args: agent?.args || [],
+        };
 
     setHasSaved(true);
     onSave(saved);
@@ -216,6 +248,7 @@ export function ProfileEditor({
     || icon !== initialSnapshotRef.current.icon
     || workingDirectory !== initialSnapshotRef.current.workingDirectory
     || agentId !== initialSnapshotRef.current.agentId
+    || botUsername !== initialSnapshotRef.current.botUsername
     || parallelAgentEnabled !== initialSnapshotRef.current.parallelAgentEnabled
     || parallelAgentAutoPush !== initialSnapshotRef.current.parallelAgentAutoPush
     || (pendingProfileId !== null && pendingProfileId !== profile?.id)
@@ -309,13 +342,44 @@ export function ProfileEditor({
                   <span>{a.name || a.command}</span>
                 </button>
               ))}
+              <button
+                type="button"
+                className={`agent-pick-btn ${isRemoteHermes ? 'agent-pick-active' : ''}`}
+                onClick={() => setAgentId('hermes-telegram')}
+                title="Hermes (Nous Research) via its Telegram bot — remote, no local CLI"
+              >
+                <AgentIcon agentId="hermes-telegram" size={14} />
+                <span>Hermes</span>
+              </button>
             </div>
-            {selectedAgent && (
+            {isRemoteHermes ? (
+              <span className="field-hint">
+                Remote agent — chats with your Hermes gateway&apos;s Telegram bot.
+                No local process is started.
+              </span>
+            ) : selectedAgent && (
               <span className="field-hint">
                 {selectedAgent.command} {selectedAgent.args.join(' ')}
               </span>
             )}
           </div>
+
+          {isRemoteHermes && (
+            <label className="field">
+              <span className="field-label">Telegram bot username</span>
+              <input
+                type="text"
+                value={botUsername}
+                onChange={(e) => setBotUsername(e.target.value)}
+                placeholder="@MyHermesBot"
+              />
+              <span className="field-hint">
+                The bot your Hermes gateway registered with BotFather — the same
+                chat you message from your phone. Connect your Telegram account
+                from the chat pane after saving.
+              </span>
+            </label>
+          )}
 
           <label className="field">
             <span className="field-label">Icon</span>
@@ -367,6 +431,10 @@ export function ProfileEditor({
             {genError && <div className="field-error">{genError}</div>}
           </label>
 
+          {/* Parallel/worktree agents need a local CLI — hidden for the
+              remote Hermes transport. */}
+          {!isRemoteHermes && (
+          <>
           <label className="field field-row-toggle">
             <span className="field-label">Run Kanban tasks in parallel agents</span>
             <label className="integration-toggle">
@@ -405,6 +473,8 @@ export function ProfileEditor({
                 creation still works if <code>gh</code> fails.
               </span>
             </>
+          )}
+          </>
           )}
 
         </div>

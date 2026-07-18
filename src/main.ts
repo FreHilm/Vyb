@@ -432,6 +432,23 @@ app.on('web-contents-created', (_event, contents) => {
   });
 });
 
+// Single-instance lock: two Vybs (e.g. the installed app + a dev build)
+// share the same userData and silently overwrite each other's
+// profiles.json / settings.json with stale in-memory state — losing
+// profiles and login sessions. Whoever starts second yields and focuses
+// the first instead.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 app.on('ready', async () => {
   // Resolve the user's shell PATH/env (zshrc/zshenv etc.) before any PTY
   // spawns — Electron processes get a minimal PATH from launchd otherwise.
