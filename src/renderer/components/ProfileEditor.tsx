@@ -74,6 +74,7 @@ export function ProfileEditor({
   // Hermes-over-Telegram: bot @username (the sentinel agentId
   // 'hermes-telegram' switches the form to remote-agent mode).
   const [botUsername, setBotUsername] = useState('');
+  const [botToken, setBotToken] = useState('');
   const [parallelAgentEnabled, setParallelAgentEnabled] = useState(false);
   const [parallelAgentAutoPush, setParallelAgentAutoPush] = useState(false);
   const [genError, setGenError] = useState('');
@@ -101,6 +102,7 @@ export function ProfileEditor({
     parallelAgentEnabled: profile?.parallelAgentEnabled === true,
     parallelAgentAutoPush: profile?.parallelAgentAutoPush === true,
     botUsername: profile?.remoteAgent?.botUsername ?? '',
+    botToken: profile?.remoteAgent?.botToken ?? '',
   });
   // Whether the user has saved this session — `handleSave` flips this to
   // true so the "are you sure?" prompt skips after a normal save+close.
@@ -125,6 +127,7 @@ export function ProfileEditor({
           || 'claude';
       setAgentId(resolvedAgentId);
       setBotUsername(profile.remoteAgent?.botUsername ?? '');
+      setBotToken(profile.remoteAgent?.botToken ?? '');
       initialSnapshotRef.current = {
         name: profile.name,
         icon: profile.icon,
@@ -133,6 +136,7 @@ export function ProfileEditor({
         parallelAgentEnabled: profile.parallelAgentEnabled === true,
         parallelAgentAutoPush: profile.parallelAgentAutoPush === true,
         botUsername: profile.remoteAgent?.botUsername ?? '',
+        botToken: profile.remoteAgent?.botToken ?? '',
       };
     }
   }, [profile, agents]);
@@ -220,6 +224,7 @@ export function ProfileEditor({
             chatId: profile?.remoteAgent?.botUsername === botUsername.trim().replace(/^@/, '')
               ? profile?.remoteAgent?.chatId
               : undefined,
+            botToken: botToken.trim() || undefined,
           },
         }
       : {
@@ -249,6 +254,7 @@ export function ProfileEditor({
     || workingDirectory !== initialSnapshotRef.current.workingDirectory
     || agentId !== initialSnapshotRef.current.agentId
     || botUsername !== initialSnapshotRef.current.botUsername
+    || botToken !== initialSnapshotRef.current.botToken
     || parallelAgentEnabled !== initialSnapshotRef.current.parallelAgentEnabled
     || parallelAgentAutoPush !== initialSnapshotRef.current.parallelAgentAutoPush
     || (pendingProfileId !== null && pendingProfileId !== profile?.id)
@@ -346,10 +352,10 @@ export function ProfileEditor({
                 type="button"
                 className={`agent-pick-btn ${isRemoteHermes ? 'agent-pick-active' : ''}`}
                 onClick={() => setAgentId('hermes-telegram')}
-                title="Hermes (Nous Research) via its Telegram bot — remote, no local CLI"
+                title="Chat with an agent (e.g. Hermes) through its Telegram bot — remote, no local CLI"
               >
                 <AgentIcon agentId="hermes-telegram" size={14} />
-                <span>Hermes</span>
+                <span>Telegram</span>
               </button>
             </div>
             {isRemoteHermes ? (
@@ -377,6 +383,23 @@ export function ProfileEditor({
                 The bot your Hermes gateway registered with BotFather — the same
                 chat you message from your phone. Connect your Telegram account
                 from the chat pane after saving.
+              </span>
+            </label>
+          )}
+
+          {isRemoteHermes && (
+            <label className="field">
+              <span className="field-label">Bot token (optional)</span>
+              <input
+                type="password"
+                value={botToken}
+                onChange={(e) => setBotToken(e.target.value)}
+                placeholder="123456789:ABC…  (from BotFather)"
+              />
+              <span className="field-hint">
+                Lets Vyb create new chat topics (only the bot can open DM
+                threads). It&apos;s the token your Hermes gateway already uses —
+                stored locally, never sent anywhere except Telegram.
               </span>
             </label>
           )}

@@ -1,3 +1,7 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { shell, dialog } from 'electron';
 import { TelegramClient, Api, helpers } from 'telegram';
 import { StringSession } from 'telegram/sessions';
 import { NewMessage, NewMessageEvent } from 'telegram/events';
@@ -264,13 +268,14 @@ export class TelegramTransport {
       if ((m as { action?: unknown }).action) continue;
       const mTopic = topical ? topicOf(m) : undefined;
       if (needsFilter && mTopic !== topicId) continue;
-      const text = m.message ?? '';
       out.push({
         id: String(m.id),
         role: m.out ? 'user' : 'agent',
-        text: text || textOf(m),
+        text: textOf(m as { message?: string; media?: unknown; entities?: TgEntity[] }),
         date: (m.date ?? 0) * 1000,
         topicId: mTopic,
+        media: mediaOf(m),
+        buttons: buttonsOf(m as { replyMarkup?: unknown }),
       });
     }
     return out.reverse(); // chronological
@@ -284,8 +289,13 @@ export class TelegramTransport {
       await this.resolveBot(client, b);
       // Posting into a topic = replying to its thread root (works for
       // forum groups AND bot-DM topics). General ('1') and plain private
-      // chats send without a thread.
-      const replyTo = (b.isForum || b.hasTopics) && topicId && topicId !== '1' ? Number(topicId) : undefined;
+      // chats send without a thread. NOTE: a plain (non-reply) send does
+      // NOT start a new thread — Hermes treats the lobby as overflow and
+      // reroutes it to the last active topic. New DM topics are created
+      // by the BOT via createTopic() (Bot API, needs the bot token).
+      const replyTo = (b.isForum || b.hasTopics) && topicId && topicId !== '1'
+        ? Number(topicId)
+        : undefined;
       const sent = await client.sendMessage(this.peerOf(b) as never, { message: text, ...(replyTo ? { replyTo } : {}) });
       // Telegram does NOT echo this client's own sends through the update
       // loop (they come back as the RPC result instead), so emit the chat
@@ -322,8 +332,107 @@ export class TelegramTransport {
       text,
       date: sent.date ? sent.date * 1000 : Date.now(),
       topicId: topical ? (sent.replyTo ? topicOf(sent as { replyTo?: unknown }) : (topicId ?? '1')) : undefined,
+      media: mediaOf(sent),
     };
     this.sendEvent({ type: 'message', profileId: b.profileId, message: msg });
+  }
+
+  // Downloaded media, cached per chat+message so repeat opens are instant.
+  private mediaCache = new Map<string, { path: string; name: string; kind: 'photo' | 'voice' | 'sticker' | 'file' }>();
+
+  /** Download a message's attachment to the temp cache (idempotent).
+   * Returns the on-disk path plus a clean display filename. Throws with a
+   * user-facing message on failure. */
+  private async ensureMediaDownloaded(profile: Profile, messageId: string): Promise<{ path: string; name: string; kind: 'photo' | 'voice' | 'sticker' | 'file' }> {
+    const b = this.bind(profile);
+    if (!b) throw new Error('profile has no Telegram binding');
+    const client = await this.ensureConnected();
+    await this.resolveBot(client, b);
+    const cacheKey = `${b.botId}:${messageId}`;
+    const cached = this.mediaCache.get(cacheKey);
+    if (cached && fs.existsSync(cached.path)) return cached;
+
+    const [msg] = await client.getMessages(this.peerOf(b) as never, { ids: [Number(messageId)] });
+    if (!msg || !(msg as { media?: unknown }).media) throw new Error('message has no media');
+    const meta = mediaOf(msg) ?? { name: `media-${messageId}`, kind: 'file' as const };
+    let fname = meta.name.replace(/[/\\:]/g, '_');
+    if (meta.kind === 'photo' && !/\.[a-z0-9]{2,4}$/i.test(fname)) fname = `photo-${messageId}.jpg`;
+    if (meta.kind === 'voice' && !/\.[a-z0-9]{2,4}$/i.test(fname)) fname = `voice-${messageId}.ogg`;
+    if (meta.kind === 'sticker' && !/\.[a-z0-9]{2,4}$/i.test(fname)) fname = `sticker-${messageId}.webp`;
+    const dir = path.join(os.tmpdir(), 'vyb-telegram-media');
+    fs.mkdirSync(dir, { recursive: true });
+    const target = path.join(dir, `${messageId}-${fname}`);
+    const buf = await client.downloadMedia(msg as never, {});
+    if (!buf || buf.length === 0) throw new Error('download failed');
+    fs.writeFileSync(target, buf as Buffer);
+    const entry = { path: target, name: fname, kind: meta.kind };
+    this.mediaCache.set(cacheKey, entry);
+    return entry;
+  }
+
+  /** Download + open with the OS default app (falls back to revealing in
+   * Finder/Explorer when nothing is registered for the type). */
+  async openMedia(profile: Profile, messageId: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const media = await this.ensureMediaDownloaded(profile, messageId);
+      const openErr = await shell.openPath(media.path);
+      if (openErr) shell.showItemInFolder(media.path); // no app registered — reveal instead
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  }
+
+  /** Download for the in-app preview dialog: returns the temp path (the
+   * renderer previews it via the local-file:// protocol). */
+  async fetchMedia(profile: Profile, messageId: string): Promise<{ ok: true; path: string; name: string; kind: string } | { ok: false; error: string }> {
+    try {
+      const media = await this.ensureMediaDownloaded(profile, messageId);
+      return { ok: true, ...media };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  }
+
+  /** Save the attachment via the OS save dialog, defaulting into
+   * `defaultDir` (the agent profile's working directory). */
+  async saveMedia(profile: Profile, messageId: string, defaultDir: string): Promise<{ ok: boolean; savedTo?: string; canceled?: boolean; error?: string }> {
+    try {
+      const media = await this.ensureMediaDownloaded(profile, messageId);
+      const res = await dialog.showSaveDialog({
+        defaultPath: path.join(defaultDir, media.name),
+        buttonLabel: 'Save',
+      });
+      if (res.canceled || !res.filePath) return { ok: true, canceled: true };
+      fs.copyFileSync(media.path, res.filePath);
+      return { ok: true, savedTo: res.filePath };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  }
+
+  /** Tap an inline keyboard button (e.g. Hermes' Approve Once / Cancel).
+   * Telegram answers via GetBotCallbackAnswer; the bot then usually edits
+   * the message (edit event refreshes the pane). */
+  async pressButton(profile: Profile, messageId: string, dataBase64: string): Promise<{ ok: boolean; error?: string; answer?: string }> {
+    const b = this.bind(profile);
+    if (!b) return { ok: false, error: 'profile has no Telegram binding' };
+    try {
+      const client = await this.ensureConnected();
+      await this.resolveBot(client, b);
+      const res = await client.invoke(new Api.messages.GetBotCallbackAnswer({
+        peer: await client.getInputEntity(this.peerOf(b) as never),
+        msgId: Number(messageId),
+        data: Buffer.from(dataBase64, 'base64'),
+      }));
+      const answer = (res as { message?: string }).message;
+      // Button taps usually kick off agent work (approvals) — reflect it.
+      this.sendStatus(profile.id, 'working');
+      this.armSettle(profile.id, 60_000);
+      return { ok: true, answer };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
   }
 
   /** Upload a local file to the chat (drag-and-drop). Lands in the given
@@ -334,7 +443,9 @@ export class TelegramTransport {
     try {
       const client = await this.ensureConnected();
       await this.resolveBot(client, b);
-      const replyTo = (b.isForum || b.hasTopics) && topicId && topicId !== '1' ? Number(topicId) : undefined;
+      const replyTo = (b.isForum || b.hasTopics) && topicId && topicId !== '1'
+        ? Number(topicId)
+        : undefined;
       const sent = await client.sendFile(this.peerOf(b) as never, {
         file: filePath,
         forceDocument: false, // let Telegram pick photo/document rendering
@@ -438,19 +549,40 @@ export class TelegramTransport {
         lastActive: e.lastActive,
       }))
       .sort((a, b2) => b2.lastActive - a.lastActive);
-    // DM-topic creation isn't exposed at our protocol layer — create new
-    // topics from the Telegram app; they appear here on next refresh.
-    return { isForum: true, topics, canCreate: false };
+    // DM-topic creation isn't exposed at our protocol layer (user side),
+    // but the BOT can do it via the Bot API — possible when the profile
+    // carries the bot's token (the user runs Hermes, so they own it).
+    return { isForum: true, topics, canCreate: !!profile.remoteAgent?.botToken };
   }
 
-  /** Create a new forum topic (a fresh discussion). */
+  /** Create a new topic (a fresh discussion). Forum groups use the
+   * user-side RPC; bot-DM topics can only be created BY THE BOT, so
+   * those go through the Bot API with the profile's bot token. */
   async createTopic(profile: Profile, title: string): Promise<import('../shared/types').RemoteChatTopic | { error: string }> {
     const b = this.bind(profile);
     if (!b) return { error: 'profile has no Telegram binding' };
     try {
       const client = await this.ensureConnected();
       await this.resolveBot(client, b);
-      if (!b.isForum) return { error: 'this chat has no topics (not a forum group)' };
+      if (!b.isForum) {
+        const token = profile.remoteAgent?.botToken?.trim();
+        if (!token) return { error: 'this chat has no topics (not a forum group)' };
+        // Bot API createForumTopic on the DM: chat_id is OUR user id
+        // (the DM chat, seen from the bot's side). Returns the new
+        // message_thread_id, which doubles as the topic id we post to.
+        const me = await client.getMe();
+        const res = await fetch(`https://api.telegram.org/bot${token}/createForumTopic`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: Number(me.id), name: title }),
+        });
+        const body = await res.json() as { ok: boolean; description?: string; result?: { message_thread_id?: number } };
+        if (!body.ok || !body.result?.message_thread_id) {
+          return { error: `bot API: ${body.description ?? `HTTP ${res.status}`}` };
+        }
+        b.hasTopics = true;
+        return { id: String(body.result.message_thread_id), title, lastActive: Date.now() };
+      }
       await client.invoke(new Api.channels.CreateForumTopic({
         channel: await client.getInputEntity(this.peerOf(b) as never),
         title,
@@ -468,7 +600,7 @@ export class TelegramTransport {
 
   // ── Incoming updates ────────────────────────────────────────────
 
-  private onMessage(m: { id: number; out?: boolean; message?: string; date?: number; senderId?: unknown; peerId?: unknown; replyTo?: unknown }, isEdit: boolean): void {
+  private onMessage(m: { id: number; out?: boolean; message?: string; date?: number; senderId?: unknown; peerId?: unknown; replyTo?: unknown; media?: unknown }, isEdit: boolean): void {
     // Match the message's peer (private bot OR forum group) against bindings.
     const peerId = extractPeerId(m.peerId) ?? extractPeerId(m.senderId);
     if (!peerId) return;
@@ -477,10 +609,12 @@ export class TelegramTransport {
       const msg: RemoteChatMessage = {
         id: String(m.id),
         role: m.out ? 'user' : 'agent',
-        text: textOf(m),
+        text: textOf(m as { message?: string; media?: unknown; entities?: TgEntity[] }),
         date: (m.date ?? Math.floor(Date.now() / 1000)) * 1000,
         streaming: !m.out,
         topicId: (b.isForum || b.hasTopics) ? topicOf(m) : undefined,
+        media: mediaOf(m),
+        buttons: buttonsOf(m as { replyMarkup?: unknown }),
       };
       this.sendEvent({ type: isEdit ? 'edit' : 'message', profileId: b.profileId, message: msg });
       if (!m.out) {
@@ -511,18 +645,102 @@ export class TelegramTransport {
   }
 }
 
-/** Display text for a message: its text, or a file/photo label derived
- * from the media attachment. */
-function textOf(m: { message?: string; media?: unknown }): string {
-  if (m.message) return m.message;
+/** Telegram formatting entity — offsets/lengths are UTF-16 code units,
+ * which is exactly how JS indexes strings, so slicing lines up. */
+interface TgEntity { className?: string; offset: number; length: number; url?: string }
+
+/** Convert Telegram entities (bold/italic/code/…) to markdown for the
+ * pane's ReactMarkdown renderer. Marker positions are computed against
+ * the ORIGINAL offsets and inserted in one pass, so nested/overlapping
+ * entities don't corrupt each other. Unsupported kinds pass through. */
+function entitiesToMarkdown(text: string, entities?: TgEntity[]): string {
+  if (!text || !entities || entities.length === 0) return text;
+  const marks = (e: TgEntity): [string, string] | null => {
+    switch (e.className) {
+      case 'MessageEntityBold': return ['**', '**'];
+      case 'MessageEntityItalic': return ['*', '*'];
+      case 'MessageEntityCode': return ['`', '`'];
+      case 'MessageEntityPre': return ['\n```\n', '\n```\n'];
+      case 'MessageEntityStrike': return ['~~', '~~'];
+      case 'MessageEntityTextUrl': return ['[', `](${e.url ?? ''})`];
+      default: return null; // underline/spoiler/mentions: render as plain text
+    }
+  };
+  const inserts: { pos: number; str: string; closer: boolean }[] = [];
+  for (const e of entities) {
+    const m = marks(e);
+    if (!m || e.length <= 0) continue;
+    // Trim spaces at the entity edges: `**Confirm **` is invalid markdown
+    // (no space allowed inside the closing delimiter), so shift the
+    // markers to hug the visible text instead.
+    let start = e.offset;
+    let end = e.offset + e.length;
+    while (end > start && text[end - 1] === ' ') end--;
+    while (start < end && text[start] === ' ') start++;
+    if (end <= start) continue;
+    inserts.push({ pos: start, str: m[0], closer: false });
+    inserts.push({ pos: end, str: m[1], closer: true });
+  }
+  if (inserts.length === 0) return text;
+  // Closers before openers at the same position keeps adjacency sane.
+  inserts.sort((a, b) => a.pos - b.pos || Number(b.closer) - Number(a.closer));
+  let out = '';
+  let last = 0;
+  for (const ins of inserts) {
+    out += text.slice(last, ins.pos) + ins.str;
+    last = ins.pos;
+  }
+  return out + text.slice(last);
+}
+
+/** Telegram inline keyboard rows → serializable button descriptors.
+ * Callback data travels base64 so it survives the IPC boundary. */
+function buttonsOf(m: { replyMarkup?: unknown }): { text: string; data?: string; url?: string }[][] | undefined {
+  const markup = m.replyMarkup as {
+    className?: string;
+    rows?: { buttons?: { className?: string; text?: string; data?: Buffer; url?: string }[] }[];
+  } | undefined;
+  if (markup?.className !== 'ReplyInlineMarkup' || !markup.rows?.length) return undefined;
+  const rows = markup.rows
+    .map((r) => (r.buttons ?? [])
+      .filter((b) => b.className === 'KeyboardButtonCallback' || b.className === 'KeyboardButtonUrl')
+      .map((b) => ({
+        text: b.text ?? '',
+        data: b.className === 'KeyboardButtonCallback' && b.data ? Buffer.from(b.data).toString('base64') : undefined,
+        url: b.className === 'KeyboardButtonUrl' ? b.url : undefined,
+      })))
+    .filter((r) => r.length > 0);
+  return rows.length > 0 ? rows : undefined;
+}
+
+/** Classify a message's media attachment for the clickable chip. */
+function mediaOf(m: { media?: unknown }): { name: string; kind: 'photo' | 'voice' | 'sticker' | 'file' } | undefined {
   const media = m.media as {
     className?: string;
-    document?: { attributes?: { className?: string; fileName?: string }[] };
+    document?: { attributes?: { className?: string; fileName?: string; voice?: boolean; alt?: string }[] };
   } | undefined;
+  if (!media) return undefined;
+  if (media.className === 'MessageMediaPhoto') return { name: 'photo', kind: 'photo' };
+  const attrs = media.document?.attributes ?? [];
+  const sticker = attrs.find((a) => a.className === 'DocumentAttributeSticker');
+  if (sticker) return { name: `sticker ${sticker.alt ?? ''}`.trim(), kind: 'sticker' };
+  const audio = attrs.find((a) => a.className === 'DocumentAttributeAudio');
+  if (audio?.voice) return { name: 'voice message', kind: 'voice' };
+  const fileName = attrs.find((a) => a.className === 'DocumentAttributeFilename')?.fileName;
+  return { name: fileName ?? 'file', kind: 'file' };
+}
+
+/** Display text for a message: its formatted text, or a media label. */
+function textOf(m: { message?: string; media?: unknown; entities?: TgEntity[] }): string {
+  if (m.message) return entitiesToMarkdown(m.message, m.entities);
+  const media = mediaOf(m);
   if (!media) return '[media]';
-  if (media.className === 'MessageMediaPhoto') return '📷 [photo]';
-  const name = media.document?.attributes?.find((a) => a.className === 'DocumentAttributeFilename')?.fileName;
-  return name ? `📎 ${name}` : '[media]';
+  switch (media.kind) {
+    case 'photo': return '📷 photo';
+    case 'voice': return '🎤 voice message';
+    case 'sticker': return media.name.replace(/^sticker\s*/, '') || '[sticker]';
+    default: return `📎 ${media.name}`;
+  }
 }
 
 /** Forum topic id of a message: replies carry the thread root in

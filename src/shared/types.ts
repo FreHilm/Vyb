@@ -37,6 +37,10 @@ export interface Profile {
     botUsername: string;
     /** Resolved numeric chat id, cached after first resolution. */
     chatId?: string;
+    /** The bot's own API token (from BotFather). Optional — only needed
+     * to CREATE new DM topics from Vyb (Bot API createForumTopic; the
+     * user-side protocol can't). Never logged. */
+    botToken?: string;
   };
 }
 
@@ -537,6 +541,10 @@ export const IPC_CHANNELS = {
   REMOTE_CHAT_HISTORY: 'remoteChat:history',             // invoke(profile, topicId?) → RemoteChatMessage[]
   REMOTE_CHAT_SEND: 'remoteChat:send',                   // invoke(profile, text, topicId?)
   REMOTE_CHAT_SEND_FILE: 'remoteChat:sendFile',          // invoke(profile, filePath, topicId?)
+  REMOTE_CHAT_OPEN_MEDIA: 'remoteChat:openMedia',        // invoke(profile, messageId) → download + open in OS app
+  REMOTE_CHAT_PRESS_BUTTON: 'remoteChat:pressButton',    // invoke(profile, messageId, dataBase64) → tap an inline button
+  REMOTE_CHAT_FETCH_MEDIA: 'remoteChat:fetchMedia',      // invoke(profile, messageId) → download → {path,name,kind} for in-app preview
+  REMOTE_CHAT_SAVE_MEDIA: 'remoteChat:saveMedia',        // invoke(profile, messageId) → save dialog (defaults to the agent dir)
   REMOTE_CHAT_TOPICS: 'remoteChat:topics',               // invoke(profile) → RemoteChatTopics
   REMOTE_CHAT_CREATE_TOPIC: 'remoteChat:createTopic',    // invoke(profile, title) → RemoteChatTopic | {error}
   REMOTE_CHAT_EVENT: 'remoteChat:event',                 // main → renderer stream
@@ -845,6 +853,13 @@ export interface RemoteChatMessage {
   /** Forum topic (thread) id when the chat is a Telegram forum group.
    * '1' = the General topic. Absent for plain private chats. */
   topicId?: string;
+  /** Present when the message carries downloadable media. The pane
+   * renders a clickable chip; clicking downloads + opens it. */
+  media?: { name: string; kind: 'photo' | 'voice' | 'sticker' | 'file' };
+  /** Telegram inline keyboard (rows of buttons) — e.g. Hermes' approval
+   * prompts (Approve Once / Always Approve / Cancel). `data` is the
+   * base64 callback payload; `url` buttons open externally. */
+  buttons?: { text: string; data?: string; url?: string }[][];
 }
 
 /** One Telegram forum topic — a separate discussion with the agent. */

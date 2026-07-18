@@ -410,6 +410,14 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_SEND, profileId, text, topicId),
   remoteChatSendFile: (profileId: string, filePath: string, topicId?: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_SEND_FILE, profileId, filePath, topicId),
+  remoteChatOpenMedia: (profileId: string, messageId: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_OPEN_MEDIA, profileId, messageId),
+  remoteChatPressButton: (profileId: string, messageId: string, dataBase64: string): Promise<{ ok: boolean; error?: string; answer?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_PRESS_BUTTON, profileId, messageId, dataBase64),
+  remoteChatFetchMedia: (profileId: string, messageId: string): Promise<{ ok: true; path: string; name: string; kind: string } | { ok: false; error: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_FETCH_MEDIA, profileId, messageId),
+  remoteChatSaveMedia: (profileId: string, messageId: string): Promise<{ ok: boolean; savedTo?: string; canceled?: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_SAVE_MEDIA, profileId, messageId),
   remoteChatTopics: (profileId: string): Promise<import('./shared/types').RemoteChatTopics> =>
     ipcRenderer.invoke(IPC_CHANNELS.REMOTE_CHAT_TOPICS, profileId),
   remoteChatCreateTopic: (profileId: string, title: string): Promise<import('./shared/types').RemoteChatTopic | { error: string }> =>

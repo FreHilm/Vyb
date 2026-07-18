@@ -489,6 +489,29 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     if (!filePath || !fs.existsSync(filePath)) return { ok: false, error: 'file not found' };
     return telegramTransport.sendFile(profile, filePath, topicId);
   });
+  ipcMain.handle(IPC_CHANNELS.REMOTE_CHAT_OPEN_MEDIA, async (_, profileId: string, messageId: string) => {
+    const profile = profiles.find((p) => p.id === profileId);
+    if (!profile) return { ok: false, error: 'profile not found' };
+    return telegramTransport.openMedia(profile, String(messageId));
+  });
+  ipcMain.handle(IPC_CHANNELS.REMOTE_CHAT_PRESS_BUTTON, async (_, profileId: string, messageId: string, dataBase64: string) => {
+    const profile = profiles.find((p) => p.id === profileId);
+    if (!profile) return { ok: false, error: 'profile not found' };
+    return telegramTransport.pressButton(profile, String(messageId), String(dataBase64));
+  });
+  ipcMain.handle(IPC_CHANNELS.REMOTE_CHAT_FETCH_MEDIA, async (_, profileId: string, messageId: string) => {
+    const profile = profiles.find((p) => p.id === profileId);
+    if (!profile) return { ok: false, error: 'profile not found' };
+    return telegramTransport.fetchMedia(profile, String(messageId));
+  });
+  ipcMain.handle(IPC_CHANNELS.REMOTE_CHAT_SAVE_MEDIA, async (_, profileId: string, messageId: string) => {
+    const profile = profiles.find((p) => p.id === profileId);
+    if (!profile) return { ok: false, error: 'profile not found' };
+    // Default the save dialog into the agent's working directory.
+    let dir = profile.workingDirectory || os.homedir();
+    if (dir.startsWith('~')) dir = dir.replace(/^~/, os.homedir());
+    return telegramTransport.saveMedia(profile, String(messageId), dir);
+  });
   ipcMain.handle(IPC_CHANNELS.REMOTE_CHAT_TOPICS, async (_, profileId: string) => {
     const profile = profiles.find((p) => p.id === profileId);
     if (!profile) return { isForum: false, topics: [], reason: 'profile not found' };

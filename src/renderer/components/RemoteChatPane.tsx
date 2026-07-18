@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Profile, RemoteChatMessage, RemoteChatState, RemoteChatEvent, RemoteChatTopics } from '../../shared/types';
@@ -38,6 +38,24 @@ function relTime(ms: number): string {
 /** Bucket key for a message: its topic id in forums, '' otherwise. */
 const PRIVATE_KEY = '';
 
+/** What the preview dialog can render for an attachment, from its media
+ * kind + filename extension. Chromium plays ogg/opus natively, so voice
+ * notes preview in-app even though macOS has no OS handler for them. */
+function previewTypeOf(name: string, kind: string): 'image' | 'audio' | 'video' | 'text' | 'none' {
+  if (kind === 'photo' || kind === 'sticker') return 'image';
+  if (kind === 'voice') return 'audio';
+  const ext = (name.split('.').pop() ?? '').toLowerCase();
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif'].includes(ext)) return 'image';
+  if (['mp3', 'ogg', 'oga', 'm4a', 'wav', 'opus', 'flac', 'aac'].includes(ext)) return 'audio';
+  if (['mp4', 'webm', 'mov', 'm4v'].includes(ext)) return 'video';
+  if ([
+    'txt', 'md', 'markdown', 'json', 'log', 'csv', 'tsv', 'yaml', 'yml', 'xml', 'html', 'css',
+    'js', 'ts', 'tsx', 'jsx', 'sh', 'zsh', 'bash', 'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp',
+    'h', 'swift', 'kt', 'sql', 'toml', 'ini', 'conf', 'env', 'diff', 'patch',
+  ].includes(ext)) return 'text';
+  return 'none';
+}
+
 export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
   const [state, setState] = useState<RemoteChatState>({ state: 'connecting' });
   const [topics, setTopics] = useState<RemoteChatTopics | null>(null);
@@ -53,6 +71,53 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const dragCounterRef = useRef(0);
   const [uploading, setUploading] = useState(false);
+  // In-app attachment preview dialog. Downloads to the temp cache, then
+  // previews via local-file:// (images / audio / video) or readFile (text).
+  const [preview, setPreview] = useState<null | {
+    messageId: string;
+    name: string;
+    previewType: 'image' | 'audio' | 'video' | 'text' | 'none';
+    path?: string;
+    text?: string;
+    loading: boolean;
+    error?: string;
+    notice?: string;
+  }>(null);
+
+  const openPreview = useCallback(async (messageId: string, name: string) => {
+    setPreview({ messageId, name, previewType: 'none', loading: true });
+    const res = await window.api.remoteChatFetchMedia(profile.id, messageId);
+    if (res.ok !== true) {
+      const msg = 'error' in res ? res.error : 'download failed';
+      setPreview({ messageId, name, previewType: 'none', loading: false, error: msg });
+      return;
+    }
+    const type = previewTypeOf(res.name, res.kind);
+    if (type === 'text') {
+      const content = await window.api.readFile(res.path);
+      setPreview({
+        messageId, name: res.name, previewType: 'text', path: res.path, loading: false,
+        text: content === null
+          ? undefined
+          : content.length > 200_000 ? content.slice(0, 200_000) + '\n… (truncated)' : content,
+        error: content === null ? 'could not read file' : undefined,
+      });
+      return;
+    }
+    setPreview({ messageId, name: res.name, previewType: type, path: res.path, loading: false });
+  }, [profile.id]);
+
+  const saveFromPreview = useCallback(async () => {
+    if (!preview) return;
+    const res = await window.api.remoteChatSaveMedia(profile.id, preview.messageId);
+    setPreview((p) => p && {
+      ...p,
+      notice: res.ok
+        ? (res.canceled ? undefined : `Saved to ${res.savedTo}`)
+        : undefined,
+      error: res.ok ? undefined : (res.error ?? 'save failed'),
+    });
+  }, [preview, profile.id]);
   const [newTopicTitle, setNewTopicTitle] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -70,6 +135,27 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
     });
   }, []);
 
+  // ── Topics ──────────────────────────────────────────────────────
+  // Loaded on connect, re-loadable any time (↻ button; automatically when
+  // a message arrives in a topic we don't know about — e.g. a thread
+  // created from the phone). Keeps the current selection when it still
+  // exists; only the very first load picks a default. Declared BEFORE the
+  // events effect below, which references loadTopics.
+  const topicsRef = useRef<RemoteChatTopics | null>(null);
+  topicsRef.current = topics;
+  const refreshingRef = useRef(false);
+  const loadTopics = useCallback(async (initial: boolean) => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
+    try {
+      const t = await window.api.remoteChatTopics(profile.id);
+      setTopics(t);
+      if (t.isForum && initial) setActiveTopicId(t.topics[0]?.id ?? '1');
+    } finally {
+      refreshingRef.current = false;
+    }
+  }, [profile.id]);
+
   // ── Transport state + events ────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
@@ -82,6 +168,14 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
       if (event.profileId !== profile.id) return;
       if (event.type === 'message' || event.type === 'edit') {
         upsert(event.message.topicId ?? PRIVATE_KEY, event.message, event.type === 'edit');
+        // A message in a topic we don't have listed = a thread created
+        // elsewhere (e.g. from the phone) — refresh the list so the
+        // dropdown stays current without restarting.
+        const tid = event.message.topicId;
+        const known = topicsRef.current;
+        if (tid && known?.isForum && !known.topics.some((t) => t.id === tid)) {
+          void loadTopics(false);
+        }
       } else if (event.type === 'settled') {
         setByTopic((prev) => {
           const next = new Map(prev);
@@ -95,19 +189,21 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
       }
     });
     return () => { cancelled = true; unsub(); };
-  }, [profile.id, upsert]);
+  }, [profile.id, upsert, loadTopics]);
 
-  // ── Topics (once connected) ─────────────────────────────────────
   useEffect(() => {
     if (topics !== null || state.state !== 'connected') return;
-    let cancelled = false;
-    window.api.remoteChatTopics(profile.id).then((t) => {
-      if (cancelled) return;
-      setTopics(t);
-      if (t.isForum) setActiveTopicId(t.topics[0]?.id ?? '1');
-    });
-    return () => { cancelled = true; };
-  }, [state.state, topics, profile.id]);
+    void loadTopics(true);
+  }, [state.state, topics, loadTopics]);
+
+  // Re-list when the profile's bot token changes (adding it flips
+  // canCreate — otherwise the + button stays stale until manual ⟳).
+  const tokenRef = useRef(profile.remoteAgent?.botToken);
+  useEffect(() => {
+    if (tokenRef.current === profile.remoteAgent?.botToken) return;
+    tokenRef.current = profile.remoteAgent?.botToken;
+    if (state.state === 'connected') void loadTopics(false);
+  }, [profile.remoteAgent?.botToken, state.state, loadTopics]);
 
   // ── History for the active topic (lazy, once per topic) ────────
   useEffect(() => {
@@ -141,7 +237,7 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
   }, [hidden]);
 
   const activeKey = topics?.isForum ? activeTopicId : PRIVATE_KEY;
-  const messages = byTopic.get(activeKey) ?? [];
+  const messages = useMemo(() => byTopic.get(activeKey) ?? [], [byTopic, activeKey]);
 
   // ── Autoscroll (stick to bottom unless the user scrolled up) ────
   useEffect(() => {
@@ -167,6 +263,29 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
     );
     if (!res.ok) setSendError(res.error ?? 'send failed');
   }, [input, profile.id, topics?.isForum, activeTopicId]);
+
+  // Reset the ACTIVE conversation: Hermes' /new discards that thread's
+  // session history (it asks to confirm — the inline buttons handle it).
+  const resetChat = useCallback(async () => {
+    setSendError(null);
+    const res = await window.api.remoteChatSend(
+      profile.id, '/new', topics?.isForum ? activeTopicId : undefined,
+    );
+    if (!res.ok) setSendError(res.error ?? '/new failed');
+  }, [profile.id, topics?.isForum, activeTopicId]);
+
+  // Inline keyboard press (approval prompts etc.). The bot edits the
+  // message afterwards, which lands as a normal edit event.
+  const [pressingButton, setPressingButton] = useState<string | null>(null);
+  const pressButton = useCallback(async (messageId: string, data: string) => {
+    setPressingButton(`${messageId}:${data}`);
+    try {
+      const res = await window.api.remoteChatPressButton(profile.id, messageId, data);
+      if (!res.ok) setSendError(res.error ?? 'button press failed');
+    } finally {
+      setPressingButton(null);
+    }
+  }, [profile.id]);
 
   // Send dropped files sequentially so ordering matches the drop and
   // Telegram rate limits stay happy. Errors surface via sendError.
@@ -258,19 +377,32 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
               className="remote-chat-topic-select"
               value={activeTopicId}
               onChange={(e) => setActiveTopicId(e.target.value)}
-              title="Topics — each is a separate discussion with Hermes"
+              title="Topics — each is a separate discussion with the agent"
             >
               {topics.topics.map((t) => (
                 <option key={t.id} value={t.id}>{t.title}</option>
               ))}
             </select>
-            {topics.canCreate !== false && (
-              <button
-                className="remote-chat-newtopic-btn"
-                title="New topic (fresh discussion)"
-                onClick={() => setNewTopicOpen((v) => !v)}
-              >+</button>
-            )}
+            <button
+              className="remote-chat-newtopic-btn"
+              title={topics.canCreate !== false
+                ? 'New chat (fresh discussion in its own topic)'
+                : 'Creating chats needs the bot token — add it in the profile settings'}
+              onClick={() => {
+                if (topics.canCreate !== false) setNewTopicOpen((v) => !v);
+                else setSendError('To create new chats from Vyb, add the bot token in the profile settings (only the bot can open DM threads).');
+              }}
+            >+</button>
+            <button
+              className="remote-chat-newtopic-btn"
+              title="Reset this conversation — the agent forgets this thread's history (asks to confirm first)"
+              onClick={() => { void resetChat(); }}
+            >🧹</button>
+            <button
+              className="remote-chat-newtopic-btn"
+              title="Refresh topics"
+              onClick={() => { void loadTopics(false); }}
+            >⟳</button>
           </span>
         )}
         <span className={`remote-chat-conn remote-chat-conn-${state.state}`}>
@@ -286,6 +418,7 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
           </button>
         )}
       </div>
+
 
       {/* Topics unavailable — say WHY (silent hiding made a misconfigured
           group binding look like a missing feature). */}
@@ -318,15 +451,60 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
               : 'Connect your Telegram account to chat with this Hermes agent. Messages go through the same bot chat you use on your phone.'}
           </div>
         )}
-        {messages.map((m) => (
-          <div key={m.id} className={`remote-chat-msg remote-chat-msg-${m.role}`}>
-            <div className="remote-chat-bubble">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
-              {m.streaming && <span className="remote-chat-streaming" title="Hermes is still writing">▋</span>}
+        {messages.map((m) => {
+          // Media messages render a clickable chip (download + open with
+          // the OS default app). A caption, when present, renders as
+          // markdown below the chip; the auto-generated label doesn't.
+          const mediaLabel = m.media
+            ? (m.media.kind === 'photo' ? '📷 photo'
+              : m.media.kind === 'voice' ? '🎤 voice message'
+              : m.media.kind === 'sticker' ? `${m.media.name.replace(/^sticker\s*/, '') || '🩵'} sticker`
+              : `📎 ${m.media.name}`)
+            : '';
+          const isAutoLabel = m.media && (m.text === mediaLabel
+            || m.text === m.media.name.replace(/^sticker\s*/, ''));
+          return (
+            <div key={m.id} className={`remote-chat-msg remote-chat-msg-${m.role}`}>
+              <div className="remote-chat-bubble">
+                {m.media && (
+                  <button
+                    className="remote-chat-media-chip"
+                    title="Preview attachment"
+                    onClick={() => { void openPreview(m.id, m.media?.name ?? 'attachment'); }}
+                  >
+                    {mediaLabel}
+                  </button>
+                )}
+                {(!m.media || !isAutoLabel) && (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+                )}
+                {m.streaming && <span className="remote-chat-streaming" title="Hermes is still writing">▋</span>}
+                {m.buttons && m.buttons.length > 0 && (
+                  <div className="remote-chat-buttons">
+                    {m.buttons.map((row, ri) => (
+                      <div key={ri} className="remote-chat-button-row">
+                        {row.map((btn, bi) => (
+                          <button
+                            key={bi}
+                            className="remote-chat-inline-btn"
+                            disabled={pressingButton !== null}
+                            onClick={() => {
+                              if (btn.data) void pressButton(m.id, btn.data);
+                              else if (btn.url) window.open(btn.url, '_blank');
+                            }}
+                          >
+                            {pressingButton === `${m.id}:${btn.data ?? ''}` ? '…' : btn.text}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <span className="remote-chat-time">{relTime(m.date)}</span>
             </div>
-            <span className="remote-chat-time">{relTime(m.date)}</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {sendError && <div className="remote-chat-error">{sendError}</div>}
@@ -353,6 +531,57 @@ export function RemoteChatPane({ profile, hidden, splitWidth = null }: Props) {
 
       {loginOpen && (
         <TelegramLoginDialog state={state} onClose={() => setLoginOpen(false)} />
+      )}
+
+      {preview && (
+        <div className="modal-overlay" onClick={() => setPreview(null)}>
+          <div className="modal remote-chat-preview" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>{preview.name}</h3></div>
+            <div className="modal-body remote-chat-preview-body">
+              {preview.loading && <div className="remote-chat-preview-hint">Downloading…</div>}
+              {!preview.loading && preview.error && (
+                <div className="remote-chat-preview-hint" style={{ color: 'var(--c-red, #ef4444)' }}>{preview.error}</div>
+              )}
+              {!preview.loading && !preview.error && preview.path && (
+                preview.previewType === 'image' ? (
+                  <img className="remote-chat-preview-image" src={`local-file://${preview.path}`} alt={preview.name} />
+                ) : preview.previewType === 'audio' ? (
+                  <audio className="remote-chat-preview-audio" controls src={`local-file://${preview.path}`} />
+                ) : preview.previewType === 'video' ? (
+                  <video className="remote-chat-preview-video" controls src={`local-file://${preview.path}`} />
+                ) : preview.previewType === 'text' ? (
+                  <pre className="remote-chat-preview-text">{preview.text ?? ''}</pre>
+                ) : (
+                  <div className="remote-chat-preview-hint">
+                    No in-app preview for this file type — open it in the default app or save it.
+                  </div>
+                )
+              )}
+              {preview.notice && <div className="remote-chat-preview-notice">{preview.notice}</div>}
+            </div>
+            <div className="modal-footer">
+              <button className="cancel-btn" onClick={() => setPreview(null)}>Close</button>
+              <div className="modal-footer-right">
+                <button
+                  className="browse-btn"
+                  disabled={preview.loading}
+                  onClick={() => { void window.api.remoteChatOpenMedia(profile.id, preview.messageId); }}
+                  title="Open with the OS default application"
+                >
+                  Open in default app
+                </button>
+                <button
+                  className="save-btn"
+                  disabled={preview.loading}
+                  onClick={() => { void saveFromPreview(); }}
+                  title={`Save — defaults to ${profile.workingDirectory}`}
+                >
+                  Save…
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

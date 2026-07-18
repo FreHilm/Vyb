@@ -226,6 +226,10 @@ declare global {
       remoteChatHistory: (profileId: string, topicId?: string) => Promise<RemoteChatMessage[]>;
       remoteChatSend: (profileId: string, text: string, topicId?: string) => Promise<{ ok: boolean; error?: string }>;
       remoteChatSendFile: (profileId: string, filePath: string, topicId?: string) => Promise<{ ok: boolean; error?: string }>;
+      remoteChatOpenMedia: (profileId: string, messageId: string) => Promise<{ ok: boolean; error?: string }>;
+      remoteChatPressButton: (profileId: string, messageId: string, dataBase64: string) => Promise<{ ok: boolean; error?: string; answer?: string }>;
+      remoteChatFetchMedia: (profileId: string, messageId: string) => Promise<{ ok: true; path: string; name: string; kind: string } | { ok: false; error: string }>;
+      remoteChatSaveMedia: (profileId: string, messageId: string) => Promise<{ ok: boolean; savedTo?: string; canceled?: boolean; error?: string }>;
       remoteChatTopics: (profileId: string) => Promise<RemoteChatTopics>;
       remoteChatCreateTopic: (profileId: string, title: string) => Promise<RemoteChatTopic | { error: string }>;
       onRemoteChatEvent: (callback: (event: RemoteChatEvent) => void) => () => void;

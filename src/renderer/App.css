@@ -4141,6 +4141,21 @@ select option {
   border-bottom: 1px solid var(--c-surface0);
   background: var(--c-mantle);
 }
+/* Inline keyboard (Telegram reply markup) under a bubble. */
+.remote-chat-buttons { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.remote-chat-button-row { display: flex; gap: 4px; flex-wrap: wrap; }
+.remote-chat-inline-btn {
+  background: var(--c-surface0);
+  border: 1px solid var(--c-blue);
+  color: var(--c-blue);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.remote-chat-inline-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--c-blue) 15%, var(--c-surface0)); }
+.remote-chat-inline-btn:disabled { opacity: 0.5; cursor: default; }
 .remote-chat-topics-hint {
   font-size: 11px;
   color: var(--c-yellow);
@@ -4173,6 +4188,70 @@ select option {
 .remote-chat-bubble p:last-child { margin-bottom: 0; }
 .remote-chat-bubble pre { background: var(--c-crust, #000); border-radius: 6px; padding: 8px; overflow-x: auto; font-size: 12px; }
 .remote-chat-bubble code { font-size: 12px; }
+/* The global reset strips list padding — restore it INSIDE bubbles so
+   bullet markers don't hang outside the bubble border. */
+.remote-chat-bubble ul,
+.remote-chat-bubble ol {
+  padding-left: 18px;
+  margin: 4px 0;
+  list-style-position: outside;
+}
+.remote-chat-bubble li { margin: 2px 0; }
+/* Clickable attachment chip — download + open with the OS default app. */
+.remote-chat-media-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  border-radius: 8px;
+  color: var(--c-text);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+.remote-chat-media-chip:hover:not(:disabled) { background: var(--c-surface1); }
+.remote-chat-media-chip:disabled { opacity: 0.6; cursor: default; }
+/* Attachment preview dialog. */
+.remote-chat-preview { width: 720px; max-width: 92vw; }
+.remote-chat-preview .modal-header h3 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.remote-chat-preview-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-height: 62vh;
+  overflow: auto;
+}
+.remote-chat-preview-image {
+  max-width: 100%;
+  max-height: 56vh;
+  border-radius: 8px;
+  object-fit: contain;
+}
+.remote-chat-preview-audio { width: 100%; }
+.remote-chat-preview-video { max-width: 100%; max-height: 56vh; border-radius: 8px; }
+.remote-chat-preview-text {
+  align-self: stretch;
+  background: var(--c-crust, #000);
+  border: 1px solid var(--c-surface0);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: auto;
+  max-height: 56vh;
+}
+.remote-chat-preview-hint { color: var(--c-overlay0); font-size: 12px; padding: 18px 0; }
+.remote-chat-preview-notice { color: var(--c-green); font-size: 11px; align-self: flex-start; }
 .remote-chat-streaming { display: inline-block; margin-left: 4px; color: var(--c-blue); animation: remote-chat-blink 1s steps(2) infinite; }
 @keyframes remote-chat-blink { 50% { opacity: 0; } }
 .remote-chat-time { font-size: 10px; color: var(--c-overlay0); margin-top: 2px; }
