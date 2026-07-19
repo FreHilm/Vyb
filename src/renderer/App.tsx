@@ -1997,6 +1997,14 @@ export function App() {
   }, [activeViewKey, shellOpenSet]);
 
   // Build ordered list of profile IDs for keyboard navigation
+  // Stable identity for TerminalPane's `profiles` prop. An inline
+  // `profiles.filter(...)` would produce a NEW array on every App render;
+  // TerminalPane's show/hide effect depends on `profiles` and calls
+  // `terminal.focus()` when it re-runs, so an unstable identity made every
+  // unrelated state change (dirty-file updates, nav overlay, incoming
+  // Telegram messages) steal focus into the agent terminal.
+  const terminalProfiles = useMemo(() => profiles.filter((p) => !p.remoteAgent), [profiles]);
+
   const effectiveLayout = useMemo(() => {
     const ids: string[] = [];
     // Flatten layout into ordered profile IDs (top-level + folder contents)
@@ -2525,7 +2533,7 @@ export function App() {
                 left in split mode. In normal mode it lives at the top of
                 the flex column (hidden when Files/Kanban is selected). */}
             <TerminalPane
-              profiles={profiles.filter((p) => !p.remoteAgent)}
+              profiles={terminalProfiles}
               activeProfileId={activeProfileId}
               initialized={initialized}
               shellOpen={shellOpen}

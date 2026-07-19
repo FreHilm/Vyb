@@ -26,7 +26,22 @@ const macSigningEnabled =
 
 // Modules that are externalized in vite.main.config.ts and need to be
 // copied into the packaged app's node_modules so require() finds them.
-const externalModules = ['node-pty', 'archiver', 'adm-zip', '@frehilm/ordna-core', '@frehilm/ordna-web', 'electron-updater', 'electron-log'];
+const externalModules = [
+  'node-pty',
+  'archiver',
+  'adm-zip',
+  '@frehilm/ordna-core',
+  '@frehilm/ordna-web',
+  'electron-updater',
+  'electron-log',
+  'telegram',
+  'prettier',
+  // ripgrep's binary ships in a per-platform optional package (v1.18+)
+  // that isn't reachable via the main package's `dependencies`, so both
+  // must be listed explicitly for resolveRgBinary() to find the binary.
+  '@vscode/ripgrep',
+  `@vscode/ripgrep-${process.platform}-${process.arch}`,
+];
 
 function copyModuleWithDeps(moduleName: string, srcBase: string, destBase: string) {
   const srcDir = path.join(srcBase, 'node_modules', moduleName);

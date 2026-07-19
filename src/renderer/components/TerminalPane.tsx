@@ -456,6 +456,10 @@ export function TerminalPane({
   webEnabledRef.current = webEnabled;
   const agentContainerRef = useRef<HTMLDivElement>(null);
   const agentTerminalsRef = useRef<Map<string, TerminalInstance>>(new Map());
+  // Which profile's agent terminal the show/hide effect last gave focus to;
+  // null while the pane is hidden so unhiding refocuses. Guards against
+  // focus theft when the effect re-runs without the shown agent changing.
+  const focusedAgentRef = useRef<string | null>(null);
   const dataUnsubRef = useRef<(() => void) | null>(null);
 
   // Route incoming data to agent terminals
@@ -526,9 +530,15 @@ export function TerminalPane({
     }
   }, [initialized, settings.agentFontSize, settings.baseHue]);
 
-  // Show/hide agent terminals
+  // Show/hide agent terminals.
+  // focusedAgentRef remembers which profile's terminal this effect last
+  // focused. The effect re-runs on every dependency identity change (e.g.
+  // a recreated `profiles` array), and stealing focus from the editor or a
+  // shell on those re-runs was a bug — so focus only moves when the shown
+  // agent actually changes (profile switch, or pane coming back from hidden).
   useEffect(() => {
     if (hidden) {
+      focusedAgentRef.current = null;
       agentTerminalsRef.current.forEach((instance) => {
         instance.element.style.display = 'none';
         deactivateWebgl(instance);
@@ -556,7 +566,10 @@ export function TerminalPane({
           const ac = agentContainerRef.current;
           if (!ac || ac.clientWidth < 100 || ac.clientHeight < 60) return;
           instance.fitAddon.fit();
-          instance.terminal.focus();
+          if (focusedAgentRef.current !== id) {
+            focusedAgentRef.current = id;
+            instance.terminal.focus();
+          }
 
           if (!instance.ptyCreated) {
             instance.ptyCreated = true;
