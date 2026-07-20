@@ -36,6 +36,17 @@ A profile looks like this on disk:
 
 Built-in agents (Claude, Codex, Gemini, OpenCode) ship with sensible status patterns, so for those you usually only set a name and a directory.
 
+### Telegram (remote) profiles
+
+Picking **Telegram** as the agent binds the profile to a remote agent's Telegram bot (for example a Hermes gateway) instead of a local command. No process is started — the agent pane becomes a chat view. Two profile fields apply:
+
+| Field | Description |
+|-------|-------------|
+| Bot username | The bot your gateway registered with BotFather — the same chat you message from your phone. |
+| Bot token (optional) | The bot's own API token. Only needed so Vyb can create new chat topics (only the bot can open DM threads). Stored locally, never sent anywhere except Telegram. |
+
+The first time you open the chat pane, Vyb walks you through signing into **your own Telegram account** (API ID + API hash from [my.telegram.org/apps](https://my.telegram.org/apps), phone number, login code, and your two-factor password if you have one). The session is saved so you only do this once.
+
 ## Settings
 
 Open settings with `Cmd+,` (macOS) or `Ctrl+,` (Windows/Linux). It's organized into tabs.
@@ -50,6 +61,7 @@ Open settings with `Cmd+,` (macOS) or `Ctrl+,` (Windows/Linux). It's organized i
 | Profile Font Size | Sidebar text size (10–20px) | 13 |
 | Agent Font Size | Agent terminal text size (10–24px) | 14 |
 | Shell Font Size | Shell terminal text size (10–24px) | 14 |
+| File Tree Font Size | File-explorer tree text size (9–20px) | 12 |
 | Quick Nav Key | Modifier for keyboard shortcuts (Cmd or Alt) | Cmd |
 
 ### Flames
@@ -83,6 +95,7 @@ Feature toggles and editor/behaviour preferences.
 |---------|-------------|---------|
 | Kanban | Show the Kanban (Ordna) tab | On |
 | Web | Show the in-app browser tab | On |
+| Split view by default | Open profiles in split view (agent left, editor right) the first time they're used; a profile's own split toggle is remembered and wins | Off |
 | Agent notifications | Notify when an agent finishes or needs input | On |
 | Use Monaco editor | Use Monaco (vs. CodeMirror) as the file editor | On |
 | Diff context lines | Lines kept around each change when collapsing unchanged regions | 6 |
@@ -116,6 +129,7 @@ Custom external-app launcher buttons, shown in the **Apps** dropdown on the comm
 |---------|----------|
 | OpenAI API Key | Icon generation (GPT Image) and dictation (Whisper) |
 | Gemini API Key | Icon generation (Nano Banana) and dictation fallback |
+| Telegram (API ID, API hash, session) | Remote-agent chat profiles. Set up from the chat pane's login flow, not from this tab; the saved session lives in `settings.json`. |
 
 ### Backup
 

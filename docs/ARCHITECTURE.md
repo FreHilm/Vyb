@@ -11,6 +11,7 @@ Vyb is an Electron app built around the framework's recommended security model: 
 │  │                       per-agent status adapters        │
 │  ├── ipc-handlers.ts   — all IPC + profile/settings I/O   │
 │  ├── ordna-manager.ts  — Kanban (Ordna) lifecycle         │
+│  ├── telegram-transport.ts — remote-agent chat (GramJS)   │
 │  └── auto-update.ts    — electron-updater wiring          │
 ├──────────────────────────────────────────────────────────┤
 │  Preload  (src/preload.ts)                                │
@@ -27,6 +28,7 @@ Vyb is an Electron app built around the framework's recommended security model: 
 │  │                       conflict & 3-way merge resolver  │
 │  ├── WebViewer         — embedded browser + DevTools      │
 │  ├── KanbanViewer      — Ordna integration                │
+│  ├── RemoteChatPane    — Telegram remote-agent chat       │
 │  ├── ReadmeViewer      — markdown + Mermaid               │
 │  ├── StatusBar         — git status & remote link         │
 │  ├── SettingsDialog    — tabbed settings                  │
@@ -42,6 +44,10 @@ The **main process** owns everything privileged: it spawns and manages all PTYs,
 Each profile maps to a PTY (`node-pty`) spawned by `PtyManager`. PTY creation is deliberately lazy and order-sensitive: the PTY isn't spawned until the xterm.js terminal is mounted to a visible element and sized, so the agent never starts at the wrong dimensions.
 
 PTY output flows to the renderer through a tuned pipeline — coalesced into small batches, analyzed for status on a worker thread, and shipped with IPC-level flow control so a fast-talking agent can't flood the renderer. The wire format is raw bytes (`Uint8Array`), which xterm.js consumes natively and which skips a UTF-16↔UTF-8 round-trip.
+
+## Remote agents
+
+A profile can bind to a **remote agent** instead of a local command — currently an agent (such as a Hermes gateway) reached through its Telegram bot. For these profiles no PTY is spawned: the agent pane renders a chat view (`RemoteChatPane`) driven by `telegram-transport.ts` in the main process, a GramJS (MTProto) client signed into the user's own Telegram account. Gateways stream replies by editing the bot message in place; the transport forwards new-message and edit events to the renderer and synthesizes *working*/*ready* status from the stream (a turn counts as done after the edits settle), so remote agents light up the sidebar flames and notifications exactly like PTY agents.
 
 ## Status detection
 
@@ -62,6 +68,7 @@ For the deeper conventions — the PTY output pipeline tuning, WebGL context man
 - **Monaco editor** — default file editor, inline diff, and the conflict / 3-way merge view
 - **CodeMirror 6** — alternative editor engine (with `@codemirror/merge` for its inline diff)
 - **react-markdown + remark-gfm + Mermaid** — markdown rendering
+- **GramJS (`telegram`)** — MTProto client for Telegram remote agents
 - **electron-updater** — auto-updates from GitHub Releases
 
 ## Platform notes

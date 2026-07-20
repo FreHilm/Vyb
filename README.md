@@ -29,7 +29,7 @@
 
 ## Overview
 
-Vyb lets you manage multiple AI coding agents (Claude Code, Codex, Gemini, OpenCode, or any terminal-based tool) from a single window. Each agent runs in its own embedded terminal with live status detection, so you always know which agents are working, waiting for input, or ready for the next task.
+Vyb lets you manage multiple AI coding agents (Claude Code, Codex, Gemini, OpenCode, any terminal-based tool — or a remote agent reached over Telegram) from a single window. Each agent runs in its own embedded terminal with live status detection, so you always know which agents are working, waiting for input, or ready for the next task.
 
 ## The problem it solves
 
@@ -50,6 +50,8 @@ The rest is the work you would otherwise leave the app for.
 **Stage and commit without leaving.** A git panel handles staging, committing, branches, and history side by side with your agent, and a status bar keeps branch, ahead/behind, and stash counts always in view.
 
 **Run agents in parallel, safely.** Dispatch a task and Vyb can spin up an isolated agent in its own git worktree on its own branch, so several agents work at once without stepping on each other, then push and clean up when they are done.
+
+**Bring in agents that aren't on your machine.** A profile can point at a Telegram bot instead of a local command — for example a [Hermes](https://nousresearch.com/) gateway. Vyb signs into your Telegram account and turns that bot chat into a first-class agent pane, with the same live status and notifications as your local agents.
 
 **Keep a shell and a browser close.** Split a shell terminal beneath any agent for quick commands, and open the in-app browser to check docs or a localhost preview without switching windows.
 
