@@ -1396,6 +1396,7 @@
 }
 
 .field input[type="text"],
+.field input[type="password"],
 .field input[type="number"] {
   background: var(--c-surface0);
   border: 1px solid var(--c-surface1);
