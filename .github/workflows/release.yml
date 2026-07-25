@@ -28,7 +28,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        # windows-2022 is PINNED (not windows-latest): the newer runner
+        # image ships Visual Studio 18, which @electron/rebuild's bundled
+        # node-gyp can't recognize ("unknown version 'undefined'"), so
+        # every native-module rebuild fails. VS 2022 on this image is
+        # detected fine. Bump deliberately once the toolchain supports it.
+        os: [macos-latest, windows-2022, ubuntu-latest]
 
     steps:
       - name: Checkout

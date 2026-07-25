@@ -132,7 +132,12 @@ const config: ForgeConfig = {
       }
       : {}),
   },
-  rebuildConfig: {},
+  // Only node-pty actually needs an Electron-ABI rebuild (it's NAN-based).
+  // bufferutil / utf-8-validate (pulled in by the `telegram` dep) are N-API
+  // modules that ship prebuilt binaries for every platform we target —
+  // rebuilding them is unnecessary and broke the Windows release runner,
+  // whose Visual Studio isn't recognized by @electron/rebuild's node-gyp.
+  rebuildConfig: { onlyModules: ['node-pty'] },
   makers: [
     new MakerSquirrel({
       // Icon for Setup.exe itself.

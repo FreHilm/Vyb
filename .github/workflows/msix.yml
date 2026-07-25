@@ -17,7 +17,9 @@ on:
 
 jobs:
   msix:
-    runs-on: windows-latest
+    # Pinned for the same reason as release.yml: the windows-latest image's
+    # Visual Studio 18 breaks @electron/rebuild's node-gyp VS detection.
+    runs-on: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@v4
