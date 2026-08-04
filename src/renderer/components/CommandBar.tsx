@@ -168,6 +168,31 @@ export function CommandBar({
         <line x1="8" y1="11" x2="11" y2="11" />
       </svg>
       <span>Agent</span>
+      {/* Embedded split-view toggle — same pattern as the Files button's
+          ▾ caret, so it never moves when split is toggled. */}
+      <span
+        className={`command-bar-tab-caret command-bar-tab-split${splitActive ? ' is-active' : ''}`}
+        role="button"
+        tabIndex={-1}
+        title={splitActive
+          ? 'Exit split view (show only the agent)'
+          : 'Split view: agent on the left, Files/Kanban on the right'}
+        aria-pressed={splitActive}
+        onClick={(e) => { e.stopPropagation(); onToggleSplit(); }}
+      >
+        {/* Icon shows the layout the click will produce: two panes to
+            enter split, one full-width rectangle to leave it. */}
+        {splitActive ? (
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+            <rect x="1.5" y="3" width="13" height="10" rx="1" />
+          </svg>
+        ) : (
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+            <rect x="1.5" y="3" width="5.5" height="10" rx="1" />
+            <rect x="9" y="3" width="5.5" height="10" rx="1" />
+          </svg>
+        )}
+      </span>
     </button>
   );
   const filesTabButton = (
@@ -239,22 +264,6 @@ export function CommandBar({
       <span>Web</span>
     </button>
   ) : null;
-  const splitToggleButton = (
-    <button
-      className={`command-bar-split-toggle ${splitActive ? 'is-active' : ''}`}
-      onClick={onToggleSplit}
-      title={splitActive
-        ? 'Exit split view (show only the agent)'
-        : 'Split view: agent on the left, Files/Kanban on the right'}
-      aria-pressed={splitActive}
-    >
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-        <rect x="1.5" y="3" width="5.5" height="10" rx="1" />
-        <rect x="9" y="3" width="5.5" height="10" rx="1" />
-      </svg>
-    </button>
-  );
-
   return (
     <div
       className={`command-bar${splitActive ? ' command-bar-split' : ''}`}
@@ -273,7 +282,6 @@ export function CommandBar({
             {filesTabButton}
             {kanbanTabButton}
             {webTabButton}
-            {splitToggleButton}
           </div>
         </>
       ) : (
@@ -282,7 +290,6 @@ export function CommandBar({
           {filesTabButton}
           {kanbanTabButton}
           {webTabButton}
-          {splitToggleButton}
         </div>
       )}
       <div className="command-bar-actions">

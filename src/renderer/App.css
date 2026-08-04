@@ -981,6 +981,12 @@
   background: var(--c-surface0);
   border-color: var(--c-surface1);
 }
+/* Split-view toggle embedded in the Agent tab (same chrome as the
+   Files ▾ caret). Blue while split view is on. */
+.command-bar-tab-split.is-active {
+  opacity: 1;
+  color: var(--c-blue);
+}
 .command-bar-tab-menu {
   position: absolute;
   top: calc(100% + 2px);
@@ -1011,42 +1017,11 @@
 .command-bar-tab-menu button:hover { background: rgba(255, 255, 255, 0.06); }
 .command-bar-tab-menu button.is-active { color: var(--c-blue); font-weight: 600; }
 
-/* Split-view toggle — sits right of the Kanban tab. Styled like the
-   action-btn pills (Terminal / Git / etc.) but vertically centered inside
-   the 32 px tab strip via inline-flex on the parent. */
-.command-bar-split-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  align-self: center;
-  width: 28px;
-  height: 24px;
-  margin: 0 4px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  color: var(--c-text);
-  cursor: pointer;
-  transition: background 100ms, color 100ms, border-color 100ms;
-  padding: 0;
-  font-family: inherit;
-}
-.command-bar-split-toggle svg {
-  color: currentColor;
-  opacity: 0.9;
-}
-.command-bar-split-toggle:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-.command-bar-split-toggle.is-active {
-  color: var(--c-blue);
-  background: var(--c-surface0);
-}
-
-/* Split mode — grid layout makes the right tab cluster (Files / Kanban /
-   split-toggle) land flush above the right pane. Column 1 takes the
-   agent pane's width, column 2 fills the right pane, column 3 is the
-   action area. */
+/* Split mode — grid layout makes the right tab cluster (Files / Kanban)
+   land flush above the right pane. Column 1 takes the agent pane's
+   width, column 2 fills the right pane, column 3 is the action area.
+   The split-view toggle itself lives INSIDE the Agent tab (see
+   .command-bar-tab-split above) so it never moves between layouts. */
 .command-bar.command-bar-split {
   display: grid;
   grid-template-columns: var(--agent-split-pct, 50%) 1fr auto;
@@ -1140,9 +1115,18 @@
   inset: -3px 0;
 }
 
-.resize-handle:hover,
+/* Highlight only after the pointer has RESTED on the divider for a beat —
+   a mouse just passing through shouldn't flash it blue. The delay lives on
+   the :hover transition (into the highlight); un-hover reverts through the
+   base 0.15s transition with no delay. */
+.resize-handle:hover {
+  background: var(--c-blue);
+  transition: background 0.15s ease 0.2s;
+}
+/* Grabbing the divider highlights immediately — no delay while dragging. */
 .resize-handle:active {
   background: var(--c-blue);
+  transition: background 0.05s;
 }
 
 .resize-handle-h {
@@ -4927,9 +4911,15 @@ select option {
   content: none;
 }
 
-.shell-panel + .shell-panel:has(> .resize-handle-h:hover),
+/* Same rest-delay as .resize-handle:hover — the shell divider is the
+   panel's own border, so the delayed transition rides on border-color. */
+.shell-panel + .shell-panel:has(> .resize-handle-h:hover) {
+  border-left-color: var(--c-blue);
+  transition: border-left-color 0.15s ease 0.2s;
+}
 .shell-panel + .shell-panel:has(> .resize-handle-h:active) {
   border-left-color: var(--c-blue);
+  transition: border-left-color 0.05s;
 }
 
 .shell-panel > .resize-handle-h:hover,
