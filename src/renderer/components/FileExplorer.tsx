@@ -687,6 +687,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   // in <MonacoDiffEditor> (inline diff vs HEAD). Mutually exclusive with
   // monacoPath — a file is either plain-Monaco or diff-Monaco, not both.
   const [monacoDiffPath, setMonacoDiffPath] = useState<string | null>(null);
+  // Jump-to-line request for the Monaco editors (Find-in-Files result
+  // click, file:line links). Set/cleared by mountEditor; consumed by
+  // whichever Monaco editor is mounted for the matching path. The
+  // CodeMirror path handles gotoLine inline and ignores this.
+  const [editorGoto, setEditorGoto] = useState<{ path: string; line: number; nonce: number } | null>(null);
   // Monaco diff layout: false = inline (single column), true = side-by-side
   // (two files). Toggled from the toolbar; applied live without remount.
   const [diffSideBySide, setDiffSideBySide] = useState(false);
@@ -1567,6 +1572,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     // so markdown edit-mode uses Monaco too. Content is already in
     // docCacheRef, which the Monaco editors read as their initial value.
     if (editorEngineRef.current === 'monaco') {
+      // Record (or clear) the jump-to-line request for whichever Monaco
+      // editor mounts below. Cleared when this open has no target line so
+      // a fresh mount can't replay a stale jump from an earlier open.
+      setEditorGoto(gotoLine && gotoLine > 0
+        ? { path: filePath, line: gotoLine, nonce: Date.now() }
+        : null);
       // In show-changed mode, fetch the HEAD baseline (same cache the
       // CodeMirror merge view uses). With a baseline → Monaco diff
       // editor; without one (untracked / new file) → plain editor.
@@ -2815,6 +2826,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
               onSave={handleSave}
               onAdjustFontSize={onAdjustEditorFontSize}
               onStatusInfo={setEditorStatus}
+              gotoLine={editorGoto && editorGoto.path === monacoPath ? editorGoto : null}
             />
             )}
           </div>
@@ -2847,6 +2859,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
               onSave={handleSave}
               onAdjustFontSize={onAdjustEditorFontSize}
               onStatusInfo={setEditorStatus}
+              gotoLine={editorGoto && editorGoto.path === monacoDiffPath ? editorGoto : null}
             />
           </div>
         )}

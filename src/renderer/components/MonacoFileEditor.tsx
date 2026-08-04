@@ -43,6 +43,10 @@ interface Props {
   /** Cursor + file info for the host's editor status bar (Ln/Col, EOL).
    * Fired once on mount and on every cursor move. */
   onStatusInfo?: (info: EditorStatusInfo) => void;
+  /** One-shot request to move the caret to a 1-based line and scroll it
+   * into view (e.g. a Find-in-Files result click). The nonce makes
+   * repeat requests for the same line distinguishable. */
+  gotoLine?: { line: number; nonce: number } | null;
 }
 
 /** Payload for the editor status bar (shared by the plain, diff, and
@@ -77,7 +81,7 @@ export interface MonacoFileEditorHandle {
 }
 
 export const MonacoFileEditor = forwardRef<MonacoFileEditorHandle, Props>(function MonacoFileEditor({
-  path, initialContent, savedContent, language, fontSize, onChange, onSave, blame, onBlameSelect, onAdjustFontSize, enableConflictLens, onStatusInfo,
+  path, initialContent, savedContent, language, fontSize, onChange, onSave, blame, onBlameSelect, onAdjustFontSize, enableConflictLens, onStatusInfo, gotoLine,
 }: Props, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -260,6 +264,20 @@ export const MonacoFileEditor = forwardRef<MonacoFileEditorHandle, Props>(functi
   useEffect(() => {
     editorRef.current?.updateOptions({ fontSize });
   }, [fontSize]);
+
+  // Jump to a requested line (Find-in-Files result, file:line link).
+  // Declared after the mount effect so a mount + goto in the same commit
+  // runs against the freshly-created editor.
+  useEffect(() => {
+    if (!gotoLine) return;
+    const ed = editorRef.current;
+    const model = ed?.getModel();
+    if (!ed || !model) return;
+    const line = Math.min(model.getLineCount(), Math.max(1, gotoLine.line));
+    ed.revealLineInCenter(line);
+    ed.setPosition({ lineNumber: line, column: 1 });
+    ed.focus();
+  }, [gotoLine]);
 
   // Live-apply blame as injected-text decorations. Rebuilt whenever the
   // blame snapshot changes; cleared when blame is removed.

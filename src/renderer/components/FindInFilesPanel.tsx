@@ -173,7 +173,9 @@ export function FindInFilesPanel({
     const startWidth = widthPercent;
     const parentWidth = panelRef.current?.parentElement?.clientWidth || window.innerWidth;
     const onMove = (ev: MouseEvent) => {
-      const deltaPct = ((startX - ev.clientX) / parentWidth) * 100;
+      // Left-docked panel: dragging right grows it (the git panel's
+      // right-docked math is the mirror image).
+      const deltaPct = ((ev.clientX - startX) / parentWidth) * 100;
       onWidthChange(Math.max(20, Math.min(80, startWidth + deltaPct)));
     };
     const onUp = () => {

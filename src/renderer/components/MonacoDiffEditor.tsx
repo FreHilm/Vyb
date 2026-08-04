@@ -35,6 +35,9 @@ interface Props {
   /** Cursor + EOL info for the host's status bar (tracks the editable
    * modified side). */
   onStatusInfo?: (info: EditorStatusInfo) => void;
+  /** One-shot request to move the caret (modified side) to a 1-based
+   * line and scroll it into view — see MonacoFileEditor.gotoLine. */
+  gotoLine?: { line: number; nonce: number } | null;
 }
 
 /**
@@ -46,7 +49,7 @@ interface Props {
  * Monaco's built-in overview ruler.
  */
 export function MonacoDiffEditor({
-  path, original, modified, savedContent, language, fontSize, sideBySide, hideUnchanged, contextLines, onChange, onSave, onAdjustFontSize, onStatusInfo,
+  path, original, modified, savedContent, language, fontSize, sideBySide, hideUnchanged, contextLines, onChange, onSave, onAdjustFontSize, onStatusInfo, gotoLine,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
@@ -153,6 +156,21 @@ export function MonacoDiffEditor({
   useEffect(() => {
     diffRef.current?.updateOptions({ fontSize });
   }, [fontSize]);
+
+  // Jump to a requested line on the editable (modified) side — Find-in-
+  // Files result clicks land here when the file opens in change mode.
+  // Runs after the mount effect, and again on reloadNonce remounts so the
+  // reveal survives a same-commit external reload.
+  useEffect(() => {
+    if (!gotoLine) return;
+    const ed = diffRef.current?.getModifiedEditor();
+    const model = diffRef.current?.getModel()?.modified;
+    if (!ed || !model) return;
+    const line = Math.min(model.getLineCount(), Math.max(1, gotoLine.line));
+    ed.revealLineInCenter(line);
+    ed.setPosition({ lineNumber: line, column: 1 });
+    ed.focus();
+  }, [gotoLine, reloadNonce]);
 
   // Live-follow the working tree. When the `modified` prop diverges from
   // the live model, the host reloaded the file externally (an agent edited
