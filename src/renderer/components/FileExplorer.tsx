@@ -895,6 +895,14 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         changes: { from: 0, to: view.state.doc.length, insert: diskContent },
       });
     }
+    // Monaco path: the mounted editor's model is written once at mount, so
+    // an external change must be pushed in explicitly (the CodeMirror
+    // dispatch above doesn't reach it). Preserves cursor/scroll/undo and
+    // re-baselines internally. No-op when the plain Monaco editor isn't
+    // the active view (ref is null) or content already matches.
+    if (activePathRef.current === absPath) {
+      monacoRef.current?.applyExternalReload(diskContent);
+    }
   }, []);
 
   // Subscribe to filesystem changes under workingDirectory. Tree refresh
@@ -1447,11 +1455,31 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       setActiveTabPath(newPath);
       activePathRef.current = newPath;
       setModifiedSet((s) => { const n = new Set(s); n.delete(oldPath); return n; });
+      // The old path's buffer is gone (tab re-pointed), so any external-
+      // change conflict on it is moot.
+      setConflictPaths((prev) => {
+        if (!prev.has(oldPath)) return prev;
+        const n = new Set(prev);
+        n.delete(oldPath);
+        return n;
+      });
       refresh();
+      return newPath;
     }
+    return null;
   }, [refresh]);
 
+  // Monotonic token guarding mountEditor's async continuation. Rapid
+  // opens (clicking around the tree) interleave: a stale continuation
+  // resuming after a newer mount finishes would write monacoPath /
+  // monacoDiffPath for the OLD file while activeTabPath points at the
+  // new one — neither editor's render condition matches and the pane
+  // shows nothing. Each call bumps the token; continuations bail after
+  // every await if a newer mount has started.
+  const mountGenRef = useRef(0);
+
   const mountEditor = useCallback(async (filePath: string, gotoLine?: number) => {
+    const gen = ++mountGenRef.current;
     if (viewRef.current) {
       viewRef.current.destroy();
       viewRef.current = null;
@@ -1459,6 +1487,18 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
 
     activePathRef.current = filePath;
     setActiveTabPath(filePath);
+    // Drop the Monaco routing to "loading" IMMEDIATELY. Leaving the old
+    // path in monacoPath/monacoDiffPath while this mount awaits its disk
+    // read / git baseline lets a stale value coincide with the new
+    // activeTabPath (fast A→B→A switching), mounting an editor from a
+    // docCache entry that openInTab already deleted — an empty buffer.
+    // Worse, the completion write (setMonacoPath(A) when it's already
+    // 'A') is a no-op that triggers no re-render, so the editor stays
+    // empty until something else remounts it. Nulling first makes the
+    // completion write a real null→path transition every time: the
+    // editor always mounts once, after content is actually in the cache.
+    setMonacoPath(null);
+    setMonacoDiffPath(null);
 
     if (isImageFile(fileName(filePath))) return;
 
@@ -1467,8 +1507,27 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     // source.
     let content = docCacheRef.current.get(filePath);
     if (content === undefined) {
-      content = await window.api.readFile(filePath) || '';
-      docCacheRef.current.set(filePath, content);
+      // A null read means the file couldn't be read RIGHT NOW — often the
+      // brief window of an agent's atomic save (truncate-then-write or
+      // temp+rename), where the path is momentarily missing. Retry once
+      // after a beat before giving up.
+      let disk = await window.api.readFile(filePath);
+      if (disk === null) {
+        await new Promise((r) => setTimeout(r, 150));
+        disk = await window.api.readFile(filePath);
+      }
+      if (disk === null) {
+        // Still unreadable: show an empty buffer but DON'T cache it —
+        // caching would poison every future open of this file with ''.
+        // The next open (or the fs.watch reload) re-reads from disk.
+        content = '';
+      } else {
+        content = disk;
+        docCacheRef.current.set(filePath, content);
+      }
+      // A newer mountEditor started while we were reading — abandon this
+      // one before it writes any editor-routing state.
+      if (gen !== mountGenRef.current) return;
     }
     // Capture the disk baseline once per file — used to detect undo-to-clean.
     if (!savedContentRef.current.has(filePath)) {
@@ -1525,6 +1584,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           } catch {
             gitBaselinesRef.current.set(filePath, null);
           }
+          if (gen !== mountGenRef.current) return;
         }
         const baseline = gitBaselinesRef.current.get(filePath) ?? null;
         if (baseline !== null) {
@@ -1564,6 +1624,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         } catch {
           gitBaselinesRef.current.set(thisPath, null);
         }
+        if (gen !== mountGenRef.current) return;
       }
       baseline = gitBaselinesRef.current.get(thisPath) ?? null;
     }
@@ -1787,7 +1848,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
 
     const existingIdx = tabs.findIndex((t) => t.path === filePath);
     if (existingIdx >= 0) {
-      // Tab already open — switch to it
+      // Tab already open — switch to it. Re-clicking the file that's
+      // already active is a no-op (same as switchTab) so it doesn't
+      // remount the editor through the loading transition.
+      if (filePath === activePathRef.current && gotoLine === undefined) return;
       saveCurrentDoc();
       mountEditor(filePath, gotoLine);
       return;
@@ -2555,6 +2619,30 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
             </span>
             <button
               className="file-conflict-btn"
+              title="Write your version to disk, replacing the external change"
+              onClick={() => {
+                // handleSave writes the buffer over the disk version and
+                // clears this path from conflictPaths itself.
+                handleSave();
+              }}
+            >
+              Overwrite disk
+            </button>
+            <button
+              className="file-conflict-btn file-conflict-btn-secondary"
+              title="Save your version to a new file; the original keeps the external change"
+              onClick={() => {
+                // On success the tab re-points to the new file and the
+                // conflict entry is cleared inside handleSaveAs; a
+                // cancelled dialog keeps the banner up.
+                handleSaveAs();
+              }}
+            >
+              Save mine as…
+            </button>
+            <button
+              className="file-conflict-btn file-conflict-btn-secondary"
+              title="Discard your edits and load the latest disk content"
               onClick={async () => {
                 const path = activeTabPath;
                 const diskContent = await window.api.readFile(path);
@@ -2574,19 +2662,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
                     changes: { from: 0, to: view.state.doc.length, insert: diskContent },
                   });
                 }
+                monacoRef.current?.applyExternalReload(diskContent);
                 setConflictPaths((prev) => { const n = new Set(prev); n.delete(path); return n; });
               }}
             >
-              Reload from disk
-            </button>
-            <button
-              className="file-conflict-btn file-conflict-btn-secondary"
-              onClick={() => {
-                if (!activeTabPath) return;
-                setConflictPaths((prev) => { const n = new Set(prev); n.delete(activeTabPath); return n; });
-              }}
-            >
-              Keep mine
+              Update to latest
             </button>
           </div>
         )}

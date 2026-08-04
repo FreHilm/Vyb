@@ -66,6 +66,11 @@ export interface MonacoFileEditorHandle {
   getValue: () => string;
   /** Replace the whole buffer, kept on the undo stack + focus retained. */
   setValue: (text: string) => void;
+  /** External reload: the file changed on disk (agent edit) and the host
+   * decided the buffer should follow. Replaces the buffer in place —
+   * cursor, scroll, and undo stack preserved — and re-baselines to the
+   * new content so the reload isn't reported as a dirty edit. */
+  applyExternalReload: (content: string) => void;
   /** Open Monaco's Find & Replace widget. */
   openFind: () => void;
   focus: () => void;
@@ -85,6 +90,27 @@ export const MonacoFileEditor = forwardRef<MonacoFileEditorHandle, Props>(functi
       if (!ed || !model) return;
       ed.executeEdits('host-replace', [{ range: model.getFullModelRange(), text }]);
       ed.pushUndoStop();
+    },
+    applyExternalReload: (content: string) => {
+      const ed = editorRef.current;
+      const model = ed?.getModel();
+      if (!ed || !model) return;
+      if (model.getValue() === content) return;
+      // Re-baseline BEFORE the edit so the resulting onDidChangeContent
+      // reports clean (value === baseline) instead of flagging the tab
+      // dirty for a reload the user didn't type.
+      baselineRef.current = content;
+      const pos = ed.getPosition();
+      const scroll = ed.getScrollTop();
+      model.pushEditOperations(
+        [],
+        [{ range: model.getFullModelRange(), text: content }],
+        () => null,
+      );
+      // Monaco clamps out-of-range positions, so restoring is safe even
+      // when the new content is shorter.
+      if (pos) ed.setPosition(pos);
+      ed.setScrollTop(scroll);
     },
     openFind: () => { editorRef.current?.getAction('editor.action.startFindReplaceAction')?.run(); },
     focus: () => editorRef.current?.focus(),
