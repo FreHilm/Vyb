@@ -234,6 +234,7 @@ declare global {
       remoteChatCreateTopic: (profileId: string, title: string) => Promise<RemoteChatTopic | { error: string }>;
       onRemoteChatEvent: (callback: (event: RemoteChatEvent) => void) => () => void;
       onMenuFindInFiles: (callback: (payload: { withReplace: boolean }) => void) => () => void;
+      onMenuToggleSplit: (callback: () => void) => () => void;
       formatDocument: (filePath: string, content: string) => Promise<{ content?: string; error?: string }>;
       readFile: (filePath: string) => Promise<string | null>;
       saveFile: (filePath: string, content: string) => Promise<boolean>;
@@ -2136,6 +2137,13 @@ export function App() {
       return next;
     });
   }, [activeViewKey, filesViews, kanbanViews, webViews]);
+
+  // View → Toggle Split View (and its Cmd+\ accelerator). The listener
+  // mounts once; the ref keeps it pointed at the latest toggleSplit
+  // closure (which depends on the active view key).
+  const toggleSplitRef = useRef(toggleSplit);
+  toggleSplitRef.current = toggleSplit;
+  useEffect(() => window.api.onMenuToggleSplit(() => toggleSplitRef.current()), []);
 
   // defaultSplitView: a parent-profile view activated with NO remembered
   // split choice (neither explicit-on nor explicit-off) starts in split.

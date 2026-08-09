@@ -435,6 +435,12 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_FIND_IN_FILES, handler);
   },
 
+  onMenuToggleSplit: (callback: () => void): (() => void) => {
+    const handler = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.MENU_TOGGLE_SPLIT, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_TOGGLE_SPLIT, handler);
+  },
+
   formatDocument: (filePath: string, content: string): Promise<{ content?: string; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_FORMAT, filePath, content),
 

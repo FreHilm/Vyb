@@ -77,6 +77,13 @@ export function loadSettings(): AppSettings {
         if (!def) return a;
         return { ...a, permissionModeArgs: [...(def.permissionModeArgs ?? [])] };
       });
+      // Soft-migrate: append built-in agents introduced after this
+      // settings file was written (e.g. 'terminal'), so existing installs
+      // see new built-ins without resetting their saved overrides.
+      const present = new Set(merged.agents.map((a) => a.id));
+      for (const def of DEFAULT_AGENTS) {
+        if (!present.has(def.id)) merged.agents.push({ ...def, args: [...def.args] });
+      }
     }
     return merged;
   } catch {

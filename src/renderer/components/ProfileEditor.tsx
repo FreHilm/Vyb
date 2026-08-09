@@ -9,6 +9,8 @@ const AGENT_ICONS: Record<string, { viewBox: string; paths: string[]; color: str
   opencode: { viewBox: '0 0 16 16', color: '#fbbf24', stroke: true, paths: ['M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4M9.2 3 6.8 13'] },
   // Hermes (Nous Research) — winged glyph; remote agent over Telegram.
   'hermes-telegram': { viewBox: '0 0 16 16', color: '#8b5cf6', stroke: true, paths: ['M2 12.5c4.5 0 7-2 8-5.5M4 9c3 0 5-1.5 6.5-4M8.5 14c3-1 5-3.5 5.5-6.5'] },
+  // Plain terminal — prompt chevron in a window frame.
+  terminal: { viewBox: '0 0 16 16', color: '#9ca3af', stroke: true, paths: ['M2.5 3.5h11a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1z', 'M4.5 6.5l2 1.5-2 1.5', 'M8.5 10h3'] },
 };
 
 function AgentIcon({ agentId, size = 16 }: { agentId: string; size?: number }) {
@@ -365,7 +367,9 @@ export function ProfileEditor({
               </span>
             ) : selectedAgent && (
               <span className="field-hint">
-                {selectedAgent.command} {selectedAgent.args.join(' ')}
+                {selectedAgent.command
+                  ? `${selectedAgent.command} ${selectedAgent.args.join(' ')}`
+                  : 'Opens your default shell — a plain terminal, no agent CLI.'}
               </span>
             )}
           </div>

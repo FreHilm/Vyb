@@ -263,8 +263,28 @@ const genericAdapter: AgentAdapter = {
   },
 };
 
+// Plain-terminal profiles (empty command → the user's login shell).
+// Deliberately quiet: a shell is always "ready" from the status system's
+// point of view — no working spinner, so slow commands never trigger the
+// completion bell, and no needs-input heuristics that would misfire on
+// ordinary prompt output.
+const terminalAdapter: AgentAdapter = {
+  name: 'terminal',
+  idleTimeout: 60000,
+  debounceMs: 800,
+
+  detectFromData() {
+    return { status: null };
+  },
+
+  detectFromBuffer() {
+    return { status: 'ready' };
+  },
+};
+
 function getAdapter(command: string): AgentAdapter {
   const cmd = command.toLowerCase();
+  if (!cmd.trim()) return terminalAdapter;
   if (cmd === 'claude' || cmd.endsWith('/claude')) return claudeAdapter;
   if (cmd === 'codex' || cmd.endsWith('/codex')) return codexAdapter;
   if (cmd === 'gemini' || cmd.endsWith('/gemini')) return geminiAdapter;

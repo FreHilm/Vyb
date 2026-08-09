@@ -242,7 +242,17 @@ function buildMenu() {
     {
       label: 'View',
       submenu: [
-        { label: 'Toggle Full Screen', accelerator: isMac ? 'Ctrl+Cmd+F' : 'F11', role: 'togglefullscreen' as const },
+        // Split view (agent left + Files/Kanban/Web right) for the active
+        // profile — routed to the renderer, which owns the per-view state.
+        { label: 'Toggle Split View', accelerator: 'CmdOrCtrl+\\', click: toggleSplitView },
+        { type: 'separator' as const },
+        // macOS automatically appends its own "Enter Full Screen" item to
+        // any menu titled "View" — adding our own there produced a
+        // duplicate. Keep the explicit item only where the OS doesn't
+        // provide one (Windows/Linux, F11).
+        ...(!isMac
+          ? [{ label: 'Toggle Full Screen', accelerator: 'F11', role: 'togglefullscreen' as const }]
+          : []),
         { label: 'Toggle DevTools', accelerator: 'F12', click: () => mainWindow?.webContents.toggleDevTools() },
       ],
     },
@@ -321,6 +331,12 @@ function newProfile() {
 function findInFiles(withReplace: boolean) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC_CHANNELS.MENU_FIND_IN_FILES, { withReplace });
+  }
+}
+
+function toggleSplitView() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC_CHANNELS.MENU_TOGGLE_SPLIT);
   }
 }
 

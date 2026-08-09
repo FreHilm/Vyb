@@ -8,6 +8,7 @@ const AGENT_ICON_DEFS: Record<string, { viewBox: string; paths: string[]; color:
   gemini: { viewBox: '0 0 16 16', color: '#4285f4', paths: ['M8 0C8 4.4 4.4 8 0 8c4.4 0 8 3.6 8 8 0-4.4 3.6-8 8-8-4.4 0-8-3.6-8-8z'] },
   opencode: { viewBox: '0 0 16 16', color: '#fbbf24', stroke: true, paths: ['M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4M9.2 3 6.8 13'] },
   'hermes-telegram': { viewBox: '0 0 16 16', color: '#8b5cf6', stroke: true, paths: ['M2 12.5c4.5 0 7-2 8-5.5M4 9c3 0 5-1.5 6.5-4M8.5 14c3-1 5-3.5 5.5-6.5'] },
+  terminal: { viewBox: '0 0 16 16', color: '#9ca3af', stroke: true, paths: ['M2.5 3.5h11a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1z', 'M4.5 6.5l2 1.5-2 1.5', 'M8.5 10h3'] },
 };
 
 function SmallAgentIcon({ agentId }: { agentId?: string }) {

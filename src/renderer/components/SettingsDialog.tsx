@@ -49,6 +49,17 @@ const AGENT_ICONS: Record<string, { viewBox: string; paths: string[]; color: str
       'M2 12.5c4.5 0 7-2 8-5.5M4 9c3 0 5-1.5 6.5-4M8.5 14c3-1 5-3.5 5.5-6.5',
     ],
   },
+  // Plain terminal: prompt chevron in a window frame.
+  terminal: {
+    viewBox: '0 0 16 16',
+    color: '#9ca3af',
+    stroke: true,
+    paths: [
+      'M2.5 3.5h11a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1z',
+      'M4.5 6.5l2 1.5-2 1.5',
+      'M8.5 10h3',
+    ],
+  },
 };
 import { hueToPreviewColor, applyTheme } from '../theme';
 import { APP_ICONS, APP_ICON_LABELS } from '../icons';

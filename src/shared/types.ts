@@ -268,6 +268,16 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     args: [],
     permissionModeArgs: [],
   },
+  {
+    id: 'terminal',
+    name: 'Terminal',
+    // Empty command → PtyManager opens the user's login shell (zsh/bash/
+    // fish, PowerShell on Windows). A plain terminal "agent" for projects
+    // that don't need an AI CLI in the agent pane.
+    command: '',
+    args: [],
+    permissionModeArgs: [],
+  },
 ];
 
 export interface ExternalApp {
@@ -523,6 +533,7 @@ export const IPC_CHANNELS = {
   /** Main → renderer: Edit → Find/Replace in Files clicked. Payload is
    * `{ withReplace: boolean }`. */
   MENU_FIND_IN_FILES: 'menu:findInFiles',
+  MENU_TOGGLE_SPLIT: 'menu:toggleSplit',
   /** List an agent's past sessions for a project (built-in agents only). */
   AGENT_LIST_SESSIONS: 'agent:listSessions',
   /** Spawn a free-form agent session in its own worktree (persistent,
