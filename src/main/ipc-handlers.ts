@@ -1350,6 +1350,28 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     parseNumstat(unstagedNumstat);
     parseNumstat(stagedNumstat);
 
+    // Line count for an untracked file's "+added" stat, BOUNDED. The old
+    // approach read every untracked file in full (utf-8 decode + split) on
+    // every decorations poll — a working dir with untracked folders of
+    // large binaries (image dumps, datasets) blocked the main process for
+    // seconds every 10 s, freezing the whole app. Bounds: skip anything
+    // over the size cap or with NUL bytes in the head (binary), and count
+    // newlines on the raw buffer — no string materialization.
+    const UNTRACKED_COUNT_MAX_BYTES = 512 * 1024;
+    const countLinesBounded = (absPath: string): number => {
+      try {
+        const st = fs.statSync(absPath);
+        if (!st.isFile() || st.size === 0 || st.size > UNTRACKED_COUNT_MAX_BYTES) return 0;
+        const buf = fs.readFileSync(absPath);
+        if (buf.subarray(0, 8192).includes(0)) return 0; // binary
+        let n = 1;
+        for (let i = 0; i < buf.length; i++) if (buf[i] === 10) n++;
+        return n;
+      } catch {
+        return 0;
+      }
+    };
+
     // Expand untracked directories (git status reports them as a single
      // entry with trailing slash) into their individual files so each shows
      // up as its own row with a real diff.
@@ -1378,12 +1400,8 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         const expanded: string[] = [];
         walkDir(filePath.replace(/\/$/, ''), expanded);
         for (const f of expanded) {
-          let added = 0;
-          try {
-            const absF = path.isAbsolute(f) ? f : path.join(cwd, f);
-            const content = fs.readFileSync(absF, 'utf-8');
-            added = content.split('\n').length;
-          } catch { /* binary */ }
+          const absF = path.isAbsolute(f) ? f : path.join(cwd, f);
+          const added = countLinesBounded(absF);
           result.push({ path: f, added, deleted: 0, status: 'untracked', staged: false });
         }
         continue;
@@ -1392,11 +1410,8 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       let added = c.added;
       const deleted = c.deleted;
       if (info.status === 'untracked') {
-        try {
-          const absPath = filePath.startsWith('/') ? filePath : path.join(cwd, filePath);
-          const content = fs.readFileSync(absPath, 'utf-8');
-          added = content.split('\n').length;
-        } catch { /* binary or unreadable */ }
+        const absPath = filePath.startsWith('/') ? filePath : path.join(cwd, filePath);
+        added = countLinesBounded(absPath);
       }
       result.push({ path: filePath, added, deleted, status: info.status, staged: info.staged });
     }
@@ -4175,16 +4190,29 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       console.warn(`[file-watch] ${cwd} is large or contains cloud-sync roots — using non-recursive watch to avoid OOM`);
     }
     try {
+      // Coalesce events before they cross the IPC boundary. Tools that
+      // write continuously into the tree (screen grabbers, build watchers,
+      // exporters) emit several fs events per file and can sustain dozens
+      // per second — forwarding each one flooded the renderer with
+      // messages whose handlers (debounce churn, listDir, git decoration
+      // refreshes) added up to periodic whole-UI stalls. Dedupe by path
+      // inside a short window and flush one message per unique path.
+      const pending = new Map<string, { eventType: string; absPath: string; relPath: string }>();
+      let flushTimer: ReturnType<typeof setTimeout> | null = null;
+      const FLUSH_MS = 200;
+      const flush = () => {
+        flushTimer = null;
+        for (const ev of pending.values()) {
+          safeSend(IPC_CHANNELS.FILE_WATCH_CHANGE, { watchId: id, ...ev });
+        }
+        pending.clear();
+      };
       const watcher = fs.watch(cwd, { recursive, persistent: true }, (eventType, filename) => {
         const rel = (filename ?? '').toString();
         if (watchPathIsNoise(rel)) return;
         const abs = rel ? path.join(cwd, rel) : cwd;
-        safeSend(IPC_CHANNELS.FILE_WATCH_CHANGE, {
-          watchId: id,
-          eventType,
-          absPath: abs,
-          relPath: rel,
-        });
+        pending.set(abs, { eventType, absPath: abs, relPath: rel });
+        if (!flushTimer) flushTimer = setTimeout(flush, FLUSH_MS);
       });
       watcher.on('error', () => {
         // Best effort — if the watcher dies (e.g. directory removed), let

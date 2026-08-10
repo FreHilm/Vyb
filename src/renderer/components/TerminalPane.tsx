@@ -410,10 +410,18 @@ function activateWebgl(instance: TerminalInstance, mode: string): void {
   try {
     const addon = new WebglAddon();
     addon.onContextLoss(() => {
+      // Without a retry this terminal would silently drop to the (much
+      // slower) DOM renderer for the rest of the session — on busy agent
+      // terminals that renders as multi-second UI freezes per output
+      // burst. Contexts are usually reclaimable moments later (the ~16
+      // per-page limit frees up as other terminals release theirs).
       // eslint-disable-next-line no-console
-      console.warn('[xterm] WebGL context lost — falling back to canvas');
+      console.warn('[xterm] WebGL context lost — retrying in 2s (DOM renderer until then)');
       addon.dispose();
       instance.webglAddon = undefined;
+      setTimeout(() => {
+        if (!instance.webglAddon && instance.opened) activateWebgl(instance, mode);
+      }, 2000);
     });
     instance.terminal.loadAddon(addon);
     instance.webglAddon = addon;

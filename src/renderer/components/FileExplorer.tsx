@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, forwardRef, useImperativeHandle, memo } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -454,7 +454,13 @@ function InlineInput({ initialValue, onSubmit, onCancel }: {
 
 // ── File Tree Node ───────────────────────────────────────────────
 
-function FileTreeNode({
+// memo() so re-renders of FileExplorer (agent status updates, dirty-flag
+// changes, polls) don't reconcile every row of a large expanded tree —
+// with thousands of files (e.g. an image-heavy folder) that reconciliation
+// alone caused visible periodic UI freezes. All props are primitives or
+// useCallback/useMemo-stabilized in the parent, so the shallow compare
+// only fails for rows whose inputs actually changed.
+const FileTreeNode = memo(function FileTreeNode({
   entry,
   depth,
   selectedPath,
@@ -651,7 +657,7 @@ function FileTreeNode({
         ))}
     </>
   );
-}
+});
 
 // ── Main FileExplorer ────────────────────────────────────────────
 
@@ -932,7 +938,19 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           const abs = `${base}/${f.path}`;
           map.set(abs, f.status);
         }
-        setGitDecorations(map);
+        // Keep the previous Map when the poll found nothing new — a fresh
+        // identity every 10 s would re-render the whole tree (thousands of
+        // rows in big projects) even though not a single row changed.
+        setGitDecorations((prev) => {
+          if (prev.size === map.size) {
+            let same = true;
+            for (const [k, v] of map) {
+              if (prev.get(k) !== v) { same = false; break; }
+            }
+            if (same) return prev;
+          }
+          return map;
+        });
       } catch { /* not a repo, etc. */ }
     };
     // Initial refresh runs right away; the recurring poll starts on
@@ -1062,20 +1080,31 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   // happens on every event; open-tab content gets the silent-reload /
   // conflict-banner treatment via handleExternalFileChange.
   useEffect(() => {
+    // No watcher while this explorer is hidden (background profile or
+    // non-Files tab). A working directory with a continuously-writing
+    // process (screen grabber, build watcher) otherwise keeps EVERY
+    // mounted explorer's refresh pipeline churning in the background.
+    // On unhide the effect re-runs: one refresh + a reconcile of open
+    // tabs covers everything missed while unwatched.
+    if (hidden) return;
     let cancelled = false;
     let watchId: string | null = null;
     let unsub: (() => void) | null = null;
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+    refresh();
+    for (const t of tabsRef.current) handleExternalFileChange(t.path);
 
     window.api.watchDir(workingDirectory).then((id) => {
       if (cancelled || !id) return;
       watchId = id;
       unsub = window.api.onFileWatchChange((p) => {
         if (p.watchId !== watchId) return;
-        // Debounce tree refresh — fs.watch can fire several events for a
-        // single save (rename + write + chmod).
+        // Debounce tree refresh — main already coalesces bursts (200 ms
+        // window), so this mostly guards against several distinct paths
+        // arriving from one logical change.
         if (refreshTimer) clearTimeout(refreshTimer);
-        refreshTimer = setTimeout(() => { refresh(); }, 80);
+        refreshTimer = setTimeout(() => { refresh(); }, 250);
         // For an open tab whose path matches, reconcile content.
         if (p.absPath) handleExternalFileChange(p.absPath);
       });
@@ -1102,7 +1131,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       if (unsub) unsub();
       if (watchId) window.api.unwatchDir(watchId).catch((): void => undefined);
     };
-  }, [workingDirectory, refresh, handleExternalFileChange]);
+  }, [hidden, workingDirectory, refresh, handleExternalFileChange]);
 
   // ── DnD move (drag a tree item into another folder) ─────────────
   // We use the same conventions as ReadmeViewer's tree: posix-style `/`
@@ -2027,6 +2056,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   const handleSelectFile = useCallback((filePath: string) => {
     openInTab(filePath, false);
   }, [openInTab]);
+
+  // Stable identity for FileTreeNode's onRenameCancel — an inline arrow
+  // would defeat the node memoization on every render.
+  const handleRenameCancel = useCallback(() => setRenamingPath(null), []);
 
   // ── File operations ──────────────────────────────────────────
 
@@ -3032,7 +3065,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
               onContextMenu={handleContextMenu}
               renamingPath={renamingPath}
               onRenameSubmit={handleRenameSubmit}
-              onRenameCancel={() => setRenamingPath(null)}
+              onRenameCancel={handleRenameCancel}
               refreshKey={refreshKey}
               revealRequest={revealRequest}
               dragHover={dragHover}
