@@ -1350,28 +1350,6 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     parseNumstat(unstagedNumstat);
     parseNumstat(stagedNumstat);
 
-    // Line count for an untracked file's "+added" stat, BOUNDED. The old
-    // approach read every untracked file in full (utf-8 decode + split) on
-    // every decorations poll — a working dir with untracked folders of
-    // large binaries (image dumps, datasets) blocked the main process for
-    // seconds every 10 s, freezing the whole app. Bounds: skip anything
-    // over the size cap or with NUL bytes in the head (binary), and count
-    // newlines on the raw buffer — no string materialization.
-    const UNTRACKED_COUNT_MAX_BYTES = 512 * 1024;
-    const countLinesBounded = (absPath: string): number => {
-      try {
-        const st = fs.statSync(absPath);
-        if (!st.isFile() || st.size === 0 || st.size > UNTRACKED_COUNT_MAX_BYTES) return 0;
-        const buf = fs.readFileSync(absPath);
-        if (buf.subarray(0, 8192).includes(0)) return 0; // binary
-        let n = 1;
-        for (let i = 0; i < buf.length; i++) if (buf[i] === 10) n++;
-        return n;
-      } catch {
-        return 0;
-      }
-    };
-
     // Expand untracked directories (git status reports them as a single
      // entry with trailing slash) into their individual files so each shows
      // up as its own row with a real diff.
@@ -1400,20 +1378,19 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         const expanded: string[] = [];
         walkDir(filePath.replace(/\/$/, ''), expanded);
         for (const f of expanded) {
-          const absF = path.isAbsolute(f) ? f : path.join(cwd, f);
-          const added = countLinesBounded(absF);
-          result.push({ path: f, added, deleted: 0, status: 'untracked', staged: false });
+          // No content read: "untracked" is all the UI needs (it shows a
+          // U badge; +added renders only when > 0). Reading every
+          // untracked file to count lines froze the app for seconds per
+          // poll in dirs full of large files.
+          result.push({ path: f, added: 0, deleted: 0, status: 'untracked', staged: false });
         }
         continue;
       }
 
-      let added = c.added;
-      const deleted = c.deleted;
-      if (info.status === 'untracked') {
-        const absPath = filePath.startsWith('/') ? filePath : path.join(cwd, filePath);
-        added = countLinesBounded(absPath);
-      }
-      result.push({ path: filePath, added, deleted, status: info.status, staged: info.staged });
+      // Untracked files get no line count (counts defaults to 0/0 —
+      // numstat never mentions them, and we deliberately don't read
+      // their contents; see the untracked-directory branch above).
+      result.push({ path: filePath, added: c.added, deleted: c.deleted, status: info.status, staged: info.staged });
     }
     // Sort: staged first, then alphabetical
     result.sort((a, b) => {
