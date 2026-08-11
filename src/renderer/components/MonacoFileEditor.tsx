@@ -310,6 +310,11 @@ export const MonacoFileEditor = forwardRef<MonacoFileEditorHandle, Props>(functi
  * CodeMirror path supports; unknown extensions fall back to
  * plaintext (Monaco still gives a usable editor). */
 export function monacoLanguageForFile(filename: string): string {
+  // A few languages are keyed by well-known filenames, not extensions.
+  const base = filename.toLowerCase();
+  if (base === 'gemfile' || base === 'rakefile') return 'ruby';
+  if (base === 'dockerfile') return 'dockerfile';
+  if (base === 'makefile') return 'plaintext';
   const ext = filename.split('.').pop()?.toLowerCase();
   switch (ext) {
     case 'js': case 'jsx': case 'mjs': case 'cjs': return 'javascript';
@@ -325,7 +330,20 @@ export function monacoLanguageForFile(filename: string): string {
     case 'go': return 'go';
     case 'java': return 'java';
     case 'c': case 'h': return 'c';
-    case 'cpp': case 'cc': case 'hpp': return 'cpp';
+    case 'cpp': case 'cc': case 'cxx': case 'hpp': case 'hh': return 'cpp';
+    // All ids below ship with monaco-editor's built-in basic-languages —
+    // extending this map is free (no new deps, tokenizers already bundled).
+    case 'cs': case 'csx': return 'csharp';
+    case 'ps1': case 'psm1': case 'psd1': return 'powershell';
+    case 'sql': return 'sql';
+    case 'rb': case 'gemspec': case 'rake': return 'ruby';
+    case 'dart': return 'dart';
+    case 'swift': return 'swift';
+    case 'php': case 'phtml': return 'php';
+    case 'kt': case 'kts': return 'kotlin';
+    case 'lua': return 'lua';
+    case 'toml': case 'ini': return 'ini';
+    case 'dockerfile': return 'dockerfile';
     default: return 'plaintext';
   }
 }
