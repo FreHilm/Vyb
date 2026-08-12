@@ -1,6 +1,10 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import * as monaco from 'monaco-editor';
 import '../lib/monaco-setup'; // side effect: wire workers before any editor is created
+import { ensureDefinitionSupport } from '../lib/monaco-definitions';
+
+// Cmd/Ctrl+click go-to-definition (ripgrep-backed) — global, one-time.
+ensureDefinitionSupport();
 import type { GitBlameLine } from '../../shared/types';
 import { buildBlameDecorations } from '../lib/monaco-blame';
 import { registerConflictLens, registerConflictDecorations } from '../lib/monaco-conflict-lens';

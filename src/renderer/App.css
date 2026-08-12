@@ -4494,6 +4494,13 @@ select option {
   outline: none;
   min-width: 0;
 }
+/* Images in rendered markdown — never overflow the pane; slight radius
+   so screenshots sit nicely on the dark background. */
+.file-md-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
 
 /* Excalidraw editor host — Excalidraw fills its parent and brings its own
    chrome, so we just need a flex-filling box with explicit dimensions. */

@@ -2145,6 +2145,27 @@ export function App() {
   toggleSplitRef.current = toggleSplit;
   useEffect(() => window.api.onMenuToggleSplit(() => toggleSplitRef.current()), []);
 
+  // Cmd+click go-to-definition landed on a file that isn't open in the
+  // editor: Monaco's editor opener (lib/monaco-definitions.ts) raises
+  // this event, and we route it through the same open-tab-at-line flow
+  // Find-in-Files results use.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { path, line } = (e as CustomEvent<{ path?: string; line?: number }>).detail || {};
+      if (!path) return;
+      if (activeViewKey) {
+        const key = activeViewKey;
+        setFilesViews((prev) => ensureInSet(prev, key));
+        setFilesRunning((prev) => ensureInSet(prev, key));
+        setKanbanViews((prev) => removeFromSet(prev, key));
+        setWebViews((prev) => removeFromSet(prev, key));
+      }
+      setPendingFileOpen({ path, nonce: Date.now(), line: line ?? 1 });
+    };
+    window.addEventListener('vyb-open-definition', handler);
+    return () => window.removeEventListener('vyb-open-definition', handler);
+  }, [activeViewKey]);
+
   // defaultSplitView: a parent-profile view activated with NO remembered
   // split choice (neither explicit-on nor explicit-off) starts in split.
   // Materialized into splitViews so from then on it persists exactly like

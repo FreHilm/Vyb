@@ -23,6 +23,7 @@ import { ExcalidrawEditor, type ExcalidrawEditorHandle } from './ExcalidrawEdito
 import { FileHistoryView } from './FileHistoryView';
 import { ErrorBoundary } from './ErrorBoundary';
 import { MonacoFileEditor, monacoLanguageForFile, type MonacoFileEditorHandle, type EditorStatusInfo } from './MonacoFileEditor';
+import { setDefinitionSearchRoot } from '../lib/monaco-definitions';
 import { ThreeWayFileEditor } from './ThreeWayFileEditor';
 import { MonacoDiffEditor } from './MonacoDiffEditor';
 import { toastError, toastInfo, errMessage } from '../lib/toast';
@@ -452,6 +453,44 @@ function InlineInput({ initialValue, onSubmit, onCancel }: {
   );
 }
 
+// ── Inline create row ────────────────────────────────────────────
+// The "name the new file/folder" input row. Shared by the tree root
+// and FileTreeNode — creation INSIDE a subfolder renders it under that
+// folder's row (previously it only existed at the root, so New File /
+// New Folder from a subfolder's context menu silently did nothing).
+function CreateInputRow({ type, paddingLeft, onSubmit, onCancel }: {
+  type: 'file' | 'dir' | 'excalidraw' | 'md';
+  paddingLeft: number;
+  onSubmit: (name: string) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="file-tree-item" style={{ paddingLeft }}>
+      <FileIcon
+        filename={
+          type === 'dir' ? '__dir__'
+            : type === 'excalidraw' ? 'untitled.excalidraw'
+              : type === 'md' ? 'untitled.md'
+                : 'untitled'
+        }
+        isDirectory={type === 'dir'}
+      />
+      <InlineInput
+        initialValue={
+          type === 'dir' ? 'new-folder'
+            : type === 'excalidraw' ? 'untitled.excalidraw'
+              : type === 'md' ? 'untitled.md'
+                : 'untitled.txt'
+        }
+        onSubmit={onSubmit}
+        onCancel={onCancel}
+      />
+    </div>
+  );
+}
+
+type CreatingState = { type: 'file' | 'dir' | 'excalidraw' | 'md'; dir: string } | null;
+
 // ── File Tree Node ───────────────────────────────────────────────
 
 // memo() so re-renders of FileExplorer (agent status updates, dirty-flag
@@ -479,6 +518,9 @@ const FileTreeNode = memo(function FileTreeNode({
   gitDecorations,
   showHiddenFiles,
   changedPathsFilter,
+  creating,
+  onCreateSubmit,
+  onCreateCancel,
 }: {
   entry: FileEntry;
   depth: number;
@@ -500,6 +542,11 @@ const FileTreeNode = memo(function FileTreeNode({
   /** When non-null, only paths in this Set are rendered. Drives the
    * "show only git-changed files" filter in the toolbar. */
   changedPathsFilter: Set<string> | null;
+  /** In-flight "New File / New Folder" request. When its dir is THIS
+   * directory, the inline name input renders under this row. */
+  creating: CreatingState;
+  onCreateSubmit: (name: string) => void;
+  onCreateCancel: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileEntry[]>([]);
@@ -516,6 +563,14 @@ const FileTreeNode = memo(function FileTreeNode({
       loadChildren();
     }
   }, [refreshKey, expanded, entry.isDirectory, loadChildren]);
+
+  // Creating a file/folder INSIDE this directory (context menu → New
+  // File / New Folder) — expand so the inline name input is visible.
+  useEffect(() => {
+    if (creating && entry.isDirectory && creating.dir === entry.path) {
+      setExpanded(true);
+    }
+  }, [creating, entry.isDirectory, entry.path]);
 
   // Auto-expand directories when the "show changed only" filter is
   // active so every visible folder is fanned out — otherwise the
@@ -629,6 +684,14 @@ const FileTreeNode = memo(function FileTreeNode({
         )}
         {gitBadge && <span className="file-tree-git-badge" title={`git: ${gitStatus}`}>{gitBadge}</span>}
       </div>
+      {expanded && creating && entry.isDirectory && creating.dir === entry.path && (
+        <CreateInputRow
+          type={creating.type}
+          paddingLeft={12 + (depth + 1) * 16}
+          onSubmit={onCreateSubmit}
+          onCancel={onCreateCancel}
+        />
+      )}
       {expanded &&
         children
           .filter((child) => showHiddenFiles || !child.name.startsWith('.'))
@@ -653,6 +716,9 @@ const FileTreeNode = memo(function FileTreeNode({
             gitDecorations={gitDecorations}
             showHiddenFiles={showHiddenFiles}
             changedPathsFilter={changedPathsFilter}
+            creating={creating}
+            onCreateSubmit={onCreateSubmit}
+            onCreateCancel={onCreateCancel}
           />
         ))}
     </>
@@ -2061,6 +2127,13 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   // would defeat the node memoization on every render.
   const handleRenameCancel = useCallback(() => setRenamingPath(null), []);
 
+  // Keep cmd+click go-to-definition searching the ACTIVE profile's
+  // working directory (the registration itself is global; only the
+  // search root is per-view).
+  useEffect(() => {
+    if (!hidden) setDefinitionSearchRoot(workingDirectory);
+  }, [hidden, workingDirectory]);
+
   // ── File operations ──────────────────────────────────────────
 
   const handleContextMenu = useCallback((e: React.MouseEvent, entry: FileEntry) => {
@@ -2375,6 +2448,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     setCreateMenuPos(null);
   }, [workingDirectory]);
 
+  // Stable identity — passed into the memoized FileTreeNode.
+  const handleCreateCancel = useCallback(() => setCreating(null), []);
+
   // Close the "New…" dropdown on any outside click / Escape.
   useEffect(() => {
     if (!createMenuOpen) return;
@@ -2445,10 +2521,18 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     }
   }, [activeTabPath, activeIsMd, modifiedSet, handleSave, mountEditor]);
 
+  // Directory of the active markdown file — the base that relative
+  // image paths (![x](images/foo.svg)) resolve against.
+  const activeMdDir = activeTabPath && isMdFile(fileName(activeTabPath))
+    ? toPosix(activeTabPath).replace(/\/[^/]*$/, '')
+    : null;
+
   // Memoise the markdown components prop — same trick as ReadmeViewer.
   // Inline components on every render would cause react-markdown to
   // remount custom blocks (notably MermaidBlock) and re-render their
-  // SVGs from scratch each time the parent updates.
+  // SVGs from scratch each time the parent updates. Depending on
+  // activeMdDir only changes identity when a DIFFERENT md file becomes
+  // active — a full re-render is correct there anyway.
   const markdownComponents = useMemo(() => ({
     code(props: { className?: string; children?: React.ReactNode; inline?: boolean }) {
       const { className, children, ...rest } = props;
@@ -2458,7 +2542,36 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       }
       return <code className={className} {...rest}>{children}</code>;
     },
-  }), []);
+    // Local images: markdown refers to files relative to the document
+    // (or by absolute path). The renderer can't load file paths
+    // directly, so route them through the local-file:// protocol (the
+    // same one profile icons use). http(s)/data URLs pass through.
+    img(props: { src?: string; alt?: string; title?: string }) {
+      const { src, alt, title } = props;
+      let resolved = src ?? '';
+      const isExternal = /^[a-z][a-z0-9+.-]*:/i.test(resolved) || resolved.startsWith('//');
+      if (resolved && !isExternal) {
+        let abs: string;
+        if (resolved.startsWith('/')) {
+          abs = resolved;
+        } else if (activeMdDir) {
+          // Join + normalize ./ and ../ segments.
+          const parts = `${activeMdDir}/${resolved}`.split('/');
+          const out: string[] = [];
+          for (const p of parts) {
+            if (p === '.' || (p === '' && out.length > 0)) continue;
+            if (p === '..') out.pop();
+            else out.push(p);
+          }
+          abs = out.join('/');
+        } else {
+          abs = resolved;
+        }
+        resolved = `local-file://${encodeURI(abs)}`;
+      }
+      return <img className="file-md-img" src={resolved} alt={alt ?? ''} title={title} />;
+    },
+  }), [activeMdDir]);
 
   // Keep the application Edit menu (main process) in sync with what's actually
   // editable here: text-file open ⇒ items enabled; modified ⇒ Save enabled too.
@@ -2551,7 +2664,17 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
                 <div
                   key={tab.path}
                   className={`file-tab ${isActive ? 'file-tab-active' : ''}${isConflicted ? ' file-tab-conflicted' : ''}`}
-                  onClick={() => switchTab(tab.path)}
+                  onClick={() => {
+                    // Reveal in the tree (expand ancestors + scroll the row
+                    // into view) only for genuine mouse-driven tab SWITCHES —
+                    // not re-clicks of the active tab, and deliberately not
+                    // programmatic tab changes (open-from-tree, close-tab
+                    // neighbor selection, find-in-files), which go through
+                    // switchTab/mountEditor without this handler.
+                    const wasActive = tab.path === activePathRef.current;
+                    switchTab(tab.path);
+                    if (!wasActive) setRevealRequest({ path: tab.path, nonce: Date.now() });
+                  }}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     setTabCtxMenu({ x: e.clientX, y: e.clientY, path: tab.path });
@@ -3026,27 +3149,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           onDrop={handleRootDrop}
         >
           {creating && creating.dir === workingDirectory && (
-            <div className="file-tree-item" style={{ paddingLeft: 12 }}>
-              <FileIcon
-                filename={
-                  creating.type === 'dir' ? '__dir__'
-                    : creating.type === 'excalidraw' ? 'untitled.excalidraw'
-                      : creating.type === 'md' ? 'untitled.md'
-                        : 'untitled'
-                }
-                isDirectory={creating.type === 'dir'}
-              />
-              <InlineInput
-                initialValue={
-                  creating.type === 'dir' ? 'new-folder'
-                    : creating.type === 'excalidraw' ? 'untitled.excalidraw'
-                      : creating.type === 'md' ? 'untitled.md'
-                        : 'untitled.txt'
-                }
-                onSubmit={handleCreateSubmit}
-                onCancel={() => setCreating(null)}
-              />
-            </div>
+            <CreateInputRow
+              type={creating.type}
+              paddingLeft={12}
+              onSubmit={handleCreateSubmit}
+              onCancel={handleCreateCancel}
+            />
           )}
           {showChangedOnly && gitDecorations.size === 0 && (
             <div className="file-tree-empty">
@@ -3076,6 +3184,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
               gitDecorations={gitDecorations}
               showHiddenFiles={showHiddenFiles}
               changedPathsFilter={changedPathsFilter}
+              creating={creating}
+              onCreateSubmit={handleCreateSubmit}
+              onCreateCancel={handleCreateCancel}
             />
           ))}
         </div>
