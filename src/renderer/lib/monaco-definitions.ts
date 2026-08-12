@@ -122,6 +122,152 @@ FAMILIES.javascript = FAMILIES.typescript;
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// ── Document symbols (⌘⇧O "Go to Symbol") ───────────────────────────
+// Line-scan patterns per language: each regex has exactly ONE capture
+// group — the symbol name. Registered as a DocumentSymbolProvider, which
+// lights up Monaco's built-in quick-outline picker.
+type SymbolDef = { re: RegExp; kind: monaco.languages.SymbolKind };
+const K = () => monaco.languages.SymbolKind;
+
+// Names that look like definitions to the `name(args) {` heuristics but
+// are control flow / calls.
+const METHOD_BLACKLIST = new Set([
+  'if', 'for', 'while', 'switch', 'catch', 'return', 'else', 'do', 'try',
+  'new', 'typeof', 'await', 'function', 'sizeof', 'foreach', 'lock', 'using',
+]);
+
+function symbolDefs(): Record<string, SymbolDef[]> {
+  const k = K();
+  const tsjs: SymbolDef[] = [
+    { re: /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/, kind: k.Function },
+    { re: /^\s*(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)/, kind: k.Class },
+    { re: /^\s*(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)/, kind: k.Interface },
+    { re: /^\s*(?:export\s+)?(?:const\s+)?enum\s+([A-Za-z_$][\w$]*)/, kind: k.Enum },
+    { re: /^\s*(?:export\s+)?type\s+([A-Za-z_$][\w$]*)\s*[=<]/, kind: k.Struct },
+    { re: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/, kind: k.Variable },
+    { re: /^\s+(?:(?:public|private|protected|static|readonly|async|override)\s+)*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::[^{;]+)?\{\s*$/, kind: k.Method },
+  ];
+  const classyMethod: SymbolDef[] = [
+    { re: /^\s*(?:[\w.[\]<>,?\s]+\s+)?([A-Za-z_]\w*)\s*\([^)]*\)\s*\{\s*$/, kind: k.Method },
+  ];
+  return {
+    typescript: tsjs,
+    javascript: tsjs,
+    python: [
+      { re: /^\s*def\s+(\w+)/, kind: k.Function },
+      { re: /^\s*class\s+(\w+)/, kind: k.Class },
+    ],
+    go: [
+      { re: /^func\s+(?:\([^)]*\)\s*)?(\w+)/, kind: k.Function },
+      { re: /^type\s+(\w+)\s+struct\b/, kind: k.Struct },
+      { re: /^type\s+(\w+)\s+interface\b/, kind: k.Interface },
+      { re: /^type\s+(\w+)/, kind: k.Struct },
+    ],
+    rust: [
+      { re: /^\s*(?:pub(?:\([^)]*\))?\s+)?fn\s+(\w+)/, kind: k.Function },
+      { re: /^\s*(?:pub(?:\([^)]*\))?\s+)?struct\s+(\w+)/, kind: k.Struct },
+      { re: /^\s*(?:pub(?:\([^)]*\))?\s+)?enum\s+(\w+)/, kind: k.Enum },
+      { re: /^\s*(?:pub(?:\([^)]*\))?\s+)?trait\s+(\w+)/, kind: k.Interface },
+      { re: /^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)/, kind: k.Module },
+      { re: /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const|static)\s+(\w+)/, kind: k.Constant },
+    ],
+    c: [
+      { re: /^#define\s+(\w+)/, kind: k.Constant },
+      { re: /^\s*(?:typedef\s+)?(?:struct|enum|union)\s+(\w+)/, kind: k.Struct },
+      { re: /^[A-Za-z_][\w*\s]*[\s*]([A-Za-z_]\w*)\s*\([^;]*$/, kind: k.Function },
+    ],
+    cpp: [
+      { re: /^#define\s+(\w+)/, kind: k.Constant },
+      { re: /^\s*(?:template\s*<[^>]*>\s*)?(?:class|struct|enum|union)\s+(\w+)/, kind: k.Class },
+      { re: /^[A-Za-z_][\w:<>,*&\s]*[\s*&]([A-Za-z_]\w*)\s*\([^;]*$/, kind: k.Function },
+    ],
+    java: [
+      { re: /^\s*(?:(?:public|private|protected|static|final|abstract)\s+)*(?:class|interface|enum|record)\s+(\w+)/, kind: k.Class },
+      ...classyMethod,
+    ],
+    csharp: [
+      { re: /^\s*(?:(?:public|private|protected|internal|static|sealed|abstract|partial)\s+)*(?:class|interface|enum|struct|record)\s+(\w+)/, kind: k.Class },
+      ...classyMethod,
+    ],
+    php: [
+      { re: /^\s*(?:(?:public|private|protected|static|abstract|final)\s+)*function\s+(\w+)/, kind: k.Function },
+      { re: /^\s*(?:abstract\s+|final\s+)?(?:class|trait|interface)\s+(\w+)/, kind: k.Class },
+    ],
+    ruby: [
+      { re: /^\s*def\s+(?:self\.)?(\w+)/, kind: k.Method },
+      { re: /^\s*(?:class|module)\s+(\w+)/, kind: k.Class },
+    ],
+    swift: [
+      { re: /^\s*(?:(?:public|private|internal|open|static|final)\s+)*func\s+(\w+)/, kind: k.Function },
+      { re: /^\s*(?:(?:public|private|internal|open|final)\s+)*(?:class|struct|enum|protocol|extension)\s+(\w+)/, kind: k.Class },
+      { re: /^\s*typealias\s+(\w+)/, kind: k.Struct },
+    ],
+    shell: [
+      { re: /^\s*function\s+(\w+)/, kind: k.Function },
+      { re: /^\s*(\w+)\s*\(\)\s*\{/, kind: k.Function },
+    ],
+    powershell: [
+      { re: /^\s*function\s+(?:\w+:)?([\w-]+)/i, kind: k.Function },
+    ],
+    dart: [
+      { re: /^\s*(?:abstract\s+)?(?:class|enum|mixin)\s+(\w+)/, kind: k.Class },
+      { re: /^\s*typedef\s+(\w+)/, kind: k.Struct },
+      ...classyMethod,
+    ],
+    kotlin: [
+      { re: /^\s*(?:(?:public|private|internal|open|override|suspend)\s+)*fun\s+(?:<[^>]*>\s*)?(\w+)/, kind: k.Function },
+      { re: /^\s*(?:(?:public|private|internal|open|sealed|data|abstract)\s+)*(?:class|object|interface)\s+(\w+)/, kind: k.Class },
+    ],
+    lua: [
+      { re: /^\s*(?:local\s+)?function\s+(?:[\w.:]+[.:])?(\w+)/, kind: k.Function },
+    ],
+    sql: [
+      { re: /^\s*create\s+(?:or\s+replace\s+)?(?:function|procedure|view|table|trigger|index)\s+(?:if\s+not\s+exists\s+)?["'`[]?([\w.]+)/i, kind: k.Function },
+    ],
+  };
+}
+
+const SYMBOL_SCAN_MAX_LINES = 20000;
+
+function scanDocumentSymbols(model: monaco.editor.ITextModel, defs: SymbolDef[]): monaco.languages.DocumentSymbol[] {
+  const out: monaco.languages.DocumentSymbol[] = [];
+  const lineCount = Math.min(model.getLineCount(), SYMBOL_SCAN_MAX_LINES);
+  for (let ln = 1; ln <= lineCount; ln++) {
+    const text = model.getLineContent(ln);
+    if (!text || text.length > 500) continue;
+    for (const d of defs) {
+      const m = d.re.exec(text);
+      if (!m || !m[1]) continue;
+      const name = m[1];
+      if (d.kind === K().Method && METHOD_BLACKLIST.has(name)) continue;
+      const col = text.indexOf(name) + 1;
+      const range = new monaco.Range(ln, 1, ln, text.length + 1);
+      const selectionRange = new monaco.Range(ln, col, ln, col + name.length);
+      out.push({
+        name,
+        detail: '',
+        kind: d.kind,
+        tags: [],
+        range,
+        selectionRange,
+        children: [],
+      });
+      break; // one symbol per line is enough
+    }
+    if (out.length >= 5000) break;
+  }
+  return out;
+}
+
+/** rg pattern for the workspace symbol search (⌘P then '#name'):
+ * any definition-introducing keyword followed by an identifier that
+ * STARTS WITH the query. Cross-language by design — the picker shows
+ * the file, so ambiguity is cheap. */
+export function workspaceSymbolPattern(query: string): string {
+  const q = escapeRegex(query);
+  return `\\b(function|def|fn|func|class|struct|enum|interface|trait|type|module|impl|protocol|object|mixin|record|macro_rules!)\\s+(?:self\\.)?(${q}\\w*)`;
+}
+
 // Tiny result cache so cmd-hover (which probes the provider repeatedly
 // while the key is held) doesn't launch an rg run per mouse move.
 const cache = new Map<string, { ts: number; loc: monaco.languages.Location | null }>();
@@ -200,6 +346,40 @@ export function ensureDefinitionSupport(): void {
       },
     });
   }
+
+  // ⌘⇧O "Go to Symbol in file" — a DocumentSymbolProvider makes
+  // Monaco's built-in quick-outline picker work.
+  const SYMBOLS = symbolDefs();
+  for (const [languageId, defs] of Object.entries(SYMBOLS)) {
+    monaco.languages.registerDocumentSymbolProvider(languageId, {
+      provideDocumentSymbols(model) {
+        try {
+          return scanDocumentSymbols(model, defs);
+        } catch {
+          return [];
+        }
+      },
+    });
+  }
+
+  // ⇧F12 "Find All References" — rather than fight Monaco's peek widget
+  // (it needs loaded models for previews), route the symbol into Vyb's
+  // Search panel pre-filled as a whole-word query. App.tsx listens.
+  monaco.editor.addEditorAction({
+    id: 'vyb.findAllReferences',
+    label: 'Find All References',
+    keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.F12],
+    contextMenuGroupId: 'navigation',
+    contextMenuOrder: 1.6,
+    run(ed) {
+      const model = ed.getModel();
+      const pos = ed.getPosition();
+      if (!model || !pos) return;
+      const w = model.getWordAtPosition(pos);
+      if (!w) return;
+      window.dispatchEvent(new CustomEvent('vyb-find-references', { detail: { query: w.word } }));
+    },
+  });
 
   // Cross-file targets have no model in the standalone editor, so
   // Monaco delegates to this opener. Route to the host app, which opens

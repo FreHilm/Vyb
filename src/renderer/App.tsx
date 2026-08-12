@@ -508,7 +508,7 @@ export function App() {
   const [searchWidth, setSearchWidth] = useState(50);
   // Set by the Edit-menu items: tells the panel to focus (and whether to
   // expand the replace row). Nonce so repeat invocations re-trigger.
-  const [findPanelRequest, setFindPanelRequest] = useState<{ withReplace: boolean; nonce: number } | null>(null);
+  const [findPanelRequest, setFindPanelRequest] = useState<{ withReplace: boolean; nonce: number; query?: string; wholeWord?: boolean } | null>(null);
 
   // Build the view key for the currently-active profile + parallel selection.
   // Parent: just the profileId. Parallel: `${profileId}|${parallelId}`.
@@ -2145,6 +2145,20 @@ export function App() {
   toggleSplitRef.current = toggleSplit;
   useEffect(() => window.api.onMenuToggleSplit(() => toggleSplitRef.current()), []);
 
+  // ⇧F12 Find All References (editor action in lib/monaco-definitions.ts):
+  // open the Search panel pre-filled with the symbol as a whole-word query.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { query } = (e as CustomEvent<{ query?: string }>).detail || {};
+      if (!query) return;
+      setChangesVisible(false);
+      setFindInFilesVisible(true);
+      setFindPanelRequest({ withReplace: false, nonce: Date.now(), query, wholeWord: true });
+    };
+    window.addEventListener('vyb-find-references', handler);
+    return () => window.removeEventListener('vyb-find-references', handler);
+  }, []);
+
   // Cmd+click go-to-definition landed on a file that isn't open in the
   // editor: Monaco's editor opener (lib/monaco-definitions.ts) raises
   // this event, and we route it through the same open-tab-at-line flow
@@ -2886,7 +2900,7 @@ export function App() {
         <QuickOpenDialog
           workingDirectory={activeViewCwd}
           onClose={() => setQuickOpenVisible(false)}
-          onPick={(relativePath) => {
+          onPick={(relativePath, line) => {
             setQuickOpenVisible(false);
             // Make sure the Files tab is open + mounted before the
             // pendingFileOpen ref fires, otherwise the FileExplorer
@@ -2901,7 +2915,7 @@ export function App() {
             // Resolve against the view's cwd (worktree for a session) — the
             // picker listed files relative to that same directory.
             const absolute = `${activeViewCwd.replace(/\/+$/, '')}/${relativePath}`;
-            setPendingFileOpen({ path: absolute, nonce: Date.now() });
+            setPendingFileOpen({ path: absolute, nonce: Date.now(), line });
           }}
         />
       )}

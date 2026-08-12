@@ -7160,6 +7160,36 @@ select option {
   cursor: pointer;
 }
 .find-in-files-close:hover { color: var(--c-text); }
+/* Canned TODO/FIXME/HACK search — small pill next to the close button. */
+.find-in-files-todos {
+  margin-left: auto;
+  margin-right: 8px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--c-subtext0);
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.find-in-files-todos:hover { color: var(--c-text); border-color: var(--c-overlay0); }
+
+/* In-editor TODO/FIXME/HACK tag highlight (MonacoFileEditor decoration). */
+.vyb-todo-tag {
+  color: var(--c-yellow, #f9e2af);
+  font-weight: 700;
+}
+
+/* Quick-open '#symbol' rows: definition line + dimmed location. */
+.quick-open-symbol-text {
+  font-family: Menlo, Monaco, monospace;
+  font-size: 11px;
+}
+.quick-open-symbol-loc {
+  color: var(--c-overlay0);
+  font-size: 11px;
+}
 .find-in-files-form {
   display: flex;
   flex-direction: column;

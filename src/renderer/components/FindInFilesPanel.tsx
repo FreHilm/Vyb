@@ -32,7 +32,7 @@ export interface FindInFilesPanelProps {
   onClose: () => void;
   /** Set when the Edit menu opens the panel — focuses the query input
    * and, for "Replace in Files…", expands the replace row. */
-  openRequest?: { withReplace: boolean; nonce: number } | null;
+  openRequest?: { withReplace: boolean; nonce: number; query?: string; wholeWord?: boolean } | null;
   /** Absolute paths of files with unsaved editor changes — excluded
    * from replace and reported as skipped. */
   dirtyPaths: string[];
@@ -113,12 +113,28 @@ export function FindInFilesPanel({
   }, []);
 
   // Edit-menu open requests: focus the query, expand replace for ⌘⇧H.
+  // A request carrying a query (Find All References) pre-fills it as a
+  // plain whole-word search — the debounced search effect below runs it.
   useEffect(() => {
     if (!openRequest) return;
     if (openRequest.withReplace) setShowReplace(true);
+    if (openRequest.query !== undefined) {
+      setQuery(openRequest.query);
+      setWholeWord(openRequest.wholeWord === true);
+      setRegex(false);
+    }
     inputRef.current?.focus();
     inputRef.current?.select();
   }, [openRequest?.nonce, openRequest]);
+
+  // Canned hygiene search: every TODO / FIXME / HACK in the workspace.
+  const searchTodos = useCallback(() => {
+    setRegex(true);
+    setWholeWord(false);
+    setCaseSensitive(true);
+    setQuery('TODO|FIXME|HACK');
+    inputRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -288,6 +304,13 @@ export function FindInFilesPanel({
       <div className="git-changes-resize" onMouseDown={handleResizeStart} />
       <div className="find-in-files-header">
         <span className="find-in-files-title">Search</span>
+        <button
+          className="find-in-files-todos"
+          onClick={searchTodos}
+          title="List every TODO / FIXME / HACK in the workspace"
+        >
+          TODOs
+        </button>
         <button className="find-in-files-close" onClick={onClose} title="Close (Esc)">×</button>
       </div>
       <div className="find-in-files-form">

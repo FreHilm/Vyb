@@ -252,7 +252,31 @@ export const MonacoFileEditor = forwardRef<MonacoFileEditorHandle, Props>(functi
     };
     dom?.addEventListener('mousedown', onBlameClick, true);
 
+    // TODO/FIXME/HACK highlighting — a lightweight decorations pass over
+    // the buffer (capped), refreshed on edit with a debounce. Also puts
+    // a tick on the overview ruler so tags are findable at a glance.
+    const todoCollection = editor.createDecorationsCollection();
+    let todoTimer: ReturnType<typeof setTimeout> | null = null;
+    const refreshTodos = () => {
+      const found = model.findMatches('\\b(TODO|FIXME|HACK)\\b', false, true, true, null, false, 2000);
+      todoCollection.set(found.map((f) => ({
+        range: f.range,
+        options: {
+          inlineClassName: 'vyb-todo-tag',
+          overviewRuler: { color: 'rgba(249, 226, 175, 0.55)', position: monaco.editor.OverviewRulerLane.Right },
+        },
+      })));
+    };
+    refreshTodos();
+    const todoSub = model.onDidChangeContent(() => {
+      if (todoTimer) clearTimeout(todoTimer);
+      todoTimer = setTimeout(refreshTodos, 400);
+    });
+
     return () => {
+      todoSub.dispose();
+      if (todoTimer) clearTimeout(todoTimer);
+      todoCollection.clear();
       changeSub.dispose();
       cursorSub.dispose();
       conflictLens?.dispose();

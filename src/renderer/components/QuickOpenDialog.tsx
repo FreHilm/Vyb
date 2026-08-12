@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileIcon } from '../file-icons';
+import { workspaceSymbolPattern } from '../lib/monaco-definitions';
 
 // ── Quick-open file picker (T-043) ─────────────────────────────────
 //
@@ -16,10 +17,19 @@ import { FileIcon } from '../file-icons';
 
 export interface QuickOpenDialogProps {
   workingDirectory: string;
-  /** Called with the chosen relative path. Caller is responsible
-   * for resolving against workingDirectory and opening the file. */
-  onPick: (relativePath: string) => void;
+  /** Called with the chosen relative path (and, for symbol-mode picks,
+   * the 1-based line). Caller is responsible for resolving against
+   * workingDirectory and opening the file. */
+  onPick: (relativePath: string, line?: number) => void;
   onClose: () => void;
+}
+
+/** One row in '#symbol' mode — a definition found by ripgrep. */
+interface SymbolRow {
+  path: string;
+  line: number;
+  /** The matched source line, trimmed for display. */
+  text: string;
 }
 
 interface ScoredEntry {
@@ -85,6 +95,38 @@ export function QuickOpenDialog({ workingDirectory, onPick, onClose }: QuickOpen
     inputRef.current?.focus();
   }, []);
 
+  // '#name' → workspace symbol search (VS Code's ⌘T, reached via the
+  // same ⌘P box). ripgrep-backed with the shared definition-keyword
+  // pattern; results are definition lines across the whole workspace.
+  const symbolMode = query.startsWith('#');
+  const [symbolRows, setSymbolRows] = useState<SymbolRow[]>([]);
+  const [symbolSearching, setSymbolSearching] = useState(false);
+  const symbolReqRef = useRef(0);
+  useEffect(() => {
+    if (!symbolMode) { setSymbolRows([]); setSymbolSearching(false); return; }
+    const needle = query.slice(1).trim();
+    if (needle.length < 2) { setSymbolRows([]); setSymbolSearching(false); return; }
+    setSymbolSearching(true);
+    const id = ++symbolReqRef.current;
+    const t = setTimeout(() => {
+      window.api.searchInFiles(workingDirectory, workspaceSymbolPattern(needle), {
+        regex: true,
+        caseSensitive: false,
+      }).then((r) => {
+        if (id !== symbolReqRef.current) return;
+        setSymbolRows((r.matches ?? []).slice(0, 50).map((m) => ({
+          path: m.path,
+          line: m.lineNumber,
+          text: m.line.trim().slice(0, 120),
+        })));
+        setSymbolSearching(false);
+      }).catch(() => {
+        if (id === symbolReqRef.current) setSymbolSearching(false);
+      });
+    }, 200);
+    return () => clearTimeout(t);
+  }, [symbolMode, query, workingDirectory]);
+
   const matches = useMemo<ScoredEntry[]>(() => {
     if (!query.trim()) {
       // Empty query: show first ~50 files alphabetically (or by
@@ -100,10 +142,12 @@ export function QuickOpenDialog({ workingDirectory, onPick, onClose }: QuickOpen
     return result.slice(0, 50);
   }, [files, query]);
 
+  const activeCount = symbolMode ? symbolRows.length : matches.length;
+
   // Clamp selected index when results shrink.
   useEffect(() => {
-    if (selectedIdx >= matches.length) setSelectedIdx(Math.max(0, matches.length - 1));
-  }, [matches.length, selectedIdx]);
+    if (selectedIdx >= activeCount) setSelectedIdx(Math.max(0, activeCount - 1));
+  }, [activeCount, selectedIdx]);
 
   // Scroll selected row into view on arrow nav.
   useEffect(() => {
@@ -117,7 +161,7 @@ export function QuickOpenDialog({ workingDirectory, onPick, onClose }: QuickOpen
     if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedIdx((i) => Math.min(matches.length - 1, i + 1));
+      setSelectedIdx((i) => Math.min(activeCount - 1, i + 1));
       return;
     }
     if (e.key === 'ArrowUp') {
@@ -127,11 +171,16 @@ export function QuickOpenDialog({ workingDirectory, onPick, onClose }: QuickOpen
     }
     if (e.key === 'Enter') {
       e.preventDefault();
-      const chosen = matches[selectedIdx];
-      if (chosen) onPick(chosen.path);
+      if (symbolMode) {
+        const row = symbolRows[selectedIdx];
+        if (row) onPick(row.path, row.line);
+      } else {
+        const chosen = matches[selectedIdx];
+        if (chosen) onPick(chosen.path);
+      }
       return;
     }
-  }, [matches, selectedIdx, onPick, onClose]);
+  }, [matches, symbolMode, symbolRows, activeCount, selectedIdx, onPick, onClose]);
 
   const renderMatchedPath = (entry: ScoredEntry) => {
     if (entry.matches.length === 0) return entry.path;
@@ -162,29 +211,61 @@ export function QuickOpenDialog({ workingDirectory, onPick, onClose }: QuickOpen
           spellCheck={false}
         />
         <div className="quick-open-list" ref={listRef}>
-          {matches.length === 0 && (
-            <div className="quick-open-empty">
-              {files.length === 0 ? 'Scanning files…' : 'No matches.'}
-            </div>
+          {symbolMode ? (
+            <>
+              {symbolRows.length === 0 && (
+                <div className="quick-open-empty">
+                  {query.slice(1).trim().length < 2 ? 'Type a symbol name…'
+                    : symbolSearching ? 'Searching symbols…'
+                      : 'No symbols found.'}
+                </div>
+              )}
+              {symbolRows.map((row, idx) => {
+                const name = row.path.split('/').pop() || row.path;
+                return (
+                  <button
+                    key={`${row.path}:${row.line}:${idx}`}
+                    className={`quick-open-row${idx === selectedIdx ? ' is-active' : ''}`}
+                    onMouseEnter={() => setSelectedIdx(idx)}
+                    onClick={() => onPick(row.path, row.line)}
+                    title={`${row.path}:${row.line}`}
+                  >
+                    <FileIcon filename={name} isDirectory={false} />
+                    <span className="quick-open-path">
+                      <code className="quick-open-symbol-text">{row.text}</code>
+                      <span className="quick-open-symbol-loc"> — {row.path}:{row.line}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </>
+          ) : (
+            <>
+              {matches.length === 0 && (
+                <div className="quick-open-empty">
+                  {files.length === 0 ? 'Scanning files…' : 'No matches.'}
+                </div>
+              )}
+              {matches.map((entry, idx) => {
+                const name = entry.path.split('/').pop() || entry.path;
+                return (
+                  <button
+                    key={entry.path}
+                    className={`quick-open-row${idx === selectedIdx ? ' is-active' : ''}`}
+                    onMouseEnter={() => setSelectedIdx(idx)}
+                    onClick={() => onPick(entry.path)}
+                    title={entry.path}
+                  >
+                    <FileIcon filename={name} isDirectory={false} />
+                    <span className="quick-open-path">{renderMatchedPath(entry)}</span>
+                  </button>
+                );
+              })}
+            </>
           )}
-          {matches.map((entry, idx) => {
-            const name = entry.path.split('/').pop() || entry.path;
-            return (
-              <button
-                key={entry.path}
-                className={`quick-open-row${idx === selectedIdx ? ' is-active' : ''}`}
-                onMouseEnter={() => setSelectedIdx(idx)}
-                onClick={() => onPick(entry.path)}
-                title={entry.path}
-              >
-                <FileIcon filename={name} isDirectory={false} />
-                <span className="quick-open-path">{renderMatchedPath(entry)}</span>
-              </button>
-            );
-          })}
         </div>
         <div className="quick-open-footer">
-          <span>↑↓ navigate · ↵ open · esc cancel</span>
+          <span>↑↓ navigate · ↵ open · # symbols · esc cancel</span>
         </div>
       </div>
     </div>
