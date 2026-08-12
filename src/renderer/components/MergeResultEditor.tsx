@@ -125,6 +125,10 @@ export const MergeResultEditor = forwardRef<MergeResultEditorHandle, Props>(func
       scrollBeyondLastLine: false,
       smoothScrolling: true,
       renderWhitespace: 'selection',
+      // Hygiene defaults — match MonacoFileEditor.
+      bracketPairColorization: { enabled: true },
+      guides: { indentation: true },
+      wordBasedSuggestions: 'currentDocument',
     });
     editorRef.current = editor;
     decoRef.current = editor.createDecorationsCollection();

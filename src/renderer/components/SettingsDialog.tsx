@@ -219,6 +219,8 @@ export function SettingsDialog({
   const [defaultSplitView, setDefaultSplitView] = useState(settings.defaultSplitView === true);
   const [showAuthorAvatars, setShowAuthorAvatars] = useState(settings.showAuthorAvatars !== false);
   const [formatOnSave, setFormatOnSave] = useState(settings.formatOnSave === true);
+  const [trimWhitespaceOnSave, setTrimWhitespaceOnSave] = useState(settings.trimWhitespaceOnSave === true);
+  const [finalNewlineOnSave, setFinalNewlineOnSave] = useState(settings.finalNewlineOnSave === true);
   const [editorStickyScroll, setEditorStickyScroll] = useState(settings.editorStickyScroll !== false);
   const [editorEngine, setEditorEngine] = useState<'codemirror' | 'monaco'>(settings.editorEngine ?? 'monaco');
   const [diffContextLines, setDiffContextLines] = useState(settings.diffContextLines ?? 6);
@@ -335,6 +337,8 @@ export function SettingsDialog({
       defaultSplitView,
       showAuthorAvatars,
       formatOnSave,
+      trimWhitespaceOnSave,
+      finalNewlineOnSave,
       editorStickyScroll,
       editorEngine,
       diffContextLines: Math.max(0, Math.min(99, Math.round(diffContextLines || 6))),
@@ -507,6 +511,37 @@ export function SettingsDialog({
               <span className="field-hint">
                 Runs Prettier on every Cmd+S save. Picks up the repo's
                 local Prettier config when one exists.
+              </span>
+
+              <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                <span className="field-label">Trim trailing whitespace on save</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={trimWhitespaceOnSave}
+                    onChange={(e) => setTrimWhitespaceOnSave(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+              <span className="field-hint">
+                Strips spaces and tabs from line ends when saving.
+              </span>
+
+              <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                <span className="field-label">Final newline on save</span>
+                <label className="integration-toggle">
+                  <input
+                    type="checkbox"
+                    checked={finalNewlineOnSave}
+                    onChange={(e) => setFinalNewlineOnSave(e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </label>
+              <span className="field-hint">
+                Ensures saved files end with a newline (matches the file&apos;s
+                CRLF/LF style).
               </span>
 
               <label className="field field-row-toggle" style={{ marginTop: 12 }}>

@@ -59,6 +59,10 @@ interface FileExplorerProps {
    * Format Document action (toolbar / Shift+Alt+F) always works
    * regardless of this flag. */
   formatOnSave?: boolean;
+  /** Strip trailing spaces/tabs from every line on save. */
+  trimWhitespaceOnSave?: boolean;
+  /** Ensure saved files end with a newline (matches CRLF/LF style). */
+  finalNewlineOnSave?: boolean;
   /** T-046: include the sticky-scroll plugin in the editor. */
   stickyScroll?: boolean;
   /** Show dotfiles in the file tree. Filter happens renderer-side
@@ -733,6 +737,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   pendingOpenPath,
   onPendingOpenHandled,
   formatOnSave = false,
+  trimWhitespaceOnSave = false,
+  finalNewlineOnSave = false,
   stickyScroll: stickyScrollEnabled = true,
   showHiddenFiles = true,
   showChangedOnly: showChangedOnlyProp,
@@ -1417,6 +1423,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   // reads the latest value without rebinding when the setting changes.
   const formatOnSaveRef = useRef(formatOnSave);
   formatOnSaveRef.current = formatOnSave;
+  const trimOnSaveRef = useRef(trimWhitespaceOnSave);
+  trimOnSaveRef.current = trimWhitespaceOnSave;
+  const finalNewlineOnSaveRef = useRef(finalNewlineOnSave);
+  finalNewlineOnSaveRef.current = finalNewlineOnSave;
   // T-046: sticky-scroll toggle. Read by mountEditor at editor
   // construction time — toggling the setting takes effect on the
   // next tab open / remount, not the live editor.
@@ -1498,6 +1508,31 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       content = viewRef.current.state.doc.toString();
     }
     if (content === null) return;
+
+    // Whitespace hygiene (opt-in, Settings → Functions). Skipped for
+    // Excalidraw scenes — those are serialized JSON documents that
+    // should round-trip byte-identically.
+    if (!isExcalidrawFile(fileName(path))) {
+      let next = content;
+      if (trimOnSaveRef.current) {
+        next = next.replace(/[ \t]+(\r?\n)/g, '$1').replace(/[ \t]+$/, '');
+      }
+      if (finalNewlineOnSaveRef.current && next.length > 0 && !next.endsWith('\n')) {
+        next += next.includes('\r\n') ? '\r\n' : '\n';
+      }
+      if (next !== content) {
+        content = next;
+        // Reflect the transformed text in the visible buffer so editor
+        // and disk stay identical (cursor/scroll preserved; the reload
+        // re-baselines so the tab doesn't flag dirty). The diff editor
+        // self-syncs via its live-follow of docCache below.
+        monacoRef.current?.applyExternalReload(content);
+        if (viewRef.current) {
+          const view = viewRef.current;
+          view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: content } });
+        }
+      }
+    }
     setSaving(true);
     try {
       await window.api.saveFile(path, content);

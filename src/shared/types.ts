@@ -167,6 +167,12 @@ export interface AppSettings {
    * stays a pure flush-to-disk for users who don't want their
    * formatting touched. */
   formatOnSave: boolean;
+  /** Strip trailing spaces/tabs from every line on save. Default off
+   * (same rationale as formatOnSave). */
+  trimWhitespaceOnSave: boolean;
+  /** Ensure the file ends with a newline on save (matches the file's
+   * own CRLF/LF style). Default off. */
+  finalNewlineOnSave: boolean;
   /** T-046: render sticky scope headers inside the editor viewport.
    * (The breadcrumbs row that originally lived alongside this was
    * removed — the file tab already shows the filename and the
@@ -348,6 +354,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   diffViewMode: 'unified',
   showAuthorAvatars: true,
   formatOnSave: false,
+  trimWhitespaceOnSave: false,
+  finalNewlineOnSave: false,
   editorStickyScroll: true,
   showHiddenFiles: true,
   // Matches VS Code's default editor font size on macOS.

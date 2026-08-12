@@ -108,6 +108,10 @@ export function MonacoDiffEditor({
         minimumLineCount: contextLines,
         revealLineCount: 20,
       },
+      // Hygiene defaults — match MonacoFileEditor (the modified side is
+      // an ordinary editable buffer).
+      bracketPairColorization: { enabled: true },
+      guides: { indentation: true },
     });
     diff.setModel({ original: originalModel, modified: modifiedModel });
     diffRef.current = diff;
@@ -119,6 +123,9 @@ export function MonacoDiffEditor({
 
     // Cmd/Ctrl+S on the editable (modified) side → save.
     const modEditor = diff.getModifiedEditor();
+    // wordBasedSuggestions isn't a diff-editor construction option —
+    // apply it to the editable side directly.
+    modEditor.updateOptions({ wordBasedSuggestions: 'currentDocument' });
     modEditor.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
       () => onSaveRef.current(),

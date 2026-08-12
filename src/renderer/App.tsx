@@ -2617,6 +2617,8 @@ export function App() {
                   pendingOpenPath={visible ? pendingFileOpen : null}
                   onPendingOpenHandled={() => setPendingFileOpen(null)}
                   formatOnSave={settings.formatOnSave === true}
+                  trimWhitespaceOnSave={settings.trimWhitespaceOnSave === true}
+                  finalNewlineOnSave={settings.finalNewlineOnSave === true}
                   stickyScroll={settings.editorStickyScroll !== false}
                   showHiddenFiles={settings.showHiddenFiles !== false}
                   editorEngine={settings.editorEngine ?? 'monaco'}

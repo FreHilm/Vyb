@@ -176,6 +176,11 @@ export const MonacoFileEditor = forwardRef<MonacoFileEditorHandle, Props>(functi
       scrollBeyondLastLine: false,
       smoothScrolling: true,
       renderWhitespace: 'selection',
+      // Hygiene defaults (VS Code parity): rainbow brackets, indent
+      // guides, and buffer-word completions (no language service needed).
+      bracketPairColorization: { enabled: true },
+      guides: { indentation: true },
+      wordBasedSuggestions: 'currentDocument',
     });
     editorRef.current = editor;
 
