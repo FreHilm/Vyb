@@ -457,6 +457,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke(IPC_CHANNELS.FILE_COPY, srcPath, destPath),
   createDir: (dirPath: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_CREATE_DIR, dirPath),
+  moveDirContents: (srcDir: string, destDir: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_MOVE_DIR_CONTENTS, srcDir, destDir),
   createFile: (filePath: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_CREATE, filePath),
   saveFileAs: (content: string, defaultPath: string): Promise<string | null> =>

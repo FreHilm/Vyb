@@ -21,6 +21,11 @@ export interface Profile {
    * `status: done`), automatically commit, push the branch, and open a PR
    * via `gh`. Per-profile so different repos can use different policies. */
   parallelAgentAutoPush?: boolean;
+  /** Git repository to clone STRAIGHT INTO the working directory (no
+   * subfolder) the first time this profile's terminal starts. Skipped
+   * whenever the directory already contains a .git — an existing repo
+   * is never touched. Clone output streams into the agent terminal. */
+  gitRepoUrl?: string;
   /** Workspace this profile belongs to. Required after first launch — a
    * migration on load assigns any profile missing this field to the
    * Default workspace. Optional in the type only so the migration step
@@ -614,6 +619,7 @@ export const IPC_CHANNELS = {
   FILE_RENAME: 'file:rename',
   FILE_COPY: 'file:copy',
   FILE_CREATE_DIR: 'file:createDir',
+  FILE_MOVE_DIR_CONTENTS: 'file:moveDirContents',
   FILE_CREATE: 'file:create',
   FILE_SAVE_AS: 'file:saveAs',
   FILE_RESOLVE_PATH: 'file:resolvePath',

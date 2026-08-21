@@ -194,6 +194,53 @@ async function runGitAsync(
   }
 }
 
+// Clone a profile's bound repo URL into its working directory — called
+// by TERMINAL_CREATE before the agent PTY spawns. Directly into the
+// directory (git clone <url> .), never a subfolder. Hard safety: if the
+// directory already holds a .git, do nothing at all. Output streams to
+// the profile's terminal over TERMINAL_DATA (the xterm is mounted before
+// the renderer requests PTY creation, so it renders live; the flow-ack
+// handler ignores unknown/early acks). GIT_TERMINAL_PROMPT=0 makes a
+// private repo without credentials fail fast instead of hanging on an
+// invisible prompt.
+async function cloneRepoIfNeeded(profileId: string, url: string, cwd: string): Promise<void> {
+  const encoder = new TextEncoder();
+  const termWrite = (text: string) =>
+    safeSend(IPC_CHANNELS.TERMINAL_DATA, { profileId, data: encoder.encode(text) });
+  try {
+    // A profile fresh from the editor may still carry a literal `~`
+    // (the loader expands it on the next launch; PtyManager expands at
+    // spawn) — expand here too so the clone lands in the right place.
+    cwd = cwd.replace(/^~(?=$|[\\/])/, os.homedir());
+    if (fs.existsSync(path.join(cwd, '.git'))) return; // existing repo — never touch
+    fs.mkdirSync(cwd, { recursive: true });
+    termWrite(`\x1b[2mCloning ${url}\r\n  into ${cwd} …\x1b[0m\r\n\r\n`);
+    await new Promise<void>((resolve) => {
+      const child = spawn('git', ['clone', '--progress', url, '.'], {
+        cwd,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      });
+      // git writes progress to stderr with \r-updates; normalize bare \n
+      // for the terminal without doubling existing \r\n.
+      const pipe = (buf: Buffer) => termWrite(buf.toString('utf-8').replace(/\r?\n/g, '\r\n'));
+      child.stdout?.on('data', pipe);
+      child.stderr?.on('data', pipe);
+      child.on('error', (err) => {
+        termWrite(`\r\n\x1b[31mgit clone failed: ${err.message}\x1b[0m\r\n\r\n`);
+        resolve();
+      });
+      child.on('close', (code) => {
+        termWrite(code === 0
+          ? '\r\n\x1b[32mClone complete — starting agent.\x1b[0m\r\n\r\n'
+          : `\r\n\x1b[31mgit clone exited with code ${code}.\x1b[0m\r\n\x1b[2mFix the URL or access (private repos need credentials git can reach non-interactively), then reload the profile to retry.\x1b[0m\r\n\r\n`);
+        resolve();
+      });
+    });
+  } catch (err) {
+    termWrite(`\r\n\x1b[31mClone setup failed: ${err instanceof Error ? err.message : String(err)}\x1b[0m\r\n\r\n`);
+  }
+}
+
 const GIT_STATUS_TTL_MS = 800;
 const gitStatusCache = new Map<string, { result: GitStatus; ts: number }>();
 const gitStatusInFlight = new Map<string, Promise<GitStatus>>();
@@ -536,7 +583,16 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
   ipcMain.handle(
     IPC_CHANNELS.TERMINAL_CREATE,
-    (_, profileId: string, profile: Profile, cols?: number, rows?: number, overrideArgs?: string[]) => {
+    async (_, profileId: string, profile: Profile, cols?: number, rows?: number, overrideArgs?: string[]) => {
+      // Profile bound to a git repo URL: clone it straight into the
+      // working directory (no subfolder) before the agent starts, with
+      // git's progress streamed into the agent terminal. Never touches a
+      // directory that already contains a .git. Runs BEFORE the args
+      // guard below so resume-flag decisions see the post-clone state.
+      if (profile.gitRepoUrl?.trim()) {
+        await cloneRepoIfNeeded(profileId, profile.gitRepoUrl.trim(), profile.workingDirectory);
+      }
+
       // Resolve agent config from settings
       const settings = loadSettings();
       const agents = settings.agents || DEFAULT_AGENTS;
@@ -4268,6 +4324,47 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       return false;
     }
   });
+
+  // Move EVERYTHING inside srcDir (dotfiles included — readdir lists them)
+  // into destDir. Used by "Convert temp profile to project". All-or-nothing
+  // on name collisions: pre-checked so a partial merge can't happen.
+  // rename() first (instant, same volume); falls back to copy+delete when
+  // the temp dir lives on another device (EXDEV — e.g. Windows temp drive).
+  ipcMain.handle(
+    IPC_CHANNELS.FILE_MOVE_DIR_CONTENTS,
+    (_, srcDir: string, destDir: string): { ok: boolean; error?: string } => {
+      try {
+        const src = path.resolve(srcDir);
+        const dest = path.resolve(destDir);
+        if (!fs.existsSync(src) || !fs.statSync(src).isDirectory()) {
+          return { ok: false, error: 'Source folder no longer exists.' };
+        }
+        if (dest === src || dest.startsWith(src + path.sep)) {
+          return { ok: false, error: 'Destination cannot be inside the folder being moved.' };
+        }
+        fs.mkdirSync(dest, { recursive: true });
+        const entries = fs.readdirSync(src);
+        for (const name of entries) {
+          if (fs.existsSync(path.join(dest, name))) {
+            return { ok: false, error: `"${name}" already exists in the destination — nothing was moved.` };
+          }
+        }
+        for (const name of entries) {
+          const from = path.join(src, name);
+          const to = path.join(dest, name);
+          try {
+            fs.renameSync(from, to);
+          } catch {
+            fs.cpSync(from, to, { recursive: true });
+            fs.rmSync(from, { recursive: true, force: true });
+          }
+        }
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : 'Move failed.' };
+      }
+    },
+  );
 
   ipcMain.handle(IPC_CHANNELS.FILE_SAVE_AS, async (_, content: string, defaultPath: string): Promise<string | null> => {
     const result = await dialog.showSaveDialog(mainWindow, {

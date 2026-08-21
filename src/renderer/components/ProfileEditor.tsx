@@ -77,6 +77,7 @@ export function ProfileEditor({
   // 'hermes-telegram' switches the form to remote-agent mode).
   const [botUsername, setBotUsername] = useState('');
   const [botToken, setBotToken] = useState('');
+  const [gitRepoUrl, setGitRepoUrl] = useState('');
   const [parallelAgentEnabled, setParallelAgentEnabled] = useState(false);
   const [parallelAgentAutoPush, setParallelAgentAutoPush] = useState(false);
   const [genError, setGenError] = useState('');
@@ -105,6 +106,7 @@ export function ProfileEditor({
     parallelAgentAutoPush: profile?.parallelAgentAutoPush === true,
     botUsername: profile?.remoteAgent?.botUsername ?? '',
     botToken: profile?.remoteAgent?.botToken ?? '',
+    gitRepoUrl: profile?.gitRepoUrl ?? '',
   });
   // Whether the user has saved this session — `handleSave` flips this to
   // true so the "are you sure?" prompt skips after a normal save+close.
@@ -130,6 +132,7 @@ export function ProfileEditor({
       setAgentId(resolvedAgentId);
       setBotUsername(profile.remoteAgent?.botUsername ?? '');
       setBotToken(profile.remoteAgent?.botToken ?? '');
+      setGitRepoUrl(profile.gitRepoUrl ?? '');
       initialSnapshotRef.current = {
         name: profile.name,
         icon: profile.icon,
@@ -139,6 +142,7 @@ export function ProfileEditor({
         parallelAgentAutoPush: profile.parallelAgentAutoPush === true,
         botUsername: profile.remoteAgent?.botUsername ?? '',
         botToken: profile.remoteAgent?.botToken ?? '',
+        gitRepoUrl: profile.gitRepoUrl ?? '',
       };
     }
   }, [profile, agents]);
@@ -237,6 +241,7 @@ export function ProfileEditor({
           agentId,
           parallelAgentEnabled,
           parallelAgentAutoPush,
+          gitRepoUrl: gitRepoUrl.trim() || undefined,
           // Store resolved command/args for backwards compat with older versions
           command: agent?.command || 'claude',
           args: agent?.args || [],
@@ -257,6 +262,7 @@ export function ProfileEditor({
     || agentId !== initialSnapshotRef.current.agentId
     || botUsername !== initialSnapshotRef.current.botUsername
     || botToken !== initialSnapshotRef.current.botToken
+    || gitRepoUrl !== initialSnapshotRef.current.gitRepoUrl
     || parallelAgentEnabled !== initialSnapshotRef.current.parallelAgentEnabled
     || parallelAgentAutoPush !== initialSnapshotRef.current.parallelAgentAutoPush
     || (pendingProfileId !== null && pendingProfileId !== profile?.id)
@@ -334,6 +340,29 @@ export function ProfileEditor({
               </button>
             </div>
           </label>
+
+          {!isRemoteHermes && (
+            <label className="field">
+              <span className="field-label">Git repository (optional)</span>
+              <input
+                type="text"
+                value={gitRepoUrl}
+                onChange={(e) => setGitRepoUrl(e.target.value)}
+                onBlur={() => {
+                  // Suggest a profile name from the repo when none is set.
+                  if (name.trim() || !gitRepoUrl.trim()) return;
+                  const base = gitRepoUrl.trim().replace(/\/+$/, '').replace(/\.git$/, '').split(/[/:]/).pop();
+                  if (base) setName(base);
+                }}
+                placeholder="https://github.com/user/repo.git"
+              />
+              <span className="field-hint">
+                Cloned straight into the working directory (no subfolder) the
+                first time the agent starts. Skipped if the folder already
+                contains a git repo — an existing checkout is never touched.
+              </span>
+            </label>
+          )}
 
           <div className="field">
             <span className="field-label">Agent</span>

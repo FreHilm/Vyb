@@ -242,6 +242,7 @@ declare global {
       renameFile: (oldPath: string, newPath: string) => Promise<boolean>;
       copyFile: (srcPath: string, destPath: string) => Promise<boolean>;
       createDir: (dirPath: string) => Promise<boolean>;
+      moveDirContents: (srcDir: string, destDir: string) => Promise<{ ok: boolean; error?: string }>;
       createFile: (filePath: string) => Promise<boolean>;
       saveFileAs: (content: string, defaultPath: string) => Promise<string | null>;
       resolveFilePath: (workingDir: string, token: string) => Promise<string | null>;
@@ -426,11 +427,21 @@ export function App() {
     [],
   );
 
+  // Scratchpad profiles created via the "Temp" button — their working
+  // directory is an os.tmpdir() folder named by mkdtemp('vyb-agent-').
+  const isTempProfile = useCallback(
+    (p: Profile) => /[\\/]vyb-agent-[^\\/]*[\\/]?$/.test(p.workingDirectory),
+    [],
+  );
+
   const openSessionMenu = useCallback((e: React.MouseEvent, profile: Profile) => {
     e.preventDefault(); // suppress the native menu on any profile right-click
-    if (!isBuiltinAgentProfile(profile)) return; // sessions are built-in-only
+    // Sessions are built-in-agent-only; temp profiles additionally get
+    // "Convert to project". Nothing to show otherwise.
+    if (!isBuiltinAgentProfile(profile) && !isTempProfile(profile)) return;
     setSessionMenu({ profile, x: e.clientX, y: e.clientY });
-  }, [isBuiltinAgentProfile]);
+  }, [isBuiltinAgentProfile, isTempProfile]);
+
 
   // Launch a session for `profile`: in the profile's own terminal when the
   // agent isn't running yet, otherwise in a fresh git worktree.
@@ -1746,6 +1757,32 @@ export function App() {
     setTimeout(() => {
       setInitialized((prev) => new Set(prev).add(profileId));
     }, 100);
+  }, [handleStopProfile]);
+
+  // Convert a temp scratchpad profile into a real project: move EVERYTHING
+  // in the temp dir (dotfiles included) into a user-picked folder, point
+  // the profile there, and restart its agent in the new location.
+  const convertTempProfile = useCallback(async (profile: Profile) => {
+    const dest = await window.api.selectDirectory();
+    if (!dest) return;
+    // Stop the agent first — its cwd is about to be emptied, and the
+    // restart below must spawn in the new directory.
+    await handleStopProfile(profile.id);
+    const res = await window.api.moveDirContents(profile.workingDirectory, dest);
+    if (!res.ok) {
+      toastError(`Convert failed: ${res.error ?? 'could not move files'}`);
+      // Contents are untouched (all-or-nothing) — restart in place.
+      stoppedRef.current.delete(profile.id);
+      setTimeout(() => setInitialized((prev) => new Set(prev).add(profile.id)), 100);
+      return;
+    }
+    const updated = profilesRef.current.map((p) =>
+      p.id === profile.id ? { ...p, workingDirectory: dest } : p);
+    await window.api.saveProfiles(updated);
+    setProfiles(updated);
+    // Restart the agent in the new project directory.
+    stoppedRef.current.delete(profile.id);
+    setTimeout(() => setInitialized((prev) => new Set(prev).add(profile.id)), 100);
   }, [handleStopProfile]);
 
   const handleDeleteProfile = async (profileId: string) => {
@@ -3081,18 +3118,34 @@ export function App() {
             className="file-context-menu"
             style={{ position: 'fixed', left: sessionMenu.x, top: sessionMenu.y, zIndex: 1000 }}
           >
-            <button
-              className="file-ctx-item"
-              onClick={() => { const p = sessionMenu.profile; setSessionMenu(null); setSessionPickerProfile(p); }}
-            >
-              Start from session…
-            </button>
-            <button
-              className="file-ctx-item"
-              onClick={() => { const p = sessionMenu.profile; setSessionMenu(null); startAgentSession(p, null, 'New session'); }}
-            >
-              New session
-            </button>
+            {isBuiltinAgentProfile(sessionMenu.profile) && (
+              <>
+                <button
+                  className="file-ctx-item"
+                  onClick={() => { const p = sessionMenu.profile; setSessionMenu(null); setSessionPickerProfile(p); }}
+                >
+                  Start from session…
+                </button>
+                <button
+                  className="file-ctx-item"
+                  onClick={() => { const p = sessionMenu.profile; setSessionMenu(null); startAgentSession(p, null, 'New session'); }}
+                >
+                  New session
+                </button>
+              </>
+            )}
+            {isTempProfile(sessionMenu.profile) && (
+              <>
+                {isBuiltinAgentProfile(sessionMenu.profile) && <div className="file-ctx-divider" />}
+                <button
+                  className="file-ctx-item"
+                  title="Move everything in the temp folder (hidden files included) into a folder you pick, then point this profile there"
+                  onClick={() => { const p = sessionMenu.profile; setSessionMenu(null); convertTempProfile(p); }}
+                >
+                  Convert to project…
+                </button>
+              </>
+            )}
           </div>
         </>
       )}
