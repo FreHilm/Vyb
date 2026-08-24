@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 /** Electron's <webview> tag doesn't have React types; we just declare the
  * subset we touch so TS stops complaining. */
@@ -30,8 +30,8 @@ interface Props {
    * terminal. The `nonce` differentiates duplicate URLs so re-clicking
    * the same link still navigates. Ignored when null. */
   pendingNavigate?: { url: string; nonce: number } | null;
-  /** Fired when the webview commits to a new URL (page navigated). The
-   * parent persists this so the same URL is restored next launch. */
+  /** Fired when the ACTIVE tab commits to a new URL. The parent persists
+   * this so the same URL is restored next launch. */
   onUrlChange?: (key: string, url: string) => void;
 }
 
@@ -40,7 +40,9 @@ const DEFAULT_URL = 'https://duckduckgo.com/';
 /** Build the webview's `persist:` partition name from the instanceKey.
  * Each unique partition gets its own on-disk session under
  * userData/Partitions/, so cookies / localStorage / login state are
- * preserved between app restarts and isolated per profile/parallel. */
+ * preserved between app restarts and isolated per profile/parallel.
+ * All TABS of one instance share the partition — like browser tabs
+ * sharing one session. */
 function webPartition(instanceKey: string): string {
   // Sanitise `|` (used in viewKey for parallel agents) and any other
   // path-unfriendly characters. Electron treats the string after `persist:`
@@ -61,135 +63,240 @@ function normalizeUrl(input: string): string {
   return `https://duckduckgo.com/?q=${encodeURIComponent(trimmed)}`;
 }
 
+function hostLabel(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+}
+
+/** One browser tab. The <webview> element itself is kept alive (hidden
+ * via display:none when inactive) so each tab's page state and history
+ * survive switching — `initialSrc` is set once at creation and never
+ * re-rendered; all later navigation is imperative via the element. */
+interface WebTab {
+  id: number;
+  initialSrc: string;
+  committedUrl: string;
+  title: string;
+  canBack: boolean;
+  canForward: boolean;
+  loading: boolean;
+  devtoolsOpen: boolean;
+}
+
+function makeTab(id: number, url: string): WebTab {
+  return {
+    id,
+    initialSrc: url,
+    committedUrl: url,
+    title: '',
+    canBack: false,
+    canForward: false,
+    loading: false,
+    devtoolsOpen: false,
+  };
+}
+
 export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, onUrlChange }: Props) {
   const startUrl = initialUrl && initialUrl.length > 0 ? initialUrl : DEFAULT_URL;
   // If a navigation is already queued when we first mount — the common case
   // where clicking a link BOTH opens the Web tab and requests the URL — load
-  // that target directly as the initial src. Initialising to `startUrl` and
-  // then swapping `src` a beat later (in the pendingNavigate effect) is
-  // unreliable: on a brand-new webview the guest page hasn't attached yet, so
-  // the early src change is dropped and the page stays stuck on startUrl.
+  // that target directly as the first tab's src. Initialising to `startUrl`
+  // and swapping src a beat later is unreliable: on a brand-new webview the
+  // guest page hasn't attached yet, so the early src change is dropped.
   const mountUrl = pendingNavigate ? normalizeUrl(pendingNavigate.url) : startUrl;
+
+  const nextTabIdRef = useRef(2);
+  const [tabs, setTabs] = useState<WebTab[]>([makeTab(1, mountUrl)]);
+  const [activeId, setActiveId] = useState(1);
   const [address, setAddress] = useState(mountUrl);
-  const [committedUrl, setCommittedUrl] = useState(mountUrl);
-  const [canBack, setCanBack] = useState(false);
-  const [canForward, setCanForward] = useState(false);
-  const [devtoolsOpen, setDevtoolsOpen] = useState(false);
-  const [navLoading, setNavLoading] = useState(false);
-  const webviewRef = useRef<WebviewLike | null>(null);
-  // Cached main-webview webContentsId. Captured after dom-ready so we
-  // can register the context-menu listener and route inbound inspect
-  // requests to the correct WebViewer instance.
-  const mainContentsIdRef = useRef<number | null>(null);
 
-  // Bubble URL changes up so App.tsx can persist them to settings.webUrls
-  // (and from there to disk on the next debounce). We skip the very first
-  // value if it matches the initial URL — no point writing back the same
-  // value we just read.
+  const webviewRefs = useRef(new Map<number, WebviewLike>());
+  const wiredRef = useRef(new Set<number>());
+  /** tabId → webContentsId (valid after that tab's dom-ready). */
+  const contentsIdsRef = useRef(new Map<number, number>());
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
+  const addressInputRef = useRef<HTMLInputElement>(null);
+
+  const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0];
+  const activeWebview = () => webviewRefs.current.get(activeIdRef.current) ?? null;
+
+  const updateTab = useCallback((tabId: number, patch: Partial<WebTab>) => {
+    setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, ...patch } : t)));
+  }, []);
+
+  const openTab = useCallback((url: string, activate = true) => {
+    const id = nextTabIdRef.current++;
+    setTabs((prev) => [...prev, makeTab(id, normalizeUrl(url))]);
+    if (activate) {
+      setActiveId(id);
+      setAddress(normalizeUrl(url));
+    }
+    return id;
+  }, []);
+
+  const closeTab = useCallback((tabId: number) => {
+    const contentsId = contentsIdsRef.current.get(tabId);
+    const tab = tabs.find((t) => t.id === tabId);
+    if (tab?.devtoolsOpen && contentsId != null) {
+      window.api.closeWebviewDevTools(contentsId).catch((): void => undefined);
+    }
+    contentsIdsRef.current.delete(tabId);
+    webviewRefs.current.delete(tabId);
+    wiredRef.current.delete(tabId);
+    setTabs((prev) => {
+      const idx = prev.findIndex((t) => t.id === tabId);
+      const next = prev.filter((t) => t.id !== tabId);
+      if (next.length === 0) {
+        // Closing the last tab resets the browser to a fresh default tab
+        // (the Web view itself is closed via the command bar, not here).
+        const fresh = makeTab(nextTabIdRef.current++, DEFAULT_URL);
+        setActiveId(fresh.id);
+        setAddress(fresh.committedUrl);
+        return [fresh];
+      }
+      if (tabId === activeIdRef.current) {
+        const neighbor = next[Math.min(Math.max(0, idx), next.length - 1)];
+        setActiveId(neighbor.id);
+        setAddress(neighbor.committedUrl);
+      }
+      return next;
+    });
+  }, [tabs]);
+
+  // Address bar follows the active tab.
+  const selectTab = useCallback((tabId: number) => {
+    setActiveId(tabId);
+    const t = tabs.find((x) => x.id === tabId);
+    if (t) setAddress(t.committedUrl);
+  }, [tabs]);
+
+  // Wire a tab's <webview> events the moment its element mounts. The
+  // element lives until the tab closes, so listeners are attached once
+  // and go away with the element — no explicit teardown needed.
+  const attachWebview = useCallback((tabId: number) => (node: unknown) => {
+    const el = node as WebviewLike | null;
+    if (!el) {
+      webviewRefs.current.delete(tabId);
+      wiredRef.current.delete(tabId);
+      return;
+    }
+    webviewRefs.current.set(tabId, el);
+    if (wiredRef.current.has(tabId)) return;
+    wiredRef.current.add(tabId);
+
+    const sync = () => {
+      try {
+        const url = el.getURL();
+        const patch: Partial<WebTab> = {
+          canBack: el.canGoBack(),
+          canForward: el.canGoForward(),
+        };
+        if (url && url !== 'about:blank') {
+          patch.committedUrl = url;
+          if (tabId === activeIdRef.current) setAddress(url);
+        }
+        updateTab(tabId, patch);
+      } catch {
+        // webview not fully initialised yet
+      }
+    };
+    el.addEventListener('did-start-loading', () => updateTab(tabId, { loading: true }));
+    el.addEventListener('did-stop-loading', () => updateTab(tabId, { loading: false }));
+    el.addEventListener('did-navigate', sync);
+    el.addEventListener('did-navigate-in-page', sync);
+    el.addEventListener('did-finish-load', sync);
+    el.addEventListener('page-title-updated', ((e: Event) => {
+      const title = (e as Event & { title?: string }).title;
+      if (title) updateTab(tabId, { title });
+    }) as EventListener);
+    // Register the main process's context-menu listener for this webview
+    // once its WebContents exists. Main dedups, so navigations that fire
+    // dom-ready again won't stack duplicate menus.
+    el.addEventListener('dom-ready', () => {
+      try {
+        const id = el.getWebContentsId();
+        contentsIdsRef.current.set(tabId, id);
+        window.api.registerWebviewContextMenu(id);
+      } catch { /* webview not ready yet */ }
+    });
+  }, [updateTab]);
+
+  // Bubble the ACTIVE tab's URL up so App.tsx can persist it to
+  // settings.webUrls. Skip when it still matches the initial URL.
   useEffect(() => {
-    if (!onUrlChange) return;
-    if (committedUrl === startUrl) return;
-    onUrlChange(instanceKey, committedUrl);
-  }, [instanceKey, committedUrl, startUrl, onUrlChange]);
+    if (!onUrlChange || !activeTab) return;
+    if (activeTab.committedUrl === startUrl) return;
+    onUrlChange(instanceKey, activeTab.committedUrl);
+  }, [instanceKey, activeTab?.committedUrl, startUrl, onUrlChange]);
 
-  // The nonce we already satisfied via `mountUrl` at construction. The effect
-  // below skips it so we don't immediately re-navigate to the same target the
-  // initial src is already loading (which would cause a redundant reload).
+  // The nonce we already satisfied via `mountUrl` at construction.
   const handledNonceRef = useRef<number | null>(pendingNavigate?.nonce ?? null);
 
-  // External navigation request — drive the webview to the URL. Keyed on
-  // the nonce so re-clicking the same URL still re-navigates.
+  // External navigation request — drive the ACTIVE tab to the URL.
   useEffect(() => {
     if (!pendingNavigate) return;
     if (pendingNavigate.nonce === handledNonceRef.current) return;
     handledNonceRef.current = pendingNavigate.nonce;
     const target = normalizeUrl(pendingNavigate.url);
     setAddress(target);
-    setCommittedUrl(target);
-    if (webviewRef.current) webviewRef.current.src = target;
+    updateTab(activeIdRef.current, { committedUrl: target });
+    const el = activeWebview();
+    if (el) el.src = target;
   }, [pendingNavigate?.nonce]);
 
-  // Wire <webview> events. The webview tag fires DOM CustomEvents; we
-  // bridge them into state so the toolbar reflects the page's state.
+  // target=_blank / window.open from a page in ANY of this instance's
+  // tabs → open as a new tab here (main denies the popup window and
+  // forwards the URL with the source WebContents id).
   useEffect(() => {
-    const el = webviewRef.current;
-    if (!el) return;
-    const sync = () => {
-      try {
-        const url = el.getURL();
-        if (url && url !== 'about:blank') {
-          setCommittedUrl(url);
-          setAddress(url);
+    const off = window.api.onWebviewOpenTab(({ sourceId, url }) => {
+      for (const id of contentsIdsRef.current.values()) {
+        if (id === sourceId) {
+          openTab(url, true);
+          return;
         }
-        setCanBack(el.canGoBack());
-        setCanForward(el.canGoForward());
-      } catch {
-        // webview not fully initialised yet
       }
-    };
-    // Loading indicator — driven by the webview's start/stop events so
-    // the user gets feedback between hitting Enter and the page
-    // committing (slow sites otherwise look frozen).
-    const onStart = () => setNavLoading(true);
-    const onStop = () => setNavLoading(false);
-    el.addEventListener('did-start-loading', onStart as EventListener);
-    el.addEventListener('did-stop-loading', onStop as EventListener);
-    el.addEventListener('did-navigate', sync as EventListener);
-    el.addEventListener('did-navigate-in-page', sync as EventListener);
-    el.addEventListener('did-finish-load', sync as EventListener);
-    // Register the main process's context-menu listener for this
-    // webview once its WebContents exists. Main dedups, so navigations
-    // that fire dom-ready again won't stack duplicate menus.
-    const onDomReady = () => {
-      try {
-        const id = el.getWebContentsId();
-        mainContentsIdRef.current = id;
-        window.api.registerWebviewContextMenu(id);
-      } catch { /* webview not ready yet */ }
-    };
-    el.addEventListener('dom-ready', onDomReady as EventListener);
-    return () => {
-      el.removeEventListener('did-start-loading', onStart as EventListener);
-      el.removeEventListener('did-stop-loading', onStop as EventListener);
-      el.removeEventListener('did-navigate', sync as EventListener);
-      el.removeEventListener('did-navigate-in-page', sync as EventListener);
-      el.removeEventListener('did-finish-load', sync as EventListener);
-      el.removeEventListener('dom-ready', onDomReady as EventListener);
-    };
-  }, []);
-
-  // Inbound "Inspect Element" requests from the main-process context
-  // menu. Each WebViewer filters by targetId so only the matching
-  // instance reacts. We ask main to open DevTools (idempotent — it
-  // focuses if already open) then call inspectAt to highlight the
-  // clicked node in the Elements panel.
-  useEffect(() => {
-    const off = window.api.onWebviewInspectRequest(async ({ targetId, x, y }) => {
-      if (targetId !== mainContentsIdRef.current) return;
-      // Open (or focus) DevTools first so inspectElement has somewhere
-      // to land — the hostId arg is unused now that DevTools detaches.
-      await window.api.openWebviewDevTools(targetId, 0);
-      setDevtoolsOpen(true);
-      window.api.webviewInspectAt(targetId, x, y);
     });
     return off;
-  }, []);
+  }, [openTab]);
+
+  // Inbound "Inspect Element" requests from the main-process context
+  // menu — match against any of this instance's tabs.
+  useEffect(() => {
+    const off = window.api.onWebviewInspectRequest(async ({ targetId, x, y }) => {
+      for (const [tabId, id] of contentsIdsRef.current.entries()) {
+        if (id !== targetId) continue;
+        await window.api.openWebviewDevTools(targetId, 0);
+        updateTab(tabId, { devtoolsOpen: true });
+        window.api.webviewInspectAt(targetId, x, y);
+        return;
+      }
+    });
+    return off;
+  }, [updateTab]);
 
   const submit = () => {
     const target = normalizeUrl(address);
     setAddress(target);
-    if (webviewRef.current) webviewRef.current.src = target;
+    updateTab(activeIdRef.current, { committedUrl: target });
+    const el = activeWebview();
+    if (el) el.src = target;
   };
 
   const toggleDevTools = async () => {
-    const id = mainContentsIdRef.current;
+    const tab = activeTab;
+    if (!tab) return;
+    const id = contentsIdsRef.current.get(tab.id);
     if (id == null) return;
-    if (devtoolsOpen) {
+    if (tab.devtoolsOpen) {
       try { await window.api.closeWebviewDevTools(id); } catch { /* ignore */ }
-      setDevtoolsOpen(false);
+      updateTab(tab.id, { devtoolsOpen: false });
     } else {
       try { await window.api.openWebviewDevTools(id, 0); } catch { /* ignore */ }
-      setDevtoolsOpen(true);
+      updateTab(tab.id, { devtoolsOpen: true });
     }
   };
 
@@ -198,11 +305,58 @@ export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, on
       className="web-viewer"
       style={hidden ? { display: 'none' } : { display: 'flex', flex: 1, flexDirection: 'column', minHeight: 0, minWidth: 0 }}
     >
+      <div className="web-viewer-tabs">
+        {tabs.map((tab) => (
+          <div
+            key={tab.id}
+            className={`web-viewer-tab${tab.id === activeId ? ' is-active' : ''}`}
+            onClick={() => selectTab(tab.id)}
+            onAuxClick={(e) => { if (e.button === 1) closeTab(tab.id); }}
+            title={tab.committedUrl}
+          >
+            {tab.loading ? (
+              <svg className="spinner-svg" width="10" height="10" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" strokeOpacity="0.25" />
+                <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} opacity={0.7}>
+                <circle cx="8" cy="8" r="6" />
+                <path d="M2 8h12M8 2c1.8 1.8 2.7 4 2.7 6S9.8 12.2 8 14c-1.8-1.8-2.7-4-2.7-6S6.2 3.8 8 2z" />
+              </svg>
+            )}
+            <span className="web-viewer-tab-label">
+              {tab.title || hostLabel(tab.committedUrl)}
+            </span>
+            <button
+              className="web-viewer-tab-close"
+              onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
+              title="Close tab"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <button
+          className="web-viewer-tab-add"
+          onClick={() => {
+            openTab(DEFAULT_URL, true);
+            // Ready to type a URL straight away.
+            requestAnimationFrame(() => {
+              addressInputRef.current?.focus();
+              addressInputRef.current?.select();
+            });
+          }}
+          title="New tab"
+        >
+          +
+        </button>
+      </div>
       <div className="web-viewer-bar">
         <button
           className="web-viewer-btn"
-          disabled={!canBack}
-          onClick={() => webviewRef.current?.goBack()}
+          disabled={!activeTab?.canBack}
+          onClick={() => activeWebview()?.goBack()}
           title="Back"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
@@ -211,8 +365,8 @@ export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, on
         </button>
         <button
           className="web-viewer-btn"
-          disabled={!canForward}
-          onClick={() => webviewRef.current?.goForward()}
+          disabled={!activeTab?.canForward}
+          onClick={() => activeWebview()?.goForward()}
           title="Forward"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
@@ -221,10 +375,10 @@ export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, on
         </button>
         <button
           className="web-viewer-btn"
-          onClick={() => navLoading ? webviewRef.current?.stop() : webviewRef.current?.reload()}
-          title={navLoading ? 'Stop' : 'Reload'}
+          onClick={() => activeTab?.loading ? activeWebview()?.stop() : activeWebview()?.reload()}
+          title={activeTab?.loading ? 'Stop' : 'Reload'}
         >
-          {navLoading ? (
+          {activeTab?.loading ? (
             // Spinning loader doubling as a stop button while the page loads.
             <svg className="spinner-svg" width="14" height="14" viewBox="0 0 24 24" fill="none">
               <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5" strokeOpacity="0.25" />
@@ -240,6 +394,7 @@ export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, on
           )}
         </button>
         <input
+          ref={addressInputRef}
           className="web-viewer-address"
           type="text"
           value={address}
@@ -262,9 +417,9 @@ export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, on
           placeholder="Search or enter a URL"
         />
         <button
-          className={`web-viewer-btn${devtoolsOpen ? ' is-active' : ''}`}
+          className={`web-viewer-btn${activeTab?.devtoolsOpen ? ' is-active' : ''}`}
           onClick={toggleDevTools}
-          title={devtoolsOpen ? 'Close DevTools' : 'Open DevTools'}
+          title={activeTab?.devtoolsOpen ? 'Close DevTools' : 'Open DevTools'}
         >
           {/* Wrench / inspector glyph — close enough to the standard
               DevTools icon without dragging in another icon file. */}
@@ -274,15 +429,19 @@ export function WebViewer({ instanceKey, initialUrl, hidden, pendingNavigate, on
           </svg>
         </button>
       </div>
-      <webview
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ref={webviewRef as unknown as React.Ref<any>}
-        src={committedUrl}
-        className="web-viewer-frame"
-        partition={webPartition(instanceKey)}
-        // @ts-expect-error - webview attribute typing in React
-        allowpopups="true"
-      />
+      {tabs.map((tab) => (
+        <webview
+          key={tab.id}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ref={attachWebview(tab.id) as unknown as React.Ref<any>}
+          src={tab.initialSrc}
+          className="web-viewer-frame"
+          style={tab.id === activeId ? undefined : { display: 'none' }}
+          partition={webPartition(instanceKey)}
+          // @ts-expect-error - webview attribute typing in React
+          allowpopups="true"
+        />
+      ))}
     </div>
   );
 }

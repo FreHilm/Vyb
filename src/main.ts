@@ -433,6 +433,16 @@ const createWindow = () => {
 // this main-process listener is the only place that can intercept.
 app.on('web-contents-created', (_event, contents) => {
   if (contents.getType() !== 'webview') return;
+  // target=_blank / window.open from a page inside the in-app browser:
+  // deny the detached popup window and hand the URL back to the renderer,
+  // where the owning WebViewer opens it as a NEW TAB (matched by the
+  // source WebContents id).
+  contents.setWindowOpenHandler(({ url }) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.WEBVIEW_OPEN_TAB, { sourceId: contents.id, url });
+    }
+    return { action: 'deny' };
+  });
   contents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
     const mod = process.platform === 'darwin' ? input.meta : input.control;

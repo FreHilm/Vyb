@@ -105,6 +105,7 @@ declare global {
       registerWebviewContextMenu: (targetId: number) => Promise<boolean>;
       webviewInspectAt: (targetId: number, x: number, y: number) => Promise<boolean>;
       onWebviewInspectRequest: (cb: (p: { targetId: number; x: number; y: number }) => void) => () => void;
+      onWebviewOpenTab: (cb: (p: { sourceId: number; url: string }) => void) => () => void;
       openExternal: (command: string, folderPath: string) => Promise<void>;
       createShellTerminal: (terminalId: string, cwd: string) => Promise<void>;
       onShellExited: (

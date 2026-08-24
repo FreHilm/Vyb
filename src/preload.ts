@@ -83,6 +83,12 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.WEBVIEW_INSPECT_REQUEST, handler);
   },
 
+  onWebviewOpenTab: (cb: (p: { sourceId: number; url: string }) => void): (() => void) => {
+    const handler = (_e: unknown, payload: { sourceId: number; url: string }) => cb(payload);
+    ipcRenderer.on(IPC_CHANNELS.WEBVIEW_OPEN_TAB, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.WEBVIEW_OPEN_TAB, handler);
+  },
+
   openExternal: (command: string, folderPath: string): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_EXTERNAL, command, folderPath),
 

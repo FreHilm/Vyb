@@ -620,6 +620,7 @@ export const IPC_CHANNELS = {
   FILE_COPY: 'file:copy',
   FILE_CREATE_DIR: 'file:createDir',
   FILE_MOVE_DIR_CONTENTS: 'file:moveDirContents',
+  WEBVIEW_OPEN_TAB: 'webview:openTab',
   FILE_CREATE: 'file:create',
   FILE_SAVE_AS: 'file:saveAs',
   FILE_RESOLVE_PATH: 'file:resolvePath',
