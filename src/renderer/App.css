@@ -7745,6 +7745,15 @@ select option {
 }
 /* "(N)" profile-count suffix — muted so the workspace name reads as
    the primary content and the count as secondary metadata. */
+/* Virtual "Active profiles" row — pinned above the real workspaces. */
+.workspace-dropdown-virtual .workspace-dropdown-label { color: var(--c-green, #a6e3a1); }
+.workspace-dropdown-virtual.is-active .workspace-dropdown-label { font-weight: 600; }
+.workspace-dropdown-divider {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--c-surface1);
+}
+
 .workspace-dropdown-count {
   color: var(--c-overlay0);
   font-variant-numeric: tabular-nums;

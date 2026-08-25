@@ -21,7 +21,7 @@ import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { HotkeyHints } from './components/HotkeyHints';
 import { useDictation } from './components/Dictation';
-import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, Workspace, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitMergePreviewResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult, FileReplaceTarget, FileReplaceResult, AgentSessionList, DEFAULT_AGENTS, resolveAgent, buildSessionArgs, RemoteChatState, RemoteChatMessage, RemoteChatEvent, RemoteChatTopics, RemoteChatTopic } from '../shared/types';
+import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, Workspace, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitMergePreviewResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult, FileReplaceTarget, FileReplaceResult, AgentSessionList, DEFAULT_AGENTS, ACTIVE_PROFILES_WORKSPACE_ID, resolveAgent, buildSessionArgs, RemoteChatState, RemoteChatMessage, RemoteChatEvent, RemoteChatTopics, RemoteChatTopic } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
 
@@ -332,6 +332,10 @@ export function App() {
   const [iconRevision, setIconRevision] = useState(0);
   const [shellOpenSet, setShellOpenSet] = useState<Set<string>>(new Set());
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  // Virtual "Active profiles" workspace toggle — runtime-only (never
+  // persisted). While true, the sidebar shows every profile whose status
+  // flame is lit (any status except offline), across all workspaces.
+  const [activeProfilesMode, setActiveProfilesMode] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(250);
   // Sidebar collapse-to-icons mode. Drives a snap behaviour when dragging
@@ -1342,7 +1346,15 @@ export function App() {
   // live there (one small array; not worth a separate file). Each one
   // saves immediately so a crash mid-edit doesn't lose the change.
   const handleSelectWorkspace = useCallback((workspaceId: string) => {
+    // The virtual "Active profiles" workspace is a runtime-only view —
+    // toggle the flag, never write it into settings.activeWorkspaceId
+    // (a restart lands back on the last REAL workspace).
+    if (workspaceId === ACTIVE_PROFILES_WORKSPACE_ID) {
+      setActiveProfilesMode(true);
+      return;
+    }
     if (!settings.workspaces.some((w) => w.id === workspaceId)) return;
+    setActiveProfilesMode(false);
     const next = { ...settings, activeWorkspaceId: workspaceId };
     setSettings(next);
     window.api.saveSettings(next).catch((): void => undefined);
@@ -2520,7 +2532,7 @@ export function App() {
         onReloadProfile={handleReloadProfile}
         onProfileContextMenu={openSessionMenu}
         workspaces={settings.workspaces}
-        activeWorkspaceId={settings.activeWorkspaceId}
+        activeWorkspaceId={activeProfilesMode ? ACTIVE_PROFILES_WORKSPACE_ID : settings.activeWorkspaceId}
         onSelectWorkspace={handleSelectWorkspace}
         onAddWorkspace={handleAddWorkspace}
         onRenameWorkspace={handleRenameWorkspace}

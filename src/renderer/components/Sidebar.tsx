@@ -9,6 +9,7 @@ import {
   SidebarItem,
   ParallelAgent,
   Workspace,
+  ACTIVE_PROFILES_WORKSPACE_ID,
 } from '../../shared/types';
 
 interface SidebarProps {
@@ -258,6 +259,16 @@ export function Sidebar({
   // shows up under the original "Default" workspace until the user
   // explicitly moves it (future drag-and-drop).
   const defaultWorkspaceId = workspaces[0]?.id ?? '';
+  // Virtual "Active profiles" mode: a runtime view of every profile whose
+  // status flame is lit — any status except offline/gray (ready, working,
+  // needs-input). Covers PTY agents and remote/Telegram profiles alike,
+  // since both feed the same status map. Flat (no folders), ordered by
+  // the full layout, never persisted.
+  const activeProfilesMode = activeWorkspaceId === ACTIVE_PROFILES_WORKSPACE_ID;
+  const isActiveProfile = useCallback((profileId: string): boolean => {
+    const s = statuses.get(profileId);
+    return s !== undefined && s !== 'offline';
+  }, [statuses]);
   const inActiveWorkspace = useCallback((wsId: string | undefined): boolean => {
     const effective = wsId || defaultWorkspaceId;
     return effective === activeWorkspaceId;
@@ -265,6 +276,28 @@ export function Sidebar({
 
   const visibleLayout = useMemo<SidebarLayout>(() => {
     const profilesById = new Map(profiles.map((p) => [p.id, p]));
+    if (activeProfilesMode) {
+      // Flatten the full layout (top-level order, then folder contents in
+      // place) to running profiles; append any running profile the layout
+      // hasn't caught up with yet.
+      const seen = new Set<string>();
+      const ids: string[] = [];
+      const folderById = new Map(fullLayout.folders.map((f) => [f.id, f]));
+      for (const item of fullLayout.items) {
+        if (item.type === 'profile') ids.push(item.profileId);
+        else for (const pid of folderById.get(item.folderId)?.profileIds ?? []) ids.push(pid);
+      }
+      const items: SidebarLayout['items'] = [];
+      for (const pid of ids) {
+        if (seen.has(pid)) continue;
+        seen.add(pid);
+        if (isActiveProfile(pid) && profilesById.has(pid)) items.push({ type: 'profile', profileId: pid });
+      }
+      for (const p of profiles) {
+        if (isActiveProfile(p.id) && !seen.has(p.id)) items.push({ type: 'profile', profileId: p.id });
+      }
+      return { items, folders: [] };
+    }
     const visibleFolders = fullLayout.folders.filter((f) =>
       inActiveWorkspace(f.workspaceId),
     );
@@ -275,7 +308,7 @@ export function Sidebar({
       return p ? inActiveWorkspace(p.workspaceId) : false;
     });
     return { items: visibleItems, folders: visibleFolders };
-  }, [fullLayout, profiles, inActiveWorkspace]);
+  }, [fullLayout, profiles, inActiveWorkspace, activeProfilesMode, isActiveProfile]);
 
   // Alias so the rest of the component (DnD callbacks, render code)
   // can keep referencing `layout` against the workspace-filtered view
@@ -289,6 +322,10 @@ export function Sidebar({
   // order; visible items take the new ordering the user just made.
   // New folders created via this UI inherit the active workspace.
   const onLayoutChange = useCallback((newVisible: SidebarLayout) => {
+    // HARD guard: in Active-profiles mode the visible layout is a
+    // synthesized runtime view — merging it back would duplicate every
+    // real item (nothing passes inActiveWorkspace with the sentinel id).
+    if (activeProfilesMode) return;
     const profilesById = new Map(profiles.map((p) => [p.id, p]));
     const newVisibleFolderIds = new Set(newVisible.folders.map((f) => f.id));
     const nonVisibleFolders = fullLayout.folders.filter(
@@ -317,7 +354,7 @@ export function Sidebar({
       items: [...nonVisibleItems, ...newVisible.items],
       folders: mergedFolders,
     });
-  }, [fullLayout, profiles, inActiveWorkspace, activeWorkspaceId, notifyLayoutChange]);
+  }, [fullLayout, profiles, inActiveWorkspace, activeWorkspaceId, notifyLayoutChange, activeProfilesMode]);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [folderNameInput, setFolderNameInput] = useState('');
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -331,8 +368,13 @@ export function Sidebar({
   // other workspace as a flat list. We want zero profiles to render
   // until they're explicitly moved into this workspace.
   const visibleProfiles = useMemo(
-    () => profiles.filter((p) => inActiveWorkspace(p.workspaceId)),
-    [profiles, inActiveWorkspace],
+    () => activeProfilesMode
+      // Virtual view: membership is "status flame lit", not workspace.
+      // MUST match visibleLayout's filter — buildEffectiveLayout drops
+      // any layout item whose profile isn't in this list.
+      ? profiles.filter((p) => isActiveProfile(p.id))
+      : profiles.filter((p) => inActiveWorkspace(p.workspaceId)),
+    [profiles, inActiveWorkspace, activeProfilesMode, isActiveProfile],
   );
 
   // Per-workspace profile counts for the dropdown. Same membership
@@ -634,6 +676,8 @@ export function Sidebar({
   // Right-click on the sidebar background → "New Folder". Skip if the click
   // was on a profile or folder row (those have their own affordances).
   const handleSidebarContextMenu = (e: React.MouseEvent) => {
+    // No folder creation in the virtual Active-profiles view.
+    if (activeProfilesMode) return;
     const targetEl = e.target as HTMLElement;
     if (
       targetEl.closest('.profile-item') ||
@@ -689,6 +733,7 @@ export function Sidebar({
         <WorkspaceDropdown
           workspaces={workspaces}
           activeWorkspaceId={activeWorkspaceId}
+          activeProfilesCount={profiles.filter((p) => isActiveProfile(p.id)).length}
           onSelect={onSelectWorkspace}
           onAdd={onAddWorkspace}
           onRename={onRenameWorkspace}
@@ -702,7 +747,8 @@ export function Sidebar({
           <button
             className="add-profile-btn"
             onClick={handleAddFolder}
-            title="Add folder"
+            disabled={activeProfilesMode}
+            title={activeProfilesMode ? 'Not available in Active profiles view' : 'Add folder'}
           >
             <svg
               width="14"
@@ -720,7 +766,8 @@ export function Sidebar({
           <button
             className="add-profile-btn"
             onClick={onAddProfile}
-            title="Add profile"
+            disabled={activeProfilesMode}
+            title={activeProfilesMode ? 'Not available in Active profiles view' : 'Add profile'}
           >
             <svg
               width="14"
@@ -880,7 +927,12 @@ export function Sidebar({
             </div>
           );
         })}
-        {profiles.length === 0 && (
+        {activeProfilesMode && layout.items.length === 0 && (
+          <div className="sidebar-empty">
+            No running agents
+          </div>
+        )}
+        {!activeProfilesMode && profiles.length === 0 && (
           <div className="sidebar-empty" onClick={onAddProfile}>
             Click + to add an agent profile
           </div>

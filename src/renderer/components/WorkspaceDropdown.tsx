@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Workspace } from '../../shared/types';
+import { ACTIVE_PROFILES_WORKSPACE_ID } from '../../shared/types';
 
 interface Props {
+  /** Count of profiles with a lit status flame (any status except
+   * offline) — shown on the pinned virtual "Active profiles" row at the
+   * top of the menu. Selecting that row calls onSelect with
+   * ACTIVE_PROFILES_WORKSPACE_ID (runtime-only view, never persisted). */
+  activeProfilesCount?: number;
   workspaces: Workspace[];
   activeWorkspaceId: string;
   onSelect: (workspaceId: string) => void;
@@ -34,7 +40,7 @@ interface Props {
  * inline-input row. Outside-click or Escape closes. */
 export function WorkspaceDropdown({
   workspaces, activeWorkspaceId, onSelect, onAdd, onRename, onUpdate, onDelete,
-  onMoveToWorkspace, profileCounts, folderCounts,
+  onMoveToWorkspace, profileCounts, folderCounts, activeProfilesCount,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -76,7 +82,10 @@ export function WorkspaceDropdown({
     setOpen(true);
   }, []);
 
-  const active = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
+  const inActiveProfilesMode = activeWorkspaceId === ACTIVE_PROFILES_WORKSPACE_ID;
+  const active = inActiveProfilesMode
+    ? { id: ACTIVE_PROFILES_WORKSPACE_ID, name: 'Active profiles' }
+    : workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
 
   // Outside click / Escape close the menu. Skipped while a rename
   // input is focused so typing into it doesn't dismiss everything.
@@ -220,6 +229,27 @@ export function WorkspaceDropdown({
           role="menu"
           style={menuPos ? { position: 'fixed', top: menuPos.top, left: menuPos.left } : undefined}
         >
+          {activeProfilesCount !== undefined && (
+            <>
+              <div
+                className={`workspace-dropdown-row workspace-dropdown-virtual${inActiveProfilesMode ? ' is-active' : ''}`}
+                title="All profiles with an active status (anything but gray) — computed live, not saved"
+                onClick={() => {
+                  onSelect(ACTIVE_PROFILES_WORKSPACE_ID);
+                  setOpen(false);
+                }}
+              >
+                <span className="workspace-dropdown-label">
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style={{ marginRight: 6, opacity: 0.8 }}>
+                    <circle cx="8" cy="8" r="4" />
+                  </svg>
+                  Active profiles
+                  <span className="workspace-dropdown-count"> ({activeProfilesCount})</span>
+                </span>
+              </div>
+              <div className="workspace-dropdown-divider" />
+            </>
+          )}
           {workspaces.map((w) => {
             const isActive = w.id === activeWorkspaceId;
             const isRenaming = renamingId === w.id;

@@ -49,6 +49,13 @@ export interface Profile {
   };
 }
 
+/** Sentinel id for the VIRTUAL "Active profiles" workspace — a runtime-
+ * computed view of every profile whose agent is currently running.
+ * Never persisted (settings.activeWorkspaceId must never hold it) and
+ * never present in settings.workspaces; the sidebar and workspace
+ * dropdown special-case it. */
+export const ACTIVE_PROFILES_WORKSPACE_ID = '__active-profiles__';
+
 /** A Workspace is a top-level grouping of Agent Profiles. The sidebar
  * shows one workspace at a time and the workspace dropdown switches
  * between them. The "directories" of a workspace are derived from the
