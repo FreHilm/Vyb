@@ -62,6 +62,17 @@ function patchElectronAppForDev() {
   if (fs.existsSync(src)) {
     try { fs.copyFileSync(src, dst); } catch { /* best-effort */ }
   }
+
+  // Re-sign (ad-hoc) after the plist/icon patches above — they BREAK the
+  // bundle's code-signature seal, and macOS refuses OS services to apps
+  // whose signature doesn't validate. Concretely: the notification
+  // daemon returns UNErrorDomain error 1 ("not authorized") for an
+  // unsealed app, so dev builds silently lost every agent-done /
+  // needs-input notification. An ad-hoc signature is enough for local
+  // dev; packaged builds are signed properly by the release pipeline.
+  try {
+    execSync(`codesign --force --deep --sign - '${eBase}'`, { stdio: 'ignore' });
+  } catch { /* best-effort — codesign missing or non-macOS */ }
 }
 
 function installVendorTree(name) {
