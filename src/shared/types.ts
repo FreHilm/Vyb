@@ -491,6 +491,8 @@ export const IPC_CHANNELS = {
   PROFILE_SET_ACTIVE: 'profile:setActive',
   PROFILE_ACTIVATE_REQUEST: 'profile:activateRequest',
   GENERATE_ICON: 'icon:generate',
+  ICON_HISTORY: 'icon:history',
+  ICON_DELETE: 'icon:delete',
   LAYOUT_LOAD: 'layout:load',
   LAYOUT_SAVE: 'layout:save',
   README_LOAD: 'readme:load',

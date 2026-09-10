@@ -4729,22 +4729,59 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         ext = imagePart.inlineData.mimeType === 'image/jpeg' ? 'jpg' : 'png';
       }
 
-      // Save the image to userData/icons/, removing any old icon for this profile
+      // Save the image to userData/icons/ under a UNIQUE timestamped name.
+      // Older generations are deliberately KEPT — regenerating an icon no
+      // longer destroys the previous one, and the profile editor offers
+      // the accumulated history as a picker (a good icon is often only
+      // recognized as good after the "better" attempt lands). Unique
+      // filenames also make browser cache-busting moot for history picks.
       const iconsDir = path.join(app.getPath('userData'), 'icons');
       if (!fs.existsSync(iconsDir)) {
         fs.mkdirSync(iconsDir, { recursive: true });
       }
-      for (const old of ['png', 'jpg', 'jpeg']) {
-        const oldPath = path.join(iconsDir, `${profileId}.${old}`);
-        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-      }
-
-      const iconPath = path.join(iconsDir, `${profileId}.${ext}`);
+      const iconPath = path.join(iconsDir, `${profileId}-${Date.now()}.${ext}`);
       fs.writeFileSync(iconPath, Buffer.from(imageBase64, 'base64'));
 
       return iconPath;
     },
   );
+
+  // Every generated icon for a profile, newest first. Matches both the
+  // timestamped names written above and the legacy fixed name
+  // (`<profileId>.png`) from before history existed.
+  ipcMain.handle(
+    IPC_CHANNELS.ICON_HISTORY,
+    (_, profileId: string): { path: string; mtime: number }[] => {
+      try {
+        const iconsDir = path.join(app.getPath('userData'), 'icons');
+        if (!fs.existsSync(iconsDir)) return [];
+        const re = new RegExp(`^${profileId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(-\\d+)?\\.(png|jpe?g)$`);
+        return fs.readdirSync(iconsDir)
+          .filter((f) => re.test(f))
+          .map((f) => {
+            const p = path.join(iconsDir, f);
+            return { path: p, mtime: fs.statSync(p).mtimeMs };
+          })
+          .sort((a, b) => b.mtime - a.mtime);
+      } catch {
+        return [];
+      }
+    },
+  );
+
+  // Delete one icon from history. Guarded to files INSIDE userData/icons
+  // so the channel can't be used to unlink arbitrary paths.
+  ipcMain.handle(IPC_CHANNELS.ICON_DELETE, (_, iconPath: string): boolean => {
+    try {
+      const iconsDir = path.join(app.getPath('userData'), 'icons');
+      const resolved = path.resolve(String(iconPath));
+      if (!resolved.startsWith(iconsDir + path.sep)) return false;
+      fs.unlinkSync(resolved);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 async function initOrdnaHookServer(): Promise<void> {

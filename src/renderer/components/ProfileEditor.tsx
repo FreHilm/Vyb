@@ -78,6 +78,9 @@ export function ProfileEditor({
   const [botUsername, setBotUsername] = useState('');
   const [botToken, setBotToken] = useState('');
   const [gitRepoUrl, setGitRepoUrl] = useState('');
+  /** All generated icons for this profile, newest first — regenerating
+   * keeps older files, and this strip lets the user go back to one. */
+  const [iconHistory, setIconHistory] = useState<{ path: string; mtime: number }[]>([]);
   const [parallelAgentEnabled, setParallelAgentEnabled] = useState(false);
   const [parallelAgentAutoPush, setParallelAgentAutoPush] = useState(false);
   const [genError, setGenError] = useState('');
@@ -203,6 +206,20 @@ export function ProfileEditor({
   }, [pendingProfileId]);
 
   const isRemoteHermes = agentId === 'hermes-telegram';
+
+  // Load the generated-icon history for this profile. Re-runs after every
+  // completed generation (iconCacheBust bumps on 'profile-icon-ready') so
+  // the fresh icon joins the strip immediately. New unsaved profiles have
+  // no id yet (until a generation locks one in) — empty history.
+  const historyProfileId = pendingProfileId ?? profile?.id ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    if (!historyProfileId) { setIconHistory([]); return; }
+    window.api.iconHistory(historyProfileId).then((h) => {
+      if (!cancelled) setIconHistory(h);
+    }).catch((): void => undefined);
+    return () => { cancelled = true; };
+  }, [historyProfileId, iconCacheBust]);
 
   const handleSave = () => {
     if (!name.trim() || !workingDirectory.trim()) return;
@@ -485,6 +502,38 @@ export function ProfileEditor({
               </div>
             )}
             {genError && <div className="field-error">{genError}</div>}
+            {iconHistory.length > 0 && (
+              <div className="icon-history">
+                <span className="field-hint">Generated icons — click one to use it</span>
+                <div className="icon-history-strip">
+                  {iconHistory.map((h) => (
+                    <div
+                      key={h.path}
+                      className={`icon-history-item${icon === h.path ? ' is-selected' : ''}`}
+                    >
+                      <img
+                        src={`local-file://${h.path}?t=${h.mtime}`}
+                        alt=""
+                        title={new Date(h.mtime).toLocaleString()}
+                        onClick={() => setIcon(h.path)}
+                      />
+                      {icon !== h.path && (
+                        <button
+                          className="icon-history-delete"
+                          title="Delete this icon"
+                          onClick={async () => {
+                            const ok = await window.api.deleteIcon(h.path);
+                            if (ok) setIconHistory((prev) => prev.filter((x) => x.path !== h.path));
+                          }}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </label>
 
           {/* Parallel/worktree agents need a local CLI — hidden for the

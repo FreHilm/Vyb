@@ -29,6 +29,20 @@ protocol.registerSchemesAsPrivileged([
 
 app.name = APP_NAME;
 
+// Dev-only: skip the macOS Keychain for Chromium's "Safe Storage"
+// (cookie-encryption key). The postinstall script ad-hoc re-signs the
+// vendored Electron.app (required for notifications to work — see
+// scripts/postinstall.js), which gives the binary a NEW code identity on
+// every npm install. Keychain ACLs are bound to that identity, so macOS
+// would show the "wants to access confidential information in your
+// keychain" prompt after each reinstall. The mock keychain avoids the
+// prompt entirely; the only trade-off is that dev webview cookies aren't
+// encrypted at rest. Packaged builds are signed with a stable Developer
+// ID and keep the real keychain.
+if (!app.isPackaged) {
+  app.commandLine.appendSwitch('use-mock-keychain');
+}
+
 // Isolate the dev build's data from the packaged app. Running
 // `npm start` and the installed Vyb at the same time would otherwise
 // BOTH read/write ~/Library/Application Support/Vyb — and an older

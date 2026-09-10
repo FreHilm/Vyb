@@ -510,6 +510,11 @@ contextBridge.exposeInMainWorld('api', {
   generateIcon: (profileId: string, projectName: string): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.GENERATE_ICON, profileId, projectName),
 
+  iconHistory: (profileId: string): Promise<{ path: string; mtime: number }[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ICON_HISTORY, profileId),
+  deleteIcon: (iconPath: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ICON_DELETE, iconPath),
+
   loadLayout: (): Promise<SidebarLayout> =>
     ipcRenderer.invoke(IPC_CHANNELS.LAYOUT_LOAD),
 

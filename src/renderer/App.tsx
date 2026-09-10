@@ -267,6 +267,8 @@ declare global {
         callback: (payload: { profileId: string; parallelAgentId: string | null }) => void,
       ) => () => void;
       generateIcon: (profileId: string, projectName: string) => Promise<string | null>;
+      iconHistory: (profileId: string) => Promise<{ path: string; mtime: number }[]>;
+      deleteIcon: (iconPath: string) => Promise<boolean>;
       loadLayout: () => Promise<SidebarLayout>;
       saveLayout: (layout: SidebarLayout) => Promise<void>;
       startOrdna: (
