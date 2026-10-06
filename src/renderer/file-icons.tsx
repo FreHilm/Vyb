@@ -119,6 +119,8 @@ const COLOR_MAP: Record<string, ColorDef> = {
   excalidraw: { color: '#a78bfa' },
   // Misc
   pdf: { color: '#ef4444' },
+  docx: { color: '#2b7cd3' },
+  doc: { color: '#2b7cd3' },
   zip: { color: '#a16207' },
   tar: { color: '#a16207' },
   gz: { color: '#a16207' },

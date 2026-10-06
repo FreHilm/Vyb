@@ -24,6 +24,7 @@ import { FileHistoryView } from './FileHistoryView';
 import { ErrorBoundary } from './ErrorBoundary';
 import { MonacoFileEditor, monacoLanguageForFile, type MonacoFileEditorHandle, type EditorStatusInfo } from './MonacoFileEditor';
 import { setDefinitionSearchRoot } from '../lib/monaco-definitions';
+import { DocxViewer } from './DocxViewer';
 import { ThreeWayFileEditor } from './ThreeWayFileEditor';
 import { MonacoDiffEditor } from './MonacoDiffEditor';
 import { toastError, toastInfo, errMessage } from '../lib/toast';
@@ -126,6 +127,18 @@ function isImageFile(filename: string): boolean {
 
 function isMdFile(filename: string): boolean {
   return MD_EXT.test(filename);
+}
+
+/** PDFs render in Chromium's built-in PDF viewer via an iframe on the
+ * local-file:// protocol — never loaded into a text editor. */
+function isPdfFile(filename: string): boolean {
+  return filename.split('.').pop()?.toLowerCase() === 'pdf';
+}
+
+/** Word documents render as Word-like pages via DocxViewer (docx-preview).
+ * Only the modern zip-based format — legacy .doc is not renderable. */
+function isDocxFile(filename: string): boolean {
+  return filename.split('.').pop()?.toLowerCase() === 'docx';
 }
 
 function isExcalidrawFile(filename: string): boolean {
@@ -927,6 +940,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   const handleExternalFileChange = useCallback(async (absPath: string) => {
     const tab = tabsRef.current.find((t) => t.path === absPath);
     if (!tab) return;
+    // Binary viewers (image / PDF / Word) re-read from disk via
+    // local-file:// — never pull their bytes into the text doc cache.
+    if (isImageFile(fileName(absPath)) || isPdfFile(fileName(absPath)) || isDocxFile(fileName(absPath))) return;
     let diskContent: string | null = null;
     try {
       diskContent = await window.api.readFile(absPath);
@@ -1635,7 +1651,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     setMonacoPath(null);
     setMonacoDiffPath(null);
 
-    if (isImageFile(fileName(filePath))) return;
+    // Binary viewers (image / PDF / Word) — rendered from their own
+    // blocks; no text editor mounts and nothing enters the doc cache.
+    if (isImageFile(fileName(filePath)) || isPdfFile(fileName(filePath)) || isDocxFile(fileName(filePath))) return;
 
     // Use cached content or load from disk. Always populate the cache so
     // both the editor and the markdown-view path read from the same
@@ -2199,7 +2217,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   // doesn't host CodeMirror.
   useEffect(() => {
     if (!activeTabPath) return;
-    if (isImageFile(fileName(activeTabPath))) return;
+    if (isImageFile(fileName(activeTabPath)) || isPdfFile(fileName(activeTabPath)) || isDocxFile(fileName(activeTabPath))) return;
     if (isMdFile(fileName(activeTabPath)) && mdViewModeRef.current.get(activeTabPath) === 'view') return;
     mountEditor(activeTabPath);
     // mountEditor is stable; activeTabPath bounce is intentional only on toggle.
@@ -2500,6 +2518,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   }, [createMenuOpen]);
 
   const activeIsImage = activeTabPath ? isImageFile(fileName(activeTabPath)) : false;
+  const activeIsPdf = activeTabPath ? isPdfFile(fileName(activeTabPath)) : false;
+  const activeIsDocx = activeTabPath ? isDocxFile(fileName(activeTabPath)) : false;
   const activeIsMd = activeTabPath ? isMdFile(fileName(activeTabPath)) : false;
   const activeIsExcalidraw = activeTabPath ? isExcalidrawFile(fileName(activeTabPath)) : false;
   const activeIsModified = activeTabPath ? modifiedSet.has(activeTabPath) : false;
@@ -2615,10 +2635,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   useEffect(() => {
     if (hidden) return;
     window.api.setEditMenuState({
-      hasFile: !!activeTabPath && !activeIsImage,
-      canSave: !!activeTabPath && !activeIsImage && activeIsModified,
+      hasFile: !!activeTabPath && !activeIsImage && !activeIsPdf && !activeIsDocx,
+      canSave: !!activeTabPath && !activeIsImage && !activeIsPdf && !activeIsDocx && activeIsModified,
     });
-  }, [hidden, activeTabPath, activeIsImage, activeIsModified]);
+  }, [hidden, activeTabPath, activeIsImage, activeIsPdf, activeIsDocx, activeIsModified]);
 
   // Handle clicks coming back from the Edit menu in the application menu.
   // CodeMirror's basicSetup already binds Cmd+Z / Cmd+F / etc. to the editor,
@@ -2879,6 +2899,22 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
             <img src={`local-file://${activeTabPath}`} alt={fileName(activeTabPath)} />
           </div>
         )}
+        {/* PDF viewer — Chromium's built-in PDFium viewer takes over the
+            iframe when the local-file:// response carries application/pdf
+            (the protocol handler derives MIME from the extension). Gives
+            zoom, paging, search, and print with zero dependencies. */}
+        {activeTabPath && activeIsPdf && (
+          <iframe
+            className="file-pdf-viewer"
+            src={`local-file://${encodeURI(activeTabPath)}`}
+            title={fileName(activeTabPath)}
+          />
+        )}
+        {/* Word viewer — docx-preview draws Word-like pages. keyed on the
+            path so switching documents remounts cleanly. */}
+        {activeTabPath && activeIsDocx && (
+          <DocxViewer key={activeTabPath} path={activeTabPath} />
+        )}
         {/* Markdown view mode — replaces the editor with rendered markdown.
             Editor host stays in the DOM (just hidden) so toggling back to
             edit can re-mount it without React tearing down the parent. */}
@@ -3058,7 +3094,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           className="file-editor-content"
           ref={editorRef}
           style={{
-            display: activeTabPath && !activeIsImage && !activeMdShowing && !activeIsExcalidraw
+            display: activeTabPath && !activeIsImage && !activeIsPdf && !activeIsDocx && !activeMdShowing && !activeIsExcalidraw
               && !(monacoPath && activeTabPath === monacoPath)
               && !(monacoDiffPath && activeTabPath === monacoDiffPath) ? 'block' : 'none',
           }}

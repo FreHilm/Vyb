@@ -238,6 +238,7 @@ declare global {
       onMenuToggleSplit: (callback: () => void) => () => void;
       formatDocument: (filePath: string, content: string) => Promise<{ content?: string; error?: string }>;
       readFile: (filePath: string) => Promise<string | null>;
+      readFileBinary: (filePath: string) => Promise<Uint8Array | null>;
       saveFile: (filePath: string, content: string) => Promise<boolean>;
       deleteFile: (targetPath: string) => Promise<boolean>;
       renameFile: (oldPath: string, newPath: string) => Promise<boolean>;

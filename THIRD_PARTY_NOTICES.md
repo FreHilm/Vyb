@@ -20,6 +20,8 @@ with the MIT license of this project.
 | [node-pty](https://github.com/microsoft/node-pty) | MIT | Native pseudo-terminal bindings |
 | [@vscode/ripgrep](https://github.com/microsoft/vscode-ripgrep) | MIT | Bundled ripgrep binary for cross-file search (Find/Replace in Files) |
 | [telegram (GramJS)](https://github.com/gram-js/gramjs) | MIT | MTProto Telegram client for the Hermes remote-agent chat transport |
+| [docx-preview](https://github.com/VolodymyrBaydalka/docxjs) | Apache-2.0 | Renders .docx files as Word-like pages in the file viewer |
+| [jszip](https://github.com/Stuk/jszip) | MIT | ZIP archive reading (docx-preview dependency) |
 | [CodeMirror](https://codemirror.net/) (codemirror, @codemirror/*) | MIT | Code editor |
 | [@codemirror/theme-one-dark](https://github.com/codemirror/theme-one-dark) | MIT | Editor dark theme |
 | [react-markdown](https://github.com/remarkjs/react-markdown) | MIT | Markdown renderer |

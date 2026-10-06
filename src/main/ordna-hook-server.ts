@@ -8,21 +8,36 @@ export function getActivePort(): number {
   return activePort;
 }
 
+/** Agent lifecycle event POSTed by an injected CLI hook (see the
+ * claude `--settings` hook config written in ipc-handlers). The event
+ * kind and owning profile travel in headers; the body is the hook's own
+ * JSON payload (passed through untouched for content-based decisions,
+ * e.g. distinguishing permission prompts from idle reminders). */
+export interface AgentHookEvent {
+  profileId: string;
+  event: string;
+  payload: Record<string, unknown> | null;
+}
+
 export interface StartOptions {
   preferredPort: number;
   token: string;
   onTask: (payload: OrdnaTaskPayload) => void;
+  onAgentHook?: (event: AgentHookEvent) => void;
 }
 
 export async function start(opts: StartOptions): Promise<number> {
   await stop();
 
-  const { preferredPort, token, onTask } = opts;
+  const { preferredPort, token, onTask, onAgentHook } = opts;
 
   return new Promise<number>((resolve, reject) => {
     const srv = http.createServer((req, res) => {
-      // Only accept POST /agent on the loopback interface
-      if (req.method !== 'POST' || (req.url !== '/agent' && req.url !== '/agent/')) {
+      const url = (req.url || '').replace(/\/+$/, '');
+      const isTask = url === '/agent';
+      const isAgentHook = url === '/agent-status';
+      // Only accept known POST routes on the loopback interface
+      if (req.method !== 'POST' || (!isTask && !isAgentHook)) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'not found' }));
         return;
@@ -40,6 +55,22 @@ export async function start(opts: StartOptions): Promise<number> {
       req.on('end', () => {
         try {
           const body = Buffer.concat(chunks).toString('utf-8');
+          if (isAgentHook) {
+            // Agent lifecycle hook (e.g. claude Stop/Notification). Kind +
+            // profile ride in headers; the body is the hook's own JSON
+            // payload and may be empty or non-JSON — never reject on it.
+            const profileId = req.headers['x-vyb-profile'];
+            const event = req.headers['x-vyb-event'];
+            if (typeof profileId !== 'string' || typeof event !== 'string' || !profileId || !event) {
+              throw new Error('missing profile/event headers');
+            }
+            let payload: Record<string, unknown> | null = null;
+            try { payload = body ? JSON.parse(body) : null; } catch { payload = null; }
+            onAgentHook?.({ profileId, event, payload });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true }));
+            return;
+          }
           const payload = JSON.parse(body) as OrdnaTaskPayload;
           if (!payload || typeof payload !== 'object' || !payload.task) {
             throw new Error('malformed payload');

@@ -82,6 +82,7 @@
     "adm-zip": "^0.5.17",
     "archiver": "^7.0.1",
     "codemirror": "^6.0.2",
+    "docx-preview": "^0.4.1",
     "electron-log": "^5.4.4",
     "electron-squirrel-startup": "^1.0.1",
     "electron-updater": "^6.8.3",

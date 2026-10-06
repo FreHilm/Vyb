@@ -194,6 +194,83 @@ async function runGitAsync(
   }
 }
 
+// Local hook-receiver endpoint for agent lifecycle events (set once the
+// hook server is listening; empty until then → spawns fall back to
+// regex-based status detection).
+let agentHookStatusUrl = '';
+let agentHookToken = '';
+
+// Directory for injected agent-hook files. Deliberately under the OS
+// temp dir, NOT userData: PtyManager whitespace-splits the agent command
+// line with no shell and no quote handling (pty-manager.ts), so every
+// injected path must be SPACE-FREE — macOS userData ("Application
+// Support/Vyb (Dev)") is not. tmpdir is per-user and space-free on
+// macOS (/var/folders/…) and Linux (/tmp); the files are rewritten on
+// every spawn, so temp cleanup between reboots is self-healing. 0o700
+// keeps the embedded hook token private on shared machines.
+function agentHooksDir(): string | null {
+  const dir = path.join(os.tmpdir(), 'vyb-agent-hooks');
+  if (/\s/.test(dir)) return null; // exotic TMPDIR with spaces → regex fallback
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
+
+// Write the per-profile hook settings file that wires an agent CLI's
+// lifecycle hooks to Vyb's local hook server. Used for claude (injected
+// via `--settings`, a MERGING settings source — the user's own settings
+// and hooks survive) and for gemini (injected via the
+// GEMINI_CLI_SYSTEM_SETTINGS_PATH env var; gemini's hook config is
+// claude-compatible — it even ships `gemini hooks migrate`). Events:
+//   UserPromptSubmit / PreToolUse → working
+//   Stop                          → ready (turn completed)
+//   Notification                  → needs-input (permission) or ready (idle)
+// The hook pipes its stdin JSON to the server so content-based decisions
+// (permission vs idle reminder) happen in Vyb; `|| true` keeps a failed
+// curl from surfacing as a hook error (exit code 2 would block the agent).
+function writeAgentHookSettings(profileId: string, agent: 'claude' | 'gemini'): string | null {
+  if (!agentHookStatusUrl || !agentHookToken) return null;
+  const dir = agentHooksDir();
+  if (!dir) return null;
+  const post = (event: string) =>
+    `curl -s --max-time 3 -X POST -H "X-Token: ${agentHookToken}" -H "X-Vyb-Profile: ${profileId}" ` +
+    `-H "X-Vyb-Event: ${event}" -H "Content-Type: application/json" --data-binary @- ` +
+    `${agentHookStatusUrl} >/dev/null 2>&1 || true`;
+  const entry = (event: string, matcher?: string) => [{
+    ...(matcher !== undefined ? { matcher } : {}),
+    hooks: [{ type: 'command', command: post(event) }],
+  }];
+  const settings = {
+    hooks: {
+      UserPromptSubmit: entry('working'),
+      PreToolUse: entry('working', '*'),
+      Notification: entry('notification'),
+      Stop: entry('stop'),
+    },
+  };
+  const file = path.join(dir, `${agent}-${profileId}.json`);
+  fs.writeFileSync(file, JSON.stringify(settings, null, 2));
+  return file;
+}
+
+// Codex has no hook system, but its `notify` config runs a program on
+// events (notably agent-turn-complete) with the event JSON as the last
+// argument. Write a tiny per-profile script that forwards that JSON to
+// the hook server — injected at spawn via `-c notify=["<script>"]`.
+function writeCodexNotifyScript(profileId: string): string | null {
+  if (!agentHookStatusUrl || !agentHookToken) return null;
+  const dir = agentHooksDir();
+  if (!dir) return null;
+  const file = path.join(dir, `codex-notify-${profileId}.sh`);
+  const script = `#!/bin/sh
+# Vyb agent-status forwarder (codex notify). "$1" is codex's event JSON.
+curl -s --max-time 3 -X POST -H "X-Token: ${agentHookToken}" -H "X-Vyb-Profile: ${profileId}" \\
+  -H "X-Vyb-Event: codex-notify" -H "Content-Type: application/json" \\
+  --data "$1" ${agentHookStatusUrl} >/dev/null 2>&1 || true
+`;
+  fs.writeFileSync(file, script, { mode: 0o755 });
+  return file;
+}
+
 // Clone a profile's bound repo URL into its working directory — called
 // by TERMINAL_CREATE before the agent PTY spawns. Directly into the
 // directory (git clone <url> .), never a subfolder. Hard safety: if the
@@ -269,6 +346,11 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   // 'ready' state during the window.
   const COMPLETION_CONFIRMATION_MS = 5000;
   const pendingCompletions: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  // Which transition kinds are hook-authoritative per profile. When hooks
+  // own a kind, the regex worker's sightings of it update the badge color
+  // but never ring the bell — only the exact hook event does. Kinds the
+  // hooks DON'T cover (e.g. codex needs-input) stay fully regex-driven.
+  const hookAuthority: Map<string, { completion: boolean; needsInput: boolean }> = new Map();
 
   const clearPendingCompletion = (profileId: string): void => {
     const t = pendingCompletions.get(profileId);
@@ -353,7 +435,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     notification.show();
   };
 
-  statusDetector = new StatusDetector((profileId, status, previousStatus, _output, hasNewContent) => {
+  statusDetector = new StatusDetector((profileId, status, previousStatus, _output, hasNewContent, source) => {
     // Cancel any pending completion confirmation as soon as the agent leaves
     // 'ready' — this is the primary defense against false-positive "done"
     // notifications when the agent briefly idles between turns.
@@ -396,27 +478,41 @@ export function setupIpcHandlers(window: BrowserWindow): void {
 
     if (isQuitting) return;
 
+    const authority = hookAuthority.get(profileId);
+
     // needs-input is urgent — fire bell + notification immediately.
+    // When hooks are authoritative for needs-input, the regex worker's
+    // sighting only recolors the badge (the hook event notifies).
     if (
       status === 'needs-input' &&
       (previousStatus === 'working' || previousStatus === 'ready')
     ) {
-      // Renderer already adds to hasUpdates on its own when status === 'needs-input'.
-      fireNotification(profileId, 'needs-input');
+      if (source === 'hook' || !authority?.needsInput) {
+        fireNotification(profileId, 'needs-input');
+      }
       return;
     }
 
-    // ready completion — schedule the delayed confirmation.
+    // ready completion. A hook event (claude/gemini Stop, codex
+    // turn-complete) IS the authoritative end-of-turn signal → bell
+    // immediately; the 5 s confirmation delay exists purely to filter
+    // the regex detector's false "done" flickers. A regex sighting on a
+    // profile whose completions are hook-owned updates the badge only.
     if (isCompletionCandidate) {
       clearPendingCompletion(profileId);
-      const t = setTimeout(() => {
-        pendingCompletions.delete(profileId);
-        // Tell the renderer the completion is real (lights the bell).
+      if (source === 'hook') {
         safeSend(IPC_CHANNELS.PROFILE_COMPLETION_CONFIRMED, { profileId });
-        // And fire the OS notification.
         fireNotification(profileId, 'ready');
-      }, COMPLETION_CONFIRMATION_MS);
-      pendingCompletions.set(profileId, t);
+      } else if (!authority?.completion) {
+        const t = setTimeout(() => {
+          pendingCompletions.delete(profileId);
+          // Tell the renderer the completion is real (lights the bell).
+          safeSend(IPC_CHANNELS.PROFILE_COMPLETION_CONFIRMED, { profileId });
+          // And fire the OS notification.
+          fireNotification(profileId, 'ready');
+        }, COMPLETION_CONFIRMATION_MS);
+        pendingCompletions.set(profileId, t);
+      }
     }
   });
 
@@ -488,6 +584,7 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         }
       } else {
         statusDetector.unregister(profileId);
+        hookAuthority.delete(profileId);
         safeSend(IPC_CHANNELS.PROFILE_STATUS_CHANGE, {
           profileId,
           status: 'offline',
@@ -605,12 +702,59 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       // conversation, which is precisely what we're overriding. Otherwise
       // build the effective profile and drop resume flags whose required
       // state directory doesn't exist in cwd.
-      const effectiveProfile = overrideArgs
+      let effectiveProfile = overrideArgs
         ? { ...profile, command: resolved.command, args: overrideArgs }
         : applyAgentArgsGuards({ ...profile, command: resolved.command, args: resolved.args });
 
-      statusDetector.register(profileId, effectiveProfile);
-      ptyManager.create(profileId, effectiveProfile, cols, rows);
+      // Event-driven status via injected CLI hooks, per agent:
+      //   claude → 'full'    (hooks own all transitions; regex worker off)
+      //   gemini → 'augment' (claude-compatible hooks via the system-
+      //                       settings env var; regex still drives
+      //                       'working' as a belt-and-braces)
+      //   codex  → 'augment' (notify script → exact turn completions;
+      //                       working/needs-input stay regex)
+      // Anything else — and any failure below — falls back to the regex
+      // detector unchanged. Hook commands are POSIX-shell + curl, so the
+      // injection is skipped on Windows.
+      let hookMode: 'full' | 'augment' | undefined;
+      let extraEnv: Record<string, string> | undefined;
+      const baseCmd = (effectiveProfile.command || '').toLowerCase();
+      const isCmd = (name: string) => baseCmd === name || baseCmd.endsWith(`/${name}`);
+      if (process.platform !== 'win32' && agentHookStatusUrl) {
+        try {
+          if (isCmd('claude')) {
+            const f = writeAgentHookSettings(profileId, 'claude');
+            if (f) {
+              // The path is guaranteed space-free (agentHooksDir) — no
+              // quoting: PtyManager whitespace-splits the command line
+              // with no shell, so quotes would arrive as literal chars.
+              effectiveProfile = { ...effectiveProfile, args: [...effectiveProfile.args, '--settings', f] };
+              hookMode = 'full';
+              hookAuthority.set(profileId, { completion: true, needsInput: true });
+            }
+          } else if (isCmd('gemini')) {
+            const f = writeAgentHookSettings(profileId, 'gemini');
+            if (f) {
+              extraEnv = { GEMINI_CLI_SYSTEM_SETTINGS_PATH: f };
+              hookMode = 'augment';
+              hookAuthority.set(profileId, { completion: true, needsInput: true });
+            }
+          } else if (isCmd('codex')) {
+            const f = writeCodexNotifyScript(profileId);
+            if (f) {
+              // Space-free path (see agentHooksDir); the TOML value is one
+              // whitespace-free token, so it survives PtyManager's split.
+              effectiveProfile = { ...effectiveProfile, args: [...effectiveProfile.args, '-c', `notify=["${f}"]`] };
+              hookMode = 'augment';
+              hookAuthority.set(profileId, { completion: true, needsInput: false });
+            }
+          }
+        } catch { /* fall back to regex detection */ }
+      }
+      if (!hookMode) hookAuthority.delete(profileId);
+
+      statusDetector.register(profileId, effectiveProfile, { hookMode });
+      ptyManager.create(profileId, effectiveProfile, cols, rows, extraEnv);
     },
   );
 
@@ -4124,6 +4268,22 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     }
   });
 
+  // Raw bytes for binary viewers (DocxViewer). Buffers cross Electron IPC
+  // as Uint8Array. Exists because fetch() over the local-file:// protocol
+  // is rejected by Chromium for non-'standard' schemes, and flipping the
+  // scheme to standard would change URL parsing for every existing
+  // consumer (icons, markdown images, PDFs — and Windows drive paths).
+  // Size-capped: these files are rendered whole in the DOM anyway.
+  ipcMain.handle(IPC_CHANNELS.FILE_READ_BINARY, (_, filePath: string): Buffer | null => {
+    try {
+      const st = fs.statSync(filePath);
+      if (!st.isFile() || st.size > 100 * 1024 * 1024) return null;
+      return fs.readFileSync(filePath);
+    } catch {
+      return null;
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.FILE_SAVE, (_, filePath: string, content: string): boolean => {
     try {
       fs.writeFileSync(filePath, content, 'utf-8');
@@ -4802,8 +4962,40 @@ async function initOrdnaHookServer(): Promise<void> {
           : null;
         safeSend(IPC_CHANNELS.ORDNA_TASK_RECEIVED, { sourceProfileId, payload });
       },
+      // Agent lifecycle hooks (claude --settings injection). Only honored
+      // for profiles registered as hook-driven — a stray/late POST for a
+      // regex-driven or unknown profile is ignored.
+      onAgentHook: ({ profileId, event, payload }) => {
+        if (!statusDetector || !statusDetector.isHookDriven(profileId)) return;
+        if (event === 'working') {
+          statusDetector.applyExternalStatus(profileId, 'working', false);
+        } else if (event === 'stop') {
+          statusDetector.applyExternalStatus(profileId, 'ready', true);
+        } else if (event === 'codex-notify') {
+          // codex `notify` events — currently only turn completions are
+          // documented; ignore anything else so future event types can't
+          // flip status wrongly.
+          const type = String((payload?.type as string | undefined) ?? '');
+          if (type === 'agent-turn-complete') {
+            statusDetector.applyExternalStatus(profileId, 'ready', true);
+          }
+        } else if (event === 'notification') {
+          // Claude's Notification hook covers two very different things:
+          // permission requests (user-blocking → needs-input) and the
+          // "waiting for your input" idle reminder (the turn is simply
+          // over → ready; also recovers a missed Stop after an interrupt).
+          const message = String((payload?.message as string | undefined) ?? '').toLowerCase();
+          if (message.includes('waiting for your input')) {
+            statusDetector.applyExternalStatus(profileId, 'ready', false);
+          } else {
+            statusDetector.applyExternalStatus(profileId, 'needs-input', false);
+          }
+        }
+      },
     });
     ordnaManager.setHookEnv(`http://127.0.0.1:${port}/agent`, token);
+    agentHookStatusUrl = `http://127.0.0.1:${port}/agent-status`;
+    agentHookToken = token;
   } catch (err) {
     console.error('Failed to start Ordna hook server:', err);
   }

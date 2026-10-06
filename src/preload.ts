@@ -452,6 +452,8 @@ contextBridge.exposeInMainWorld('api', {
 
   readFile: (filePath: string): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_READ, filePath),
+  readFileBinary: (filePath: string): Promise<Uint8Array | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_READ_BINARY, filePath),
 
   saveFile: (filePath: string, content: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_SAVE, filePath, content),
