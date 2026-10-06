@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Profile, ExternalApp } from '../../shared/types';
 import { APP_ICONS } from '../icons';
 import { NavBadge } from './KeyNav';
@@ -98,6 +98,107 @@ export function CommandBar({
   // to save toolbar space). Closes on outside-click / Escape.
   const [appsOpen, setAppsOpen] = useState(false);
   const appsRef = useRef<HTMLDivElement>(null);
+
+  // Responsive overflow: when the bar is too narrow for the action
+  // cluster (Terminal / Git / Mic / Folder / Apps), the whole cluster
+  // collapses into a single "⋯" dropdown (Apps becomes a submenu inside
+  // it) and expands back once there's room again.
+  const [actionsCollapsed, setActionsCollapsed] = useState(false);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const [overflowAppsOpen, setOverflowAppsOpen] = useState(false);
+  const barRef = useRef<HTMLDivElement>(null);
+  const overflowRef = useRef<HTMLDivElement>(null);
+  const collapsedRef = useRef(false);
+  collapsedRef.current = actionsCollapsed;
+  /** Width of the EXPANDED action cluster — content-determined, so it's
+   * a stable constant we cache whenever the cluster is rendered expanded
+   * and reuse while collapsed to decide if re-expansion would fit. */
+  const expandedActionsWidthRef = useRef(0);
+  const splitActiveRef = useRef(splitActive);
+  splitActiveRef.current = splitActive;
+  const splitPctRef = useRef(agentSplitPercent);
+  splitPctRef.current = agentSplitPercent;
+
+  // Analytic fit check — "do the icons have room?" computed from the
+  // clusters' actual minimum widths, NOT from bar.scrollWidth. The naive
+  // scrollWidth approach failed twice over in split mode: the percentage
+  // column inflates the stored "needed" width as the window grows (so it
+  // never re-expanded), and total-bar overflow isn't the question anyway.
+  const checkOverflow = useCallback(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const actions = bar.querySelector<HTMLElement>('.command-bar-actions');
+    if (!actions) return;
+    // Cache the expanded cluster's natural width while it's visible.
+    if (!collapsedRef.current && actions.scrollWidth > 0) {
+      expandedActionsWidthRef.current = actions.scrollWidth;
+    }
+    const actionsNeeded = expandedActionsWidthRef.current;
+    if (actionsNeeded <= 0) return; // nothing cached yet — first render is expanded
+
+    const cs = getComputedStyle(bar);
+    const available = bar.clientWidth
+      - (parseFloat(cs.paddingLeft) || 0)
+      - (parseFloat(cs.paddingRight) || 0);
+
+    let tabsNeeded: number;
+    if (splitActiveRef.current) {
+      const left = bar.querySelector<HTMLElement>('.command-bar-tabs-left');
+      const right = bar.querySelector<HTMLElement>('.command-bar-tabs-right');
+      // Column 1 reserves its split percentage even when visually empty —
+      // that's layout reality, so it counts as occupied space.
+      const pctCol = Math.max(
+        (bar.clientWidth * (splitPctRef.current || 50)) / 100,
+        left?.scrollWidth ?? 0,
+      );
+      tabsNeeded = pctCol + (right?.scrollWidth ?? 0);
+    } else {
+      const tabs = bar.querySelector<HTMLElement>('.command-bar-tabs');
+      tabsNeeded = tabs?.scrollWidth ?? 0;
+    }
+
+    const fits = tabsNeeded + actionsNeeded <= available;
+    const fitsWithMargin = tabsNeeded + actionsNeeded + 24 <= available;
+    if (!collapsedRef.current && !fits) setActionsCollapsed(true);
+    else if (collapsedRef.current && fitsWithMargin) setActionsCollapsed(false);
+  }, []);
+
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(checkOverflow);
+    ro.observe(el);
+    // Belt-and-braces: some width changes reach the bar without a
+    // ResizeObserver tick (e.g. when an ancestor clamps instead).
+    window.addEventListener('resize', checkOverflow);
+    checkOverflow();
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', checkOverflow);
+    };
+  }, [checkOverflow]);
+
+  // Content-driven width changes don't fire the ResizeObserver (the bar's
+  // own box may stay the same while its contents overflow) — re-check
+  // after any render whose inputs change what the expanded cluster needs.
+  // Also validates a fresh expansion: if the stored width went stale and
+  // the content still overflows, this collapses it right back.
+  useLayoutEffect(() => {
+    checkOverflow();
+  });
+
+  // Close the overflow menu on outside click (same pattern as appsRef).
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+        setOverflowOpen(false);
+        setOverflowAppsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [overflowOpen]);
   useEffect(() => {
     if (!appsOpen) return;
     const onDown = (e: MouseEvent) => {
@@ -266,6 +367,7 @@ export function CommandBar({
   ) : null;
   return (
     <div
+      ref={barRef}
       className={`command-bar${splitActive ? ' command-bar-split' : ''}`}
       style={
         splitActive
@@ -293,6 +395,118 @@ export function CommandBar({
         </div>
       )}
       <div className="command-bar-actions">
+        {actionsCollapsed && (
+          <div className="apps-menu" ref={overflowRef}>
+            <button
+              className={`${actionBtnCls}${overflowOpen ? ' is-active' : ''}`}
+              onClick={() => { setOverflowOpen((o) => !o); setOverflowAppsOpen(false); }}
+              title="More actions"
+              aria-haspopup="menu"
+              aria-expanded={overflowOpen}
+            >
+              <svg {...ICON_PROPS}>
+                <circle cx="3" cy="8" r="1.4" fill="currentColor" stroke="none" />
+                <circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none" />
+                <circle cx="13" cy="8" r="1.4" fill="currentColor" stroke="none" />
+              </svg>
+            </button>
+            {overflowOpen && (
+              <div className="apps-menu-dropdown" role="menu">
+                <button
+                  className={`apps-menu-item${shellOpen ? ' is-active' : ''}`}
+                  role="menuitem"
+                  onClick={() => { onToggleShell(); setOverflowOpen(false); }}
+                >
+                  <svg {...ICON_PROPS}>
+                    <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
+                    <polyline points="4.5 7 6.5 9 4.5 11" />
+                    <line x1="8" y1="11" x2="11" y2="11" />
+                  </svg>
+                  <span>Terminal</span>
+                </button>
+                <button
+                  className={`apps-menu-item${gitActive ? ' is-active' : ''}`}
+                  role="menuitem"
+                  onClick={() => { onToggleGit(); setOverflowOpen(false); }}
+                >
+                  <svg {...ICON_PROPS}>
+                    <circle cx="4" cy="3.5" r="1.4" />
+                    <circle cx="4" cy="12.5" r="1.4" />
+                    <circle cx="12" cy="6" r="1.4" />
+                    <line x1="4" y1="4.9" x2="4" y2="11.1" />
+                    <path d="M12 7.4v.6a3 3 0 0 1-3 3H7" />
+                  </svg>
+                  <span>Git</span>
+                </button>
+                {dictationSupported && (
+                  <button
+                    className={`apps-menu-item${dictationListening ? ' is-active' : ''}`}
+                    role="menuitem"
+                    onClick={dictationMode === 'toggle' ? () => { onDictationToggle(); setOverflowOpen(false); } : undefined}
+                    onMouseDown={dictationMode === 'hold' ? onDictationStart : undefined}
+                    onMouseUp={dictationMode === 'hold' ? onDictationStop : undefined}
+                    title={`Dictation (Ctrl+Shift+D) — ${dictationMode === 'hold' ? 'hold to talk' : 'click to toggle'}`}
+                  >
+                    <svg {...ICON_PROPS}>
+                      <rect x="6" y="2" width="4" height="7" rx="2" />
+                      <path d="M3.5 7.5v.5a4.5 4.5 0 0 0 9 0v-.5" />
+                      <line x1="8" y1="12.5" x2="8" y2="14" />
+                    </svg>
+                    <span>{dictationListening ? 'Listening…' : 'Mic'}</span>
+                  </button>
+                )}
+                <button
+                  className="apps-menu-item"
+                  role="menuitem"
+                  onClick={() => { handleOpenFolder(); setOverflowOpen(false); }}
+                >
+                  <svg {...ICON_PROPS}>
+                    <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.5h5A1.5 1.5 0 0 1 14 6v6a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12V4.5Z" />
+                  </svg>
+                  <span>Folder</span>
+                </button>
+                {externalApps.length > 0 && (
+                  <>
+                    <div className="apps-menu-divider" />
+                    <button
+                      className="apps-menu-item"
+                      role="menuitem"
+                      aria-haspopup="menu"
+                      aria-expanded={overflowAppsOpen}
+                      onClick={() => setOverflowAppsOpen((o) => !o)}
+                    >
+                      <svg {...ICON_PROPS}>
+                        <rect x="2" y="2" width="4.5" height="4.5" rx="1" />
+                        <rect x="9.5" y="2" width="4.5" height="4.5" rx="1" />
+                        <rect x="2" y="9.5" width="4.5" height="4.5" rx="1" />
+                        <rect x="9.5" y="9.5" width="4.5" height="4.5" rx="1" />
+                      </svg>
+                      <span>Apps</span>
+                      <span className="apps-menu-caret">{overflowAppsOpen ? '▾' : '▸'}</span>
+                    </button>
+                    {overflowAppsOpen && externalApps.map((app) => {
+                      const iconContent = APP_ICONS[app.icon] || APP_ICONS['file'];
+                      return (
+                        <button
+                          key={app.id}
+                          className="apps-menu-item apps-menu-subitem"
+                          role="menuitem"
+                          onClick={() => { handleOpenExternal(app); setOverflowOpen(false); setOverflowAppsOpen(false); }}
+                          title={`Open in ${app.name}`}
+                        >
+                          <svg {...ICON_PROPS} dangerouslySetInnerHTML={{ __html: iconContent }} />
+                          <span>{app.name}</span>
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        {!actionsCollapsed && (
+        <>
         <button
           className={`${actionBtnCls} ${shellOpen ? 'action-btn-active' : ''}`}
           onClick={onToggleShell}
@@ -399,6 +613,8 @@ export function CommandBar({
               </div>
             )}
           </div>
+        )}
+        </>
         )}
       </div>
     </div>

@@ -900,6 +900,13 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* Row-flex child (next to the sidebar): without this, min-width:auto
+     lets wide command-bar content widen main-area past the window, and
+     the bar's own max-width:100% then clamps against the WRONG (already
+     overgrown) width — the ⋯-collapse detection never sees an internal
+     overflow. min-width:0 completes the clamp chain window → main-area
+     → command-bar. */
+  min-width: 0;
 }
 
 /* Command Bar */
@@ -911,6 +918,13 @@
   padding: 0 16px 0 0;
   background: var(--c-base);
   flex-shrink: 0;
+  /* Without this, the bar's implicit min-width:auto lets content widen
+     the bar PAST main-area (clipped at the window edge) — the bar then
+     never overflows internally, so the ⋯-collapse detection
+     (scrollWidth > clientWidth) can't fire. Clamped, the content
+     overflows INSIDE the bar and the ResizeObserver check works. */
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* Main-view tab strip — pinned to the left of the command bar. The
@@ -1260,6 +1274,26 @@
   background: rgba(255, 255, 255, 0.08);
   border-color: var(--c-surface2);
 }
+/* Overflow behavior: action buttons must never silently squish — a real
+   overflow (bar scrollWidth > clientWidth) is what the CommandBar's
+   ResizeObserver measures to decide when to collapse the cluster into
+   the "⋯" menu. NO overflow:hidden here — it would clip the absolutely-
+   positioned dropdown menus, and scrollWidth measures regardless. */
+.command-bar-actions > * { flex-shrink: 0; }
+
+.apps-menu-divider {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--c-surface1);
+}
+.apps-menu-item.is-active { color: var(--c-blue); }
+.apps-menu-caret {
+  margin-left: auto;
+  color: var(--c-overlay0);
+  font-size: 10px;
+}
+.apps-menu-subitem { padding-left: 28px; }
+
 .apps-menu-dropdown {
   position: absolute;
   top: calc(100% + 4px);
