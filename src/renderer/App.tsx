@@ -268,6 +268,10 @@ declare global {
         callback: (payload: { profileId: string; parallelAgentId: string | null }) => void,
       ) => () => void;
       generateIcon: (profileId: string, projectName: string) => Promise<string | null>;
+      listIconModels: (
+        provider: 'openai' | 'gemini',
+        apiKey?: string,
+      ) => Promise<{ models: { id: string; label: string }[]; error?: string }>;
       iconHistory: (profileId: string) => Promise<{ path: string; mtime: number }[]>;
       deleteIcon: (iconPath: string) => Promise<boolean>;
       loadLayout: () => Promise<SidebarLayout>;

@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Profile, AppSettings, ExternalApp, DEFAULT_SETTINGS, DEFAULT_AGENTS, SidebarLayout, ProfileMemoryMap } from '../shared/types';
+import { Profile, AppSettings, ExternalApp, DEFAULT_SETTINGS, DEFAULT_AGENTS, RETIRED_IMAGE_MODELS, SidebarLayout, ProfileMemoryMap } from '../shared/types';
 
 /** Default external-app launchers for a fresh install, picked per OS.
  * macOS uses `open -a` (works without the `code` CLI on PATH); Windows
@@ -67,6 +67,10 @@ export function loadSettings(): AppSettings {
   try {
     const content = fs.readFileSync(settingsPath, 'utf-8');
     const merged: AppSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(content) };
+    // Soft-migrate: swap image models the provider has shut down for
+    // their named replacement (e.g. gpt-image-1 → gpt-image-2.5-sunburst).
+    merged.openaiModel = RETIRED_IMAGE_MODELS[merged.openaiModel] ?? merged.openaiModel;
+    merged.geminiModel = RETIRED_IMAGE_MODELS[merged.geminiModel] ?? merged.geminiModel;
     // Soft-migrate: fill in default permissionModeArgs for built-in agent ids
     // that pre-date this field, so existing users get the defaults.
     if (Array.isArray(merged.agents)) {
