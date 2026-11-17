@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo, forwardRef, useImper
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
 import { EditorView, ViewPlugin, type ViewUpdate, keymap } from '@codemirror/view';
 import { EditorState, EditorSelection, type Extension } from '@codemirror/state';
 import { undo, redo } from '@codemirror/commands';
@@ -36,6 +37,13 @@ const warnedLargeDirs = new Set<string>();
 import { blameGutter } from '../lib/blame-gutter';
 import { stickyScroll } from '../lib/sticky-scroll';
 import type { GitBlameLine } from '../../shared/types';
+
+// Raw HTML in markdown (rehype-raw) is untrusted: a README from any cloned
+// repo can carry it, and this window holds window.api. rehype-sanitize's
+// default (GitHub-style) schema drops script, iframe, object, embed, form,
+// srcdoc and on* attributes, and keeps the `language-*` classes on code that
+// the mermaid routing relies on. Local image paths have no scheme, so they
+// pass, and the img component rewrites them to local-file:// afterwards.
 
 /** Imperative API exposed to the parent (App) for the quit-time "Save all"
  * action — flushes every dirty buffer in this explorer to disk. */
@@ -2940,7 +2948,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
               if (href.startsWith('#')) {
                 const id = href.slice(1).toLowerCase();
                 const el = (e.currentTarget as HTMLElement).querySelector(
-                  `[id="${id}"], [id="${id.replace(/ /g, '-')}"]`,
+                  `[id="${id}"], [id="${id.replace(/ /g, '-')}"], [id="user-content-${id}"]`,
                 );
                 if (el) (el as HTMLElement).scrollIntoView({ behavior: 'smooth' });
                 return;
@@ -2957,7 +2965,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
             <ErrorBoundary label={`md:${activeTabPath}`} key={activeTabPath}>
               <Markdown
                 remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw]}
+                rehypePlugins={[rehypeRaw, rehypeSanitize]}
                 components={markdownComponents}
               >
                 {mdContent.get(activeTabPath) ?? ''}

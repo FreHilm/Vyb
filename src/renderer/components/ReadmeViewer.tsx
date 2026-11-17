@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
 import { EditorView, keymap } from '@codemirror/view';
 import { EditorState, EditorSelection } from '@codemirror/state';
 import { markdown } from '@codemirror/lang-markdown';
@@ -12,6 +13,13 @@ import { FileIcon } from '../file-icons';
 import { ResizeHandle } from './ResizeHandle';
 import { MermaidBlock } from './MermaidBlock';
 import { ErrorBoundary } from './ErrorBoundary';
+
+// Raw HTML in markdown (rehype-raw) is untrusted: a README from any cloned
+// repo can carry it, and this window holds window.api. rehype-sanitize's
+// default (GitHub-style) schema drops script, iframe, object, embed, form,
+// srcdoc and on* attributes, and keeps the `language-*` classes on code that
+// the mermaid routing relies on. Local image paths have no scheme, so they
+// pass, and the img component rewrites them to local-file:// afterwards.
 
 interface ReadmeViewerProps {
   workingDirectory: string;
@@ -658,7 +666,7 @@ export function ReadmeViewer({ workingDirectory }: ReadmeViewerProps) {
     // resolve as paths.
     if (href.startsWith('#')) {
       const id = href.slice(1).toLowerCase();
-      const el = viewerRef.current?.querySelector(`[id="${id}"], [id="${id.replace(/ /g, '-')}"]`);
+      const el = viewerRef.current?.querySelector(`[id="${id}"], [id="${id.replace(/ /g, '-')}"], [id="user-content-${id}"]`);
       if (el) el.scrollIntoView({ behavior: 'smooth' });
       return;
     }
@@ -897,7 +905,7 @@ export function ReadmeViewer({ workingDirectory }: ReadmeViewerProps) {
           <ErrorBoundary label={`readme:${currentFile}`} key={currentFile}>
             <Markdown
               remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeRaw]}
+              rehypePlugins={[rehypeRaw, rehypeSanitize]}
               components={markdownComponents}
             >{content}</Markdown>
           </ErrorBoundary>

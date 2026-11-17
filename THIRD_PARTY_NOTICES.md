@@ -26,6 +26,8 @@ with the MIT license of this project.
 | [@codemirror/theme-one-dark](https://github.com/codemirror/theme-one-dark) | MIT | Editor dark theme |
 | [react-markdown](https://github.com/remarkjs/react-markdown) | MIT | Markdown renderer |
 | [remark-gfm](https://github.com/remarkjs/remark-gfm) | MIT | GitHub Flavored Markdown |
+| [rehype-sanitize](https://github.com/rehypejs/rehype-sanitize) | MIT | Strips scripts, iframes and other active content from raw HTML in rendered markdown |
+| [hast-util-sanitize](https://github.com/syntax-tree/hast-util-sanitize) | MIT | HTML sanitising (rehype-sanitize dependency) |
 | [mermaid](https://github.com/mermaid-js/mermaid) | MIT | Diagram rendering for ```mermaid``` code blocks in the README viewer |
 | [@excalidraw/excalidraw](https://github.com/excalidraw/excalidraw) | MIT | Whiteboard / drawing editor used to view and edit `.excalidraw` files |
 | [archiver](https://github.com/archiverjs/node-archiver) | MIT | ZIP archive creation |
