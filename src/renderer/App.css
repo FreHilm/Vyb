@@ -4606,10 +4606,20 @@ select option {
 .file-md-content {
   flex: 1;
   overflow-y: auto;
-  padding: 32px 48px;
+  /* Query container for the reading column's side padding below. */
+  container-type: inline-size;
+  padding: 32px 0;
   background: var(--c-base);
   outline: none;
   min-width: 0;
+}
+/* Reading column. Side padding scales with the pane — roomy when wide,
+   tight in a narrow split — and the column still caps at an ~800px
+   measure on wide panes. */
+.file-md-content > .readme-content {
+  padding: 0 clamp(14px, 6cqi, 48px);
+  max-width: calc(800px + 2 * clamp(14px, 6cqi, 48px));
+  box-sizing: border-box;
 }
 /* Images in rendered markdown — never overflow the pane; slight radius
    so screenshots sit nicely on the dark background. */
@@ -4675,7 +4685,80 @@ select option {
   background: var(--c-mantle);
   border-left: 1px solid var(--c-surface0);
   overflow: hidden;
+  position: relative;
+  /* In a narrow Files pane the list gives way before the rail is pushed
+     off-screen, so the show/hide toggle is always reachable. */
+  max-width: 60%;
 }
+/* The tree's resize handle sits on its left edge (docked or overlay), so
+   one handle serves both modes. */
+.file-tree-pane > .resize-handle-h {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+}
+
+/* Auto-hide: the tree leaves the layout and slides out beside the rail
+   while hovered. `.file-explorer` is the positioned, clipped container. */
+.file-tree-pane.is-overlay {
+  position: absolute;
+  top: 0;
+  right: 22px; /* beside the rail, which stays visible */
+  bottom: 0;
+  z-index: 30;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+  transform: translateX(calc(100% + 22px));
+  visibility: hidden;
+  transition: transform 0.16s ease, visibility 0s linear 0.16s;
+}
+.file-tree-pane.is-overlay.is-peeking {
+  transform: none;
+  visibility: visible;
+  transition: transform 0.16s ease, visibility 0s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .file-tree-pane.is-overlay,
+  .file-tree-pane.is-overlay.is-peeking {
+    transition: none;
+  }
+}
+
+/* The rail: the tree's show/hide toggle, always on the right edge. */
+.file-tree-rail {
+  flex-shrink: 0;
+  width: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 0 0;
+  font: inherit;
+  background: var(--c-mantle);
+  border: none;
+  border-left: 1px solid var(--c-surface0);
+  color: var(--c-overlay1);
+  cursor: pointer;
+  user-select: none;
+}
+.file-tree-rail:hover,
+.file-tree-rail.is-active {
+  color: var(--c-text);
+  background: var(--c-surface0);
+}
+.file-tree-rail:focus-visible {
+  outline: 1px solid var(--c-blue);
+  outline-offset: -1px;
+}
+.file-tree-rail-label {
+  writing-mode: vertical-rl;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 
 .file-tree-header {
   padding: 6px 8px 6px 12px;
@@ -4693,6 +4776,9 @@ select option {
 .file-tree-actions {
   display: flex;
   gap: 2px;
+  /* The buttons never get squeezed out of a narrow tree; the "Files"
+     label truncates first (see .file-tree-title below). */
+  flex-shrink: 0;
 }
 
 /* "New…" dropdown in the tree header. The menu reuses .file-context-menu
@@ -5282,6 +5368,16 @@ select option {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+}
+.file-tree-title > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-tree-title > button {
+  flex-shrink: 0;
 }
 /* The diff toggle when rendered inline next to the title is smaller and
    sits lower-key than the right-side action buttons — slightly less
@@ -5951,6 +6047,36 @@ select option {
   color: var(--c-text);
   font-size: 15px;
   line-height: 1.7;
+  /* Long URLs, inline code and table cells wrap instead of forcing a
+     minimum width, so tables fit the pane rather than scrolling sideways. */
+  overflow-wrap: anywhere;
+}
+/* Tables fit the pane width. Ordinary words in cells stay whole; links
+   and inline code, the usual reason a table gets wide, may break anywhere. */
+.readme-content th,
+.readme-content td {
+  overflow-wrap: normal;
+}
+.readme-content th :is(code, a),
+.readme-content td :is(code, a) {
+  overflow-wrap: anywhere;
+}
+/* Narrow preview (the Files view sets a query container): tighter cells,
+   and words may break so the table always fits the pane. Hyphenation
+   points are used first; breaking anywhere is the last resort. */
+@container (max-width: 420px) {
+  /* Equal columns: the automatic layout gives nearly all the width to
+     long cells and stacks short words letter by letter. */
+  .readme-content table {
+    table-layout: fixed;
+    font-size: 13px;
+  }
+  .readme-content th,
+  .readme-content td {
+    padding: 4px 6px;
+    hyphens: auto;
+    overflow-wrap: anywhere;
+  }
 }
 
 .readme-content h1 {

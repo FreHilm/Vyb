@@ -2691,6 +2691,9 @@ export function App() {
                   editorEngine={settings.editorEngine ?? 'monaco'}
                   editorFontSize={settings.editorFontSize ?? 12}
                   diffContextLines={settings.diffContextLines ?? 6}
+                  fileTreeWidth={settings.fileTreeWidth ?? 240}
+                  fileTreeAutoHide={settings.fileTreeAutoHide === true}
+                  onFileTreeLayoutChange={savePaneSizes}
                   showChangedOnly={showChangedFilesViews.has(key)}
                   onShowChangedOnlyChange={(next) => {
                     setShowChangedFilesViews((prev) => {
