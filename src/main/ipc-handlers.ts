@@ -1907,10 +1907,12 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   // at HEAD (a brand-new file has no baseline). Drives the unified
   // diff view in the file editor — CodeMirror's `unifiedMergeView`
   // needs the original text, not a unified-diff blob.
+  // Paths come from the repo (file names in `git status`), so they're passed
+  // to git as argv, never through a shell: a name containing `$(...)` or a
+  // backtick would otherwise run as a command.
   ipcMain.handle(IPC_CHANNELS.GIT_FILE_AT_HEAD, (_, cwd: string, filePath: string): string | null => {
-    const escaped = filePath.replace(/"/g, '\\"');
     try {
-      return execSync(`git show HEAD:"${escaped}"`, {
+      return execFileSync('git', ['show', `HEAD:${filePath}`], {
         cwd,
         timeout: 5000,
         encoding: 'utf-8',
@@ -1923,23 +1925,23 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   });
 
   ipcMain.handle(IPC_CHANNELS.GIT_FILE_DIFF, (_, cwd: string, filePath: string, staged?: boolean): string => {
-    const run = (cmd: string): string => {
+    // argv, not a shell string: see GIT_FILE_AT_HEAD above.
+    const run = (args: string[]): string => {
       try {
-        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
+        return execFileSync('git', args, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
       } catch {
         return '';
       }
     };
-    const escaped = filePath.replace(/"/g, '\\"');
     // staged=true → index vs HEAD;  staged=false → working tree vs index;
     // staged=undefined → combined (legacy callers).
     let diff: string;
     if (staged === true) {
-      diff = run(`git diff --cached -- "${escaped}"`);
+      diff = run(['diff', '--cached', '--', filePath]);
     } else if (staged === false) {
-      diff = run(`git diff -- "${escaped}"`);
+      diff = run(['diff', '--', filePath]);
     } else {
-      diff = run(`git diff HEAD -- "${escaped}"`);
+      diff = run(['diff', 'HEAD', '--', filePath]);
     }
 
     // Empty diff: only fall back to a synthetic "all lines added" view if
@@ -1951,8 +1953,8 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     if (!diff) {
       const trackedCheck = (() => {
         try {
-          execSync(`git ls-files --error-unmatch -- "${escaped}"`, {
-            cwd, timeout: 5000, encoding: 'utf-8',
+          execFileSync('git', ['ls-files', '--error-unmatch', '--', filePath], {
+            cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
           });
           return true;
         } catch {
