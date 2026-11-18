@@ -3999,6 +3999,12 @@ select option {
      scrollIntoView/focus, and revealing a file in the auto-hidden tree
      (parked off to the right) scrolled the whole view sideways. */
   overflow: clip;
+  /* A scroll container (overflow: hidden) gets a zero automatic minimum
+     size as a flex item; a clipped box doesn't, so without these it
+     couldn't shrink below wide content (a Word page, an image, Monaco's
+     pixel-sized layers) and would squeeze the agent pane. */
+  min-width: 0;
+  min-height: 0;
   position: relative; /* containing block for the T-026 history overlay */
 }
 
