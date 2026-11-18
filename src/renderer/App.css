@@ -3995,7 +3995,10 @@ select option {
 .file-explorer {
   flex: 1;
   display: flex;
-  overflow: hidden;
+  /* clip, not hidden: a hidden-overflow box can still be scrolled by
+     scrollIntoView/focus, and revealing a file in the auto-hidden tree
+     (parked off to the right) scrolled the whole view sideways. */
+  overflow: clip;
   position: relative; /* containing block for the T-026 history overlay */
 }
 
