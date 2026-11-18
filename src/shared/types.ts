@@ -179,6 +179,11 @@ export interface AppSettings {
    * stays a pure flush-to-disk for users who don't want their
    * formatting touched. */
   formatOnSave: boolean;
+  /** Where links clicked in terminals open: the built-in Web tab
+   * ('vyb') or the system default browser ('system'). When the Web
+   * feature itself is disabled, links always open in the system
+   * browser regardless of this setting. */
+  openLinksIn: 'vyb' | 'system';
   /** Strip trailing spaces/tabs from every line on save. Default off
    * (same rationale as formatOnSave). */
   trimWhitespaceOnSave: boolean;
@@ -366,6 +371,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   diffViewMode: 'unified',
   showAuthorAvatars: true,
   formatOnSave: false,
+  openLinksIn: 'vyb',
   trimWhitespaceOnSave: false,
   finalNewlineOnSave: false,
   editorStickyScroll: true,

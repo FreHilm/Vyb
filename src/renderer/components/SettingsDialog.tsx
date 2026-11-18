@@ -216,6 +216,7 @@ export function SettingsDialog({
   const [parallelAgentAutoRun, setParallelAgentAutoRun] = useState(settings.parallelAgentAutoRun !== false);
   const [functionKanbanEnabled, setFunctionKanbanEnabled] = useState(settings.functionKanbanEnabled !== false);
   const [functionWebEnabled, setFunctionWebEnabled] = useState(settings.functionWebEnabled !== false);
+  const [openLinksInVyb, setOpenLinksInVyb] = useState(settings.openLinksIn !== 'system');
   const [defaultSplitView, setDefaultSplitView] = useState(settings.defaultSplitView === true);
   const [showAuthorAvatars, setShowAuthorAvatars] = useState(settings.showAuthorAvatars !== false);
   const [formatOnSave, setFormatOnSave] = useState(settings.formatOnSave === true);
@@ -334,6 +335,7 @@ export function SettingsDialog({
       parallelAgentAutoRun,
       functionKanbanEnabled,
       functionWebEnabled,
+      openLinksIn: openLinksInVyb ? 'vyb' as const : 'system' as const,
       defaultSplitView,
       showAuthorAvatars,
       formatOnSave,
@@ -480,6 +482,26 @@ export function SettingsDialog({
                 An in-app browser with back/forward/reload and an address bar.
                 Each profile remembers its last URL.
               </span>
+
+              {functionWebEnabled && (
+                <>
+                  <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                    <span className="field-label">Open links in built-in browser</span>
+                    <label className="integration-toggle">
+                      <input
+                        type="checkbox"
+                        checked={openLinksInVyb}
+                        onChange={(e) => setOpenLinksInVyb(e.target.checked)}
+                      />
+                      <span className="toggle-slider" />
+                    </label>
+                  </label>
+                  <span className="field-hint">
+                    Links clicked in agent and shell terminals open in the Web
+                    tab. Off: they open in your system browser instead.
+                  </span>
+                </>
+              )}
 
               <label className="field field-row-toggle" style={{ marginTop: 12 }}>
                 <span className="field-label">Show author avatars</span>

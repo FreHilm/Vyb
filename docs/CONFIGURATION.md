@@ -95,6 +95,7 @@ Feature toggles and editor/behaviour preferences.
 |---------|-------------|---------|
 | Kanban | Show the Kanban (Ordna) tab | On |
 | Web | Show the in-app browser tab | On |
+| Open links in built-in browser | Terminal links open in the Web tab; off = system browser | On |
 | Split view by default | Open profiles in split view (agent left, editor right) the first time they're used; a profile's own split toggle is remembered and wins | Off |
 | Agent notifications | Notify when an agent finishes or needs input | On |
 | Use Monaco editor | Use Monaco (vs. CodeMirror) as the file editor | On |

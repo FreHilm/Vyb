@@ -2641,7 +2641,10 @@ export function App() {
               focusedPane={focusedPane}
               navActive={navActive}
               splitWidth={splitMode && !selectedParallelId ? agentSplitPercent : null}
-              webEnabled={settings.functionWebEnabled !== false}
+              /* Link routing, not tab visibility: terminal links go to the
+                 in-app Web tab only when the feature is on AND the user
+                 prefers it; otherwise they open in the system browser. */
+              webEnabled={settings.functionWebEnabled !== false && settings.openLinksIn !== 'system'}
               consumeStartupArgs={consumeStartupArgs}
             />
             {splitMode && (
@@ -2846,7 +2849,7 @@ export function App() {
                     workingDirectory={v.cwd}
                     hidden={!isVisible}
                     settings={settings}
-                    webEnabled={settings.functionWebEnabled !== false}
+                    webEnabled={settings.functionWebEnabled !== false && settings.openLinksIn !== 'system'}
                     getSnapTargets={getShellSnapTargets}
                     onDividersChange={reportShellDividers}
                     onAllClosed={() => {
