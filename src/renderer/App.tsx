@@ -20,7 +20,6 @@ import { StatusBar } from './components/StatusBar';
 import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { HotkeyHints } from './components/HotkeyHints';
-import { useDictation } from './components/Dictation';
 import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, Workspace, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitMergePreviewResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult, FileReplaceTarget, FileReplaceResult, AgentSessionList, DEFAULT_AGENTS, ACTIVE_PROFILES_WORKSPACE_ID, resolveAgent, buildSessionArgs, RemoteChatState, RemoteChatMessage, RemoteChatEvent, RemoteChatTopics, RemoteChatTopic } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
@@ -2429,61 +2428,6 @@ export function App() {
     },
   });
 
-  // Dictation — send transcript to the focused terminal
-  const handleTranscript = useCallback((text: string) => {
-    if (!activeProfileId) return;
-    if (focusedPane.pane === 'agent') {
-      window.api.sendInput(activeProfileId, text);
-    }
-    // For shell pane, we'd need the shell ID — for now just send to agent
-  }, [activeProfileId, focusedPane]);
-
-  const dictation = useDictation({
-    lang: settings.dictationLang,
-    mode: settings.dictationMode,
-    onTranscript: handleTranscript,
-  });
-
-  // Hotkey for dictation: Ctrl+D (not Cmd — macOS swallows keyup with Cmd held)
-  const dictHoldActiveRef = useRef(false);
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && !e.metaKey && e.key === 'D') {
-        e.preventDefault();
-        if (settings.dictationMode === 'hold') {
-          if (!dictHoldActiveRef.current) {
-            dictHoldActiveRef.current = true;
-            dictation.startListening();
-          }
-        } else {
-          dictation.toggleListening();
-        }
-      }
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (settings.dictationMode === 'hold' && dictHoldActiveRef.current) {
-        if (e.key === 'D' || e.key === 'd' || e.key === 'Shift' || e.key === 'Control') {
-          dictHoldActiveRef.current = false;
-          dictation.stopListening();
-        }
-      }
-    };
-    const handleBlur = () => {
-      if (dictHoldActiveRef.current) {
-        dictHoldActiveRef.current = false;
-        dictation.stopListening();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    window.addEventListener('blur', handleBlur);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('blur', handleBlur);
-    };
-  }, [settings.dictationMode, dictation]);
-
   return (
     <div
       className={`app${sidebarCompact ? ' app-sidebar-compact' : ''}`}
@@ -2592,13 +2536,6 @@ export function App() {
           }}
           navActive={navActive}
           showActionLabels={settings.showActionLabels === true}
-          dictationListening={dictation.listening}
-          dictationSupported={dictation.supported}
-          dictationInterim={dictation.interim}
-          dictationMode={settings.dictationMode}
-          onDictationToggle={dictation.toggleListening}
-          onDictationStart={dictation.startListening}
-          onDictationStop={dictation.stopListening}
         />
         {/* Vertical split: top half hosts whichever main view is active
             (Agent terminal / Files / Kanban / parallel-agent terminal); the

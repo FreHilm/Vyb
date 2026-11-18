@@ -42,13 +42,6 @@ interface CommandBarProps {
   /** When false (default), the built-in action buttons (Terminal, Mic,
    * Folder) render icon-only. External app buttons are unaffected. */
   showActionLabels: boolean;
-  dictationListening: boolean;
-  dictationSupported: boolean;
-  dictationInterim: string;
-  dictationMode: 'toggle' | 'hold';
-  onDictationToggle: () => void;
-  onDictationStart: () => void;
-  onDictationStop: () => void;
 }
 
 function NavNum({ active, idx }: { active: boolean; idx: number }) {
@@ -86,13 +79,6 @@ export function CommandBar({
   onSetFilesShowChanges,
   navActive,
   showActionLabels,
-  dictationListening,
-  dictationSupported,
-  dictationInterim,
-  dictationMode,
-  onDictationToggle,
-  onDictationStart,
-  onDictationStop,
 }: CommandBarProps) {
   // External-apps dropdown (collapses the per-app buttons into one icon
   // to save toolbar space). Closes on outside-click / Escape.
@@ -246,9 +232,8 @@ export function CommandBar({
   // Nav-badge indices MUST match App.tsx `navActions` order exactly, which
   // skips Kanban/Web when their feature flag is off:
   //   Agent(0) Files(1) [Kanban] [Web] Terminal Git Folder
-  // (dictation has its own Ctrl+Shift+D; external apps are mouse-only in
-  // the Apps dropdown). Computed here so the badges never drift from the
-  // actions when a tab is hidden.
+  // (external apps are mouse-only in the Apps dropdown). Computed here so
+  // the badges never drift from the actions when a tab is hidden.
   let navIdx = 2;
   const kanbanNav = kanbanEnabled ? navIdx++ : -1;
   const webNav = webEnabled ? navIdx++ : -1;
@@ -438,23 +423,6 @@ export function CommandBar({
                   </svg>
                   <span>Git</span>
                 </button>
-                {dictationSupported && (
-                  <button
-                    className={`apps-menu-item${dictationListening ? ' is-active' : ''}`}
-                    role="menuitem"
-                    onClick={dictationMode === 'toggle' ? () => { onDictationToggle(); setOverflowOpen(false); } : undefined}
-                    onMouseDown={dictationMode === 'hold' ? onDictationStart : undefined}
-                    onMouseUp={dictationMode === 'hold' ? onDictationStop : undefined}
-                    title={`Dictation (Ctrl+Shift+D) — ${dictationMode === 'hold' ? 'hold to talk' : 'click to toggle'}`}
-                  >
-                    <svg {...ICON_PROPS}>
-                      <rect x="6" y="2" width="4" height="7" rx="2" />
-                      <path d="M3.5 7.5v.5a4.5 4.5 0 0 0 9 0v-.5" />
-                      <line x1="8" y1="12.5" x2="8" y2="14" />
-                    </svg>
-                    <span>{dictationListening ? 'Listening…' : 'Mic'}</span>
-                  </button>
-                )}
                 <button
                   className="apps-menu-item"
                   role="menuitem"
@@ -539,32 +507,6 @@ export function CommandBar({
           {showActionLabels && <span>Git</span>}
         </button>
 
-        {dictationSupported && (
-          <button
-            className={`${actionBtnCls} ${dictationListening ? 'dictation-active' : ''}`}
-            onClick={dictationMode === 'toggle' ? onDictationToggle : undefined}
-            onMouseDown={dictationMode === 'hold' ? onDictationStart : undefined}
-            onMouseUp={dictationMode === 'hold' ? onDictationStop : undefined}
-            onMouseLeave={dictationMode === 'hold' && dictationListening ? onDictationStop : undefined}
-            title={`Dictation (Ctrl+Shift+D) — ${dictationMode === 'hold' ? 'hold to talk' : 'click to toggle'}`}
-          >
-            {navActive && <NavBadge label="^⇧D" />}
-            <svg {...ICON_PROPS}>
-              <rect x="6" y="2" width="4" height="7" rx="2" />
-              <path d="M3.5 7.5v.5a4.5 4.5 0 0 0 9 0v-.5" />
-              <line x1="8" y1="12.5" x2="8" y2="14" />
-            </svg>
-            {/* Live status badges (interim transcript / Listening pulse) stay
-                visible in icon-only mode — they're functional state, not a
-                button label. The plain "Mic" caption is the only thing that
-                hides when labels are off. */}
-            {dictationListening && dictationInterim && (
-              <span className="dictation-interim">{dictationInterim}</span>
-            )}
-            {!dictationListening && showActionLabels && <span>Mic</span>}
-            {dictationListening && !dictationInterim && <span className="dictation-pulse">Listening...</span>}
-          </button>
-        )}
         <button className={actionBtnCls} onClick={handleOpenFolder} title="Open in Finder">
           <NavNum active={navActive} idx={folderNav} />
           <svg {...ICON_PROPS}>

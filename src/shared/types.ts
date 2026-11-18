@@ -122,8 +122,6 @@ export interface AppSettings {
   agents: AgentConfig[];
   externalApps: ExternalApp[];
   navModifierKey: 'meta' | 'alt'; // Modifier key for quick navigation
-  dictationMode: 'toggle' | 'hold'; // toggle = click start/stop, hold = hold button to dictate
-  dictationLang: string; // BCP 47 language code e.g. 'en-US'
   lastActiveProfileId: string; // Restored on app launch
   /** Workspaces — top-level groupings of agent profiles. Always has at
    * least one entry (a migration creates "Default" on first launch and
@@ -344,8 +342,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     { id: 'vscode', name: 'VS Code', icon: 'vscode', command: 'code "{path}"' },
   ],
   navModifierKey: 'meta',
-  dictationMode: 'toggle',
-  dictationLang: 'en-US',
   lastActiveProfileId: '',
   // Workspaces default to empty here; App.tsx runs a migration on
   // first launch that creates a Default workspace and assigns all
