@@ -445,10 +445,13 @@ export function App() {
   const openSessionMenu = useCallback((e: React.MouseEvent, profile: Profile) => {
     e.preventDefault(); // suppress the native menu on any profile right-click
     // Sessions are built-in-agent-only; temp profiles additionally get
-    // "Convert to project". Nothing to show otherwise.
-    if (!isBuiltinAgentProfile(profile) && !isTempProfile(profile)) return;
+    // "Convert to project"; in the compact (icon-only) sidebar, running
+    // profiles get Stop/Reload here since the hover row controls don't
+    // exist in that mode. Nothing to show otherwise.
+    const showRunControls = sidebarCompact && initialized.has(profile.id);
+    if (!isBuiltinAgentProfile(profile) && !isTempProfile(profile) && !showRunControls) return;
     setSessionMenu({ profile, x: e.clientX, y: e.clientY });
-  }, [isBuiltinAgentProfile, isTempProfile]);
+  }, [isBuiltinAgentProfile, isTempProfile, sidebarCompact, initialized]);
 
 
   // Launch a session for `profile`: in the profile's own terminal when the
@@ -3159,6 +3162,42 @@ export function App() {
                   onClick={() => { const p = sessionMenu.profile; setSessionMenu(null); convertTempProfile(p); }}
                 >
                   Convert to project…
+                </button>
+              </>
+            )}
+            {/* Compact sidebar: the hover Stop/Reload row controls don't
+                exist, so running profiles expose them here instead. */}
+            {sidebarCompact && initialized.has(sessionMenu.profile.id) && (
+              <>
+                {(isBuiltinAgentProfile(sessionMenu.profile) || isTempProfile(sessionMenu.profile)) && (
+                  <div className="file-ctx-divider" />
+                )}
+                <button
+                  className="file-ctx-item"
+                  title="Restart the agent in this profile"
+                  onClick={() => { const p = sessionMenu.profile; setSessionMenu(null); handleReloadProfile(p.id); }}
+                >
+                  <span className="file-ctx-icon">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 8a5 5 0 0 1 8.5-3.5L13 6" />
+                      <polyline points="13 3 13 6 10 6" />
+                      <path d="M13 8a5 5 0 0 1-8.5 3.5L3 10" />
+                      <polyline points="3 13 3 10 6 10" />
+                    </svg>
+                  </span>
+                  Reload agent
+                </button>
+                <button
+                  className="file-ctx-item file-ctx-danger"
+                  title="Stop the agent in this profile"
+                  onClick={() => { const p = sessionMenu.profile; setSessionMenu(null); handleStopProfile(p.id); }}
+                >
+                  <span className="file-ctx-icon">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3.5" y="3.5" width="9" height="9" rx="1" />
+                    </svg>
+                  </span>
+                  Stop agent
                 </button>
               </>
             )}
