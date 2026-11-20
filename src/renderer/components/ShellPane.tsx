@@ -7,6 +7,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { AppSettings } from '../../shared/types';
 import { getShellTerminalTheme } from '../theme';
+import { terminalLinkHandler } from '../lib/open-link';
 import { ResizeHandle } from './ResizeHandle';
 import { setupTerminalDrop, debouncedPtyResize, makeTerminalKeyHandler } from './TerminalPane';
 
@@ -201,6 +202,8 @@ export function ShellPane({
       // Create fresh terminal
       const terminal = new Terminal({
         cursorBlink: true,
+        // OSC 8 hyperlinks: same routing as the agent terminal.
+        linkHandler: terminalLinkHandler,
         fontSize: settings.shellFontSize,
         fontFamily: 'Menlo, Monaco, "Courier New", monospace',
         fontWeight: settings.shellFontWeight as 'normal' | 'bold' | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900,

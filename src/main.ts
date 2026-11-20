@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, ipcMain, protocol, net, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, protocol, net, nativeImage } from 'electron';
 import path from 'node:path';
 import * as fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -419,13 +419,20 @@ const createWindow = () => {
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (initialUrl && url.startsWith(initialUrl)) return; // dev-server HMR
     event.preventDefault();
-    // Soft fallback: relative or file URLs probably wanted to go to
-    // the file viewer; everything else opens in the OS browser. This
-    // matches the renderer's intentional routing for the cases the
-    // handler does catch.
+    // http(s) links go through the renderer's link routing: the Web tab
+    // when it's on, the OS browser otherwise.
     if (/^https?:\/\//i.test(url)) {
-      shell.openExternal(url).catch((): void => undefined);
+      mainWindow?.webContents.send(IPC_CHANNELS.OPEN_URL_REQUEST, url);
     }
+  });
+  // window.open / target=_blank from the main window would otherwise open a
+  // bare Electron window (with this window's session). Deny it and route
+  // http(s) URLs the same way as navigations above.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      mainWindow?.webContents.send(IPC_CHANNELS.OPEN_URL_REQUEST, url);
+    }
+    return { action: 'deny' };
   });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {

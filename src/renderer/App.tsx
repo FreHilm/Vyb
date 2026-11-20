@@ -12,6 +12,7 @@ import { QuickOpenDialog } from './components/QuickOpenDialog';
 import { SessionPickerDialog } from './components/SessionPickerDialog';
 import { RemoteChatPane } from './components/RemoteChatPane';
 import { toastError } from './lib/toast';
+import { openLink } from './lib/open-link';
 import { FindInFilesPanel } from './components/FindInFilesPanel';
 import { KanbanViewer } from './components/KanbanViewer';
 import { WebViewer } from './components/WebViewer';
@@ -104,6 +105,7 @@ declare global {
       registerWebviewContextMenu: (targetId: number) => Promise<boolean>;
       webviewInspectAt: (targetId: number, x: number, y: number) => Promise<boolean>;
       onWebviewInspectRequest: (cb: (p: { targetId: number; x: number; y: number }) => void) => () => void;
+      onOpenUrlRequest: (cb: (url: string) => void) => () => void;
       onWebviewOpenTab: (cb: (p: { sourceId: number; url: string }) => void) => () => void;
       openExternal: (command: string, folderPath: string) => Promise<void>;
       createShellTerminal: (terminalId: string, cwd: string) => Promise<void>;
@@ -1125,6 +1127,11 @@ export function App() {
     const handleOpenUrl = (e: Event) => {
       const detail = (e as CustomEvent<{ url: string }>).detail;
       if (!detail?.url) return;
+      // With the Web function off, links go to the OS browser.
+      if (settingsRef.current.functionWebEnabled === false) {
+        window.api.openUrl(detail.url);
+        return;
+      }
       const key = activeViewKey;
       if (!key) return;
       setWebRunning((prev) => ensureInSet(prev, key));
@@ -1136,6 +1143,10 @@ export function App() {
     window.addEventListener('open-url-in-browser', handleOpenUrl);
     return () => window.removeEventListener('open-url-in-browser', handleOpenUrl);
   }, [activeViewKey]);
+
+  // http(s) links the main window tried to open itself (window.open,
+  // target=_blank, a stray navigation): same routing as any other link.
+  useEffect(() => window.api.onOpenUrlRequest((url) => openLink(url)), []);
 
   // Mirror profiles into a ref so the once-mounted onOrdnaTask listener can
   // look up profile.parallelAgentEnabled at hook-fire time.

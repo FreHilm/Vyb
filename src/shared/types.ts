@@ -633,6 +633,9 @@ export const IPC_CHANNELS = {
   FILE_MOVE_DIR_CONTENTS: 'file:moveDirContents',
   FILE_READ_BINARY: 'file:readBinary',
   WEBVIEW_OPEN_TAB: 'webview:openTab',
+  /** Main → renderer: an http(s) link the main window tried to open
+   * (window.open or a navigation) — routed to the Web tab or OS browser. */
+  OPEN_URL_REQUEST: 'app:openUrlRequest',
   FILE_CREATE: 'file:create',
   FILE_SAVE_AS: 'file:saveAs',
   FILE_RESOLVE_PATH: 'file:resolvePath',
