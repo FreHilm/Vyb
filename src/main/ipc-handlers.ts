@@ -208,10 +208,25 @@ let agentHookToken = '';
 // macOS (/var/folders/…) and Linux (/tmp); the files are rewritten on
 // every spawn, so temp cleanup between reboots is self-healing. 0o700
 // keeps the embedded hook token private on shared machines.
+//
+// Linux hardening: /tmp is shared between users, so the name carries the
+// uid and the directory must actually be ours — a fixed name could be
+// pre-created by another local user, who could then swap the hook
+// scripts agents execute (or read the embedded token). Any doubt about
+// ownership falls back to regex status detection rather than injecting
+// hooks from a directory someone else controls.
 function agentHooksDir(): string | null {
-  const dir = path.join(os.tmpdir(), 'vyb-agent-hooks');
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  const dir = path.join(os.tmpdir(), uid === null ? 'vyb-agent-hooks' : `vyb-agent-hooks-${uid}`);
   if (/\s/.test(dir)) return null; // exotic TMPDIR with spaces → regex fallback
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const st = fs.lstatSync(dir);
+    if (!st.isDirectory() || (uid !== null && st.uid !== uid)) return null; // symlink or not ours
+    if (uid !== null && (st.mode & 0o077) !== 0) fs.chmodSync(dir, 0o700); // pre-existing dir from an older Vyb
+  } catch {
+    return null;
+  }
   return dir;
 }
 
@@ -836,7 +851,19 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   });
 
   ipcMain.handle(IPC_CHANNELS.SHELL_SHOW_IN_FOLDER, (_, folderPath: string) => {
-    shell.openPath(folderPath);
+    // Only a directory may be opened directly (Finder/Explorer window).
+    // Anything else is revealed, never launched: openPath on a file runs
+    // its default handler, which turns this channel into "execute
+    // arbitrary file" for a compromised renderer.
+    try {
+      if (fs.statSync(folderPath).isDirectory()) {
+        shell.openPath(folderPath);
+        return;
+      }
+    } catch {
+      return; // missing path: nothing to show
+    }
+    shell.showItemInFolder(folderPath);
   });
 
   ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_VSCODE, (_, folderPath: string) => {
