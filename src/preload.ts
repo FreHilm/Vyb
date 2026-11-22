@@ -83,6 +83,12 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.WEBVIEW_INSPECT_REQUEST, handler);
   },
 
+  onOpenUrlRequest: (cb: (url: string) => void): (() => void) => {
+    const handler = (_e: unknown, url: string) => cb(url);
+    ipcRenderer.on(IPC_CHANNELS.OPEN_URL_REQUEST, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.OPEN_URL_REQUEST, handler);
+  },
+
   onWebviewOpenTab: (cb: (p: { sourceId: number; url: string }) => void): (() => void) => {
     const handler = (_e: unknown, payload: { sourceId: number; url: string }) => cb(payload);
     ipcRenderer.on(IPC_CHANNELS.WEBVIEW_OPEN_TAB, handler);
@@ -511,6 +517,9 @@ contextBridge.exposeInMainWorld('api', {
 
   generateIcon: (profileId: string, projectName: string): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.GENERATE_ICON, profileId, projectName),
+
+  listIconModels: (provider: 'openai' | 'gemini', apiKey?: string): Promise<{ models: { id: string; label: string }[]; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ICON_LIST_MODELS, provider, apiKey),
 
   iconHistory: (profileId: string): Promise<{ path: string; mtime: number }[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.ICON_HISTORY, profileId),

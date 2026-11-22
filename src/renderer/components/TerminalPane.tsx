@@ -7,6 +7,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { Profile, AppSettings } from '../../shared/types';
 import { getTerminalTheme } from '../theme';
+import { terminalLinkHandler } from '../lib/open-link';
 
 interface TerminalPaneProps {
   profiles: Profile[];
@@ -258,6 +259,9 @@ function createTerminalInstance(
     fontWeightBold: fontWeightBold as 'normal' | 'bold' | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900,
     theme,
     allowProposedApi: true,
+    // OSC 8 hyperlinks (Claude Code prints these): Web tab / Files tab,
+    // instead of xterm's default confirm() + bare window.open().
+    linkHandler: terminalLinkHandler,
     // macOS Option key acts as Meta — enables Option+←/→ for word navigation
     macOptionIsMeta: false,
     macOptionClickForcesSelection: false,

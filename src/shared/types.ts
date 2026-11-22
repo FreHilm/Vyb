@@ -122,8 +122,6 @@ export interface AppSettings {
   agents: AgentConfig[];
   externalApps: ExternalApp[];
   navModifierKey: 'meta' | 'alt'; // Modifier key for quick navigation
-  dictationMode: 'toggle' | 'hold'; // toggle = click start/stop, hold = hold button to dictate
-  dictationLang: string; // BCP 47 language code e.g. 'en-US'
   lastActiveProfileId: string; // Restored on app launch
   /** Workspaces — top-level groupings of agent profiles. Always has at
    * least one entry (a migration creates "Default" on first launch and
@@ -179,6 +177,11 @@ export interface AppSettings {
    * stays a pure flush-to-disk for users who don't want their
    * formatting touched. */
   formatOnSave: boolean;
+  /** Where links clicked in terminals open: the built-in Web tab
+   * ('vyb') or the system default browser ('system'). When the Web
+   * feature itself is disabled, links always open in the system
+   * browser regardless of this setting. */
+  openLinksIn: 'vyb' | 'system';
   /** Strip trailing spaces/tabs from every line on save. Default off
    * (same rationale as formatOnSave). */
   trimWhitespaceOnSave: boolean;
@@ -310,6 +313,18 @@ export interface ExternalApp {
   command: string; // e.g. 'open -a "Visual Studio Code" "{path}"' — use {path} as placeholder
 }
 
+/** Image models the providers have shut down, mapped to the replacement
+ * they name. Saved settings are migrated on load so existing installs
+ * don't keep calling a dead model. Anything not listed here is still
+ * caught at generation time by the fallback in `image-models.ts`. */
+export const RETIRED_IMAGE_MODELS: Record<string, string> = {
+  'gpt-image-1': 'gpt-image-2.5-sunburst',      // shut down 2026-10-23
+  'dall-e-3': 'gpt-image-2.5-sunburst',         // shut down 2026-05-12
+  'dall-e-2': 'gpt-image-2.5-sunburst',         // shut down 2026-05-12
+  'gemini-3.1-flash-image-preview': 'gemini-3.1-flash-image', // shut down 2026-06-25
+  'gemini-3-pro-image-preview': 'gemini-3-pro-image',         // shut down 2026-06-25
+};
+
 export const DEFAULT_SETTINGS: AppSettings = {
   // Default look: grayscale UI (360) at darkness 53 — a deep near-black
   // theme with dim, low-glare text.
@@ -326,9 +341,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   shellFontWeight: 100,
   shellFontWeightBold: 300,
   iconProvider: 'gemini',
-  geminiModel: 'gemini-3.1-flash-image-preview',
+  geminiModel: 'gemini-3.1-flash-image',
   geminiApiKey: '',
-  openaiModel: 'gpt-image-1',
+  openaiModel: 'gpt-image-2.5-sunburst',
   openaiApiKey: '',
   iconPromptPrefix: 'Minimal margins, transparent background. No text, suitable as a project avatar.',
   iconReferenceImage: '',
@@ -344,8 +359,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     { id: 'vscode', name: 'VS Code', icon: 'vscode', command: 'code "{path}"' },
   ],
   navModifierKey: 'meta',
-  dictationMode: 'toggle',
-  dictationLang: 'en-US',
   lastActiveProfileId: '',
   // Workspaces default to empty here; App.tsx runs a migration on
   // first launch that creates a Default workspace and assigns all
@@ -371,6 +384,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   diffViewMode: 'unified',
   showAuthorAvatars: true,
   formatOnSave: false,
+  openLinksIn: 'vyb',
   trimWhitespaceOnSave: false,
   finalNewlineOnSave: false,
   editorStickyScroll: true,
@@ -497,6 +511,7 @@ export const IPC_CHANNELS = {
   PROFILE_ACTIVATE_REQUEST: 'profile:activateRequest',
   GENERATE_ICON: 'icon:generate',
   ICON_HISTORY: 'icon:history',
+  ICON_LIST_MODELS: 'icon:listModels',
   ICON_DELETE: 'icon:delete',
   LAYOUT_LOAD: 'layout:load',
   LAYOUT_SAVE: 'layout:save',
@@ -636,6 +651,9 @@ export const IPC_CHANNELS = {
   FILE_MOVE_DIR_CONTENTS: 'file:moveDirContents',
   FILE_READ_BINARY: 'file:readBinary',
   WEBVIEW_OPEN_TAB: 'webview:openTab',
+  /** Main → renderer: an http(s) link the main window tried to open
+   * (window.open or a navigation) — routed to the Web tab or OS browser. */
+  OPEN_URL_REQUEST: 'app:openUrlRequest',
   FILE_CREATE: 'file:create',
   FILE_SAVE_AS: 'file:saveAs',
   FILE_RESOLVE_PATH: 'file:resolvePath',

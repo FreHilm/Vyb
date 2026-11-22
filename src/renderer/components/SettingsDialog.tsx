@@ -76,6 +76,94 @@ interface SettingsDialogProps {
 
 type SettingsTab = 'appearance' | 'flames' | 'agents' | 'icons' | 'apps' | 'integrations' | 'ordna' | 'backup' | 'functions';
 
+type IconModelProvider = 'openai' | 'gemini';
+type IconModelOption = { id: string; label: string };
+
+// Shown until the provider answers (or when there's no key). Provider
+// model IDs churn — the live list from `listIconModels` is the source of
+// truth; these are only sensible starting points.
+const ICON_MODEL_FALLBACKS: Record<IconModelProvider, IconModelOption[]> = {
+  openai: [
+    { id: 'gpt-image-2.5-sunburst', label: 'gpt-image-2.5-sunburst' },
+    { id: 'gpt-image-2.5-flare', label: 'gpt-image-2.5-flare' },
+  ],
+  gemini: [
+    { id: 'gemini-3.1-flash-image', label: 'Nano Banana 2 (gemini-3.1-flash-image)' },
+    { id: 'gemini-3-pro-image', label: 'Nano Banana Pro (gemini-3-pro-image)' },
+    { id: 'gemini-2.5-flash-image', label: 'Nano Banana (gemini-2.5-flash-image)' },
+  ],
+};
+
+/** Model picker that lists the image models the user's key can actually
+ * use, so a provider retiring a model doesn't leave the app pointing at it. */
+function IconModelSelect({ provider, apiKey, value, onChange }: {
+  provider: IconModelProvider;
+  apiKey: string;
+  value: string;
+  onChange: (model: string) => void;
+}) {
+  const [models, setModels] = useState<IconModelOption[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
+  useEffect(() => {
+    setModels(null);
+    setError(null);
+    if (!apiKey) return;
+    let cancelled = false;
+    setLoading(true);
+    window.api.listIconModels(provider, apiKey)
+      .then((r) => {
+        if (cancelled) return;
+        setModels(r.models.length > 0 ? r.models : null);
+        setError(r.error ?? (r.models.length === 0 ? 'The provider returned no image models for this key.' : null));
+      })
+      .catch((err: unknown) => { if (!cancelled) setError(String(err)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [provider, apiKey, refreshNonce]);
+
+  const live = models !== null;
+  const options = models ?? ICON_MODEL_FALLBACKS[provider];
+  const valueListed = options.some((o) => o.id === value);
+  let hint: string;
+  if (!apiKey) hint = 'Add an API key in the Integrations tab to list the models it can use.';
+  else if (loading) hint = 'Asking the provider which image models this key can use…';
+  else if (live) hint = `${options.length} image model${options.length === 1 ? '' : 's'} available to this key.`;
+  else hint = `Couldn't list models: ${error ?? 'unknown error'}. Showing defaults.`;
+
+  return (
+    <div className="field">
+      <span className="field-label">Model</span>
+      <div className="field-row">
+        <select
+          className="field-select"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          style={{ flex: 1 }}
+        >
+          {!valueListed && value && (
+            <option value={value}>{value}{live ? ' (not available to this key)' : ''}</option>
+          )}
+          {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
+        <button
+          type="button"
+          className="provider-btn"
+          style={{ flex: '0 0 auto' }}
+          onClick={() => setRefreshNonce((n) => n + 1)}
+          disabled={!apiKey || loading}
+          title="Ask the provider which image models this key can use"
+        >
+          Refresh
+        </button>
+      </div>
+      <span className="field-hint">{hint}</span>
+    </div>
+  );
+}
+
 // Flip this to `true` to bring the Backup tab back. The BackupTab
 // component + its IPC bindings + Export/Import buttons are all still in
 // place — only the tab button and the panel render are gated.
@@ -198,8 +286,6 @@ export function SettingsDialog({
     settings.externalApps || [],
   );
   const [navModifierKey, setNavModifierKey] = useState(settings.navModifierKey);
-  const [dictationMode, setDictationMode] = useState(settings.dictationMode);
-  const [dictationLang, setDictationLang] = useState(settings.dictationLang);
   // gpuAcceleration is forced to 'auto' on save — see save handler. No
   // local state needed since the picker UI was removed.
   const [flameIntensity, setFlameIntensity] = useState(settings.flameIntensity);
@@ -216,6 +302,7 @@ export function SettingsDialog({
   const [parallelAgentAutoRun, setParallelAgentAutoRun] = useState(settings.parallelAgentAutoRun !== false);
   const [functionKanbanEnabled, setFunctionKanbanEnabled] = useState(settings.functionKanbanEnabled !== false);
   const [functionWebEnabled, setFunctionWebEnabled] = useState(settings.functionWebEnabled !== false);
+  const [openLinksInVyb, setOpenLinksInVyb] = useState(settings.openLinksIn !== 'system');
   const [defaultSplitView, setDefaultSplitView] = useState(settings.defaultSplitView === true);
   const [showAuthorAvatars, setShowAuthorAvatars] = useState(settings.showAuthorAvatars !== false);
   const [formatOnSave, setFormatOnSave] = useState(settings.formatOnSave === true);
@@ -319,8 +406,6 @@ export function SettingsDialog({
       agents,
       externalApps,
       navModifierKey,
-      dictationMode,
-      dictationLang,
       // Terminal rendering is locked to 'auto' — picker is hidden.
       gpuAcceleration: 'auto',
       flameIntensity,
@@ -334,6 +419,7 @@ export function SettingsDialog({
       parallelAgentAutoRun,
       functionKanbanEnabled,
       functionWebEnabled,
+      openLinksIn: openLinksInVyb ? 'vyb' as const : 'system' as const,
       defaultSplitView,
       showAuthorAvatars,
       formatOnSave,
@@ -480,6 +566,26 @@ export function SettingsDialog({
                 An in-app browser with back/forward/reload and an address bar.
                 Each profile remembers its last URL.
               </span>
+
+              {functionWebEnabled && (
+                <>
+                  <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                    <span className="field-label">Open links in built-in browser</span>
+                    <label className="integration-toggle">
+                      <input
+                        type="checkbox"
+                        checked={openLinksInVyb}
+                        onChange={(e) => setOpenLinksInVyb(e.target.checked)}
+                      />
+                      <span className="toggle-slider" />
+                    </label>
+                  </label>
+                  <span className="field-hint">
+                    Links clicked in agent and shell terminals open in the Web
+                    tab. Off: they open in your system browser instead.
+                  </span>
+                </>
+              )}
 
               <label className="field field-row-toggle" style={{ marginTop: 12 }}>
                 <span className="field-label">Show author avatars</span>
@@ -827,48 +933,6 @@ export function SettingsDialog({
                 </span>
               </div>
 
-              <div className="field">
-                <span className="field-label">Dictation Mode</span>
-                <div className="field-row">
-                  <button
-                    className={`provider-btn ${dictationMode === 'toggle' ? 'provider-btn-active' : ''}`}
-                    onClick={() => setDictationMode('toggle')}
-                  >
-                    Toggle
-                  </button>
-                  <button
-                    className={`provider-btn ${dictationMode === 'hold' ? 'provider-btn-active' : ''}`}
-                    onClick={() => setDictationMode('hold')}
-                  >
-                    Hold
-                  </button>
-                </div>
-                <span className="field-hint">
-                  Toggle: click to start/stop. Hold: press and hold to dictate. Hotkey: Ctrl+Shift+D
-                </span>
-              </div>
-
-              <label className="field">
-                <span className="field-label">Dictation Language</span>
-                <select
-                  className="field-select"
-                  value={dictationLang}
-                  onChange={(e) => setDictationLang(e.target.value)}
-                >
-                  <option value="en-US">English (US)</option>
-                  <option value="en-GB">English (UK)</option>
-                  <option value="sv-SE">Swedish</option>
-                  <option value="de-DE">German</option>
-                  <option value="fr-FR">French</option>
-                  <option value="es-ES">Spanish</option>
-                  <option value="it-IT">Italian</option>
-                  <option value="pt-BR">Portuguese (BR)</option>
-                  <option value="ja-JP">Japanese</option>
-                  <option value="zh-CN">Chinese (Simplified)</option>
-                  <option value="ko-KR">Korean</option>
-                </select>
-              </label>
-
               {/* Terminal Rendering picker hidden — `auto` is always
                   forced (see `gpuAcceleration` initialisation below).
                   We still keep the underlying setting + render-pipeline
@@ -1190,35 +1254,13 @@ export function SettingsDialog({
                 </div>
               </div>
 
-              {iconProvider === 'gemini' && (
-                <label className="field">
-                  <span className="field-label">Model</span>
-                  <select
-                    className="field-select"
-                    value={geminiModel}
-                    onChange={(e) => setGeminiModel(e.target.value)}
-                  >
-                    <option value="gemini-3.1-flash-image-preview">Nano Banana 2 — Newest, fast</option>
-                    <option value="gemini-3-pro-image-preview">Nano Banana Pro — Best quality, 4K</option>
-                    <option value="gemini-2.5-flash-image">Nano Banana — Stable</option>
-                  </select>
-                </label>
-              )}
-
-              {iconProvider === 'openai' && (
-                <label className="field">
-                  <span className="field-label">Model</span>
-                  <select
-                    className="field-select"
-                    value={openaiModel}
-                    onChange={(e) => setOpenaiModel(e.target.value)}
-                  >
-                    <option value="gpt-image-1">GPT Image 1 — Newest, best quality</option>
-                    <option value="dall-e-3">DALL-E 3</option>
-                    <option value="dall-e-2">DALL-E 2</option>
-                  </select>
-                </label>
-              )}
+              <IconModelSelect
+                key={iconProvider}
+                provider={iconProvider}
+                apiKey={iconProvider === 'openai' ? openaiApiKey : geminiApiKey}
+                value={iconProvider === 'openai' ? openaiModel : geminiModel}
+                onChange={iconProvider === 'openai' ? setOpenaiModel : setGeminiModel}
+              />
 
               {!geminiApiKey && !openaiApiKey && (
                 <span className="field-hint" style={{ color: 'var(--c-yellow)' }}>
@@ -1430,7 +1472,7 @@ export function SettingsDialog({
                   <span className="integration-title">API Keys</span>
                 </div>
                 <span className="field-hint" style={{ marginBottom: 8 }}>
-                  Used for icon generation, dictation (speech-to-text), and other AI features.
+                  Used for icon generation and other AI features.
                 </span>
 
                 <label className="field">
@@ -1443,7 +1485,7 @@ export function SettingsDialog({
                     style={{ fontFamily: 'monospace' }}
                   />
                   <span className="field-hint">
-                    Used for: icon generation (GPT Image), dictation (Whisper). Get one at platform.openai.com
+                    Used for: icon generation (GPT Image). Get one at platform.openai.com
                   </span>
                 </label>
 
@@ -1457,7 +1499,7 @@ export function SettingsDialog({
                     style={{ fontFamily: 'monospace' }}
                   />
                   <span className="field-hint">
-                    Used for: icon generation (Nano Banana), dictation fallback. Get one at ai.google.dev
+                    Used for: icon generation (Nano Banana). Get one at ai.google.dev
                   </span>
                 </label>
               </div>

@@ -1225,38 +1225,6 @@
   pointer-events: none;
 }
 
-/* Dictation button */
-.dictation-active {
-  background: var(--c-red) !important;
-  border-color: var(--c-red) !important;
-  color: var(--c-base) !important;
-  animation: dictationGlow 1.5s ease-in-out infinite;
-}
-
-@keyframes dictationGlow {
-  0%, 100% { box-shadow: 0 0 4px var(--c-red); }
-  50% { box-shadow: 0 0 12px var(--c-red); }
-}
-
-.dictation-interim {
-  max-width: 150px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  opacity: 0.9;
-}
-
-.dictation-pulse {
-  font-size: 11px;
-  animation: dictationPulseText 1s ease-in-out infinite;
-}
-
-@keyframes dictationPulseText {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
 .command-bar-separator {
   width: 1px;
   height: 22px;

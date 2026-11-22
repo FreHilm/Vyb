@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitMergePreviewResult, GitRebaseResult, GitCreatePrResult, GitStash, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, ParallelAgent, resolveAgent, DEFAULT_AGENTS } from '../shared/types';
+import { IPC_CHANNELS, Profile, AppSettings, SidebarLayout, GitStatus, GitCommit, GitRef, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitMergePreviewResult, GitRebaseResult, GitCreatePrResult, GitStash, FileEntry, ProfileMemoryMap, OrdnaTaskPayload, ParallelAgent, resolveAgent, DEFAULT_AGENTS, DEFAULT_SETTINGS } from '../shared/types';
 import { PtyManager } from './pty-manager';
 import { StatusDetector } from './status-detector';
 import { loadProfiles, saveProfiles, loadSettings, saveSettings, loadLayout, saveLayout, loadProfileMemory, saveProfileMemory, loadScrollback, saveScrollback } from './config-loader';
@@ -17,6 +17,7 @@ import { sendCtrlCToPty, clearCtrlCState } from './windows-ctrlc';
 import { listSessions as listAgentSessions, sessionCaps } from './agent-sessions';
 import { searchInFilesJs } from './js-search';
 import { TelegramTransport } from './telegram-transport';
+import { ImageApiError, ImageModelOption, ImageProvider, isModelUnavailable, listImageModels, pickReplacement } from './image-models';
 
 // Bundled ripgrep (@vscode/ripgrep) — Vyb ships its own `rg` binary so
 // cross-file search works without the user installing anything (the same
@@ -208,10 +209,25 @@ let agentHookToken = '';
 // macOS (/var/folders/…) and Linux (/tmp); the files are rewritten on
 // every spawn, so temp cleanup between reboots is self-healing. 0o700
 // keeps the embedded hook token private on shared machines.
+//
+// Linux hardening: /tmp is shared between users, so the name carries the
+// uid and the directory must actually be ours — a fixed name could be
+// pre-created by another local user, who could then swap the hook
+// scripts agents execute (or read the embedded token). Any doubt about
+// ownership falls back to regex status detection rather than injecting
+// hooks from a directory someone else controls.
 function agentHooksDir(): string | null {
-  const dir = path.join(os.tmpdir(), 'vyb-agent-hooks');
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  const dir = path.join(os.tmpdir(), uid === null ? 'vyb-agent-hooks' : `vyb-agent-hooks-${uid}`);
   if (/\s/.test(dir)) return null; // exotic TMPDIR with spaces → regex fallback
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const st = fs.lstatSync(dir);
+    if (!st.isDirectory() || (uid !== null && st.uid !== uid)) return null; // symlink or not ours
+    if (uid !== null && (st.mode & 0o077) !== 0) fs.chmodSync(dir, 0o700); // pre-existing dir from an older Vyb
+  } catch {
+    return null;
+  }
   return dir;
 }
 
@@ -836,7 +852,19 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   });
 
   ipcMain.handle(IPC_CHANNELS.SHELL_SHOW_IN_FOLDER, (_, folderPath: string) => {
-    shell.openPath(folderPath);
+    // Only a directory may be opened directly (Finder/Explorer window).
+    // Anything else is revealed, never launched: openPath on a file runs
+    // its default handler, which turns this channel into "execute
+    // arbitrary file" for a compromised renderer.
+    try {
+      if (fs.statSync(folderPath).isDirectory()) {
+        shell.openPath(folderPath);
+        return;
+      }
+    } catch {
+      return; // missing path: nothing to show
+    }
+    shell.showItemInFolder(folderPath);
   });
 
   ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_VSCODE, (_, folderPath: string) => {
@@ -1907,10 +1935,12 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   // at HEAD (a brand-new file has no baseline). Drives the unified
   // diff view in the file editor — CodeMirror's `unifiedMergeView`
   // needs the original text, not a unified-diff blob.
+  // Paths come from the repo (file names in `git status`), so they're passed
+  // to git as argv, never through a shell: a name containing `$(...)` or a
+  // backtick would otherwise run as a command.
   ipcMain.handle(IPC_CHANNELS.GIT_FILE_AT_HEAD, (_, cwd: string, filePath: string): string | null => {
-    const escaped = filePath.replace(/"/g, '\\"');
     try {
-      return execSync(`git show HEAD:"${escaped}"`, {
+      return execFileSync('git', ['show', `HEAD:${filePath}`], {
         cwd,
         timeout: 5000,
         encoding: 'utf-8',
@@ -1923,23 +1953,23 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   });
 
   ipcMain.handle(IPC_CHANNELS.GIT_FILE_DIFF, (_, cwd: string, filePath: string, staged?: boolean): string => {
-    const run = (cmd: string): string => {
+    // argv, not a shell string: see GIT_FILE_AT_HEAD above.
+    const run = (args: string[]): string => {
       try {
-        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
+        return execFileSync('git', args, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
       } catch {
         return '';
       }
     };
-    const escaped = filePath.replace(/"/g, '\\"');
     // staged=true → index vs HEAD;  staged=false → working tree vs index;
     // staged=undefined → combined (legacy callers).
     let diff: string;
     if (staged === true) {
-      diff = run(`git diff --cached -- "${escaped}"`);
+      diff = run(['diff', '--cached', '--', filePath]);
     } else if (staged === false) {
-      diff = run(`git diff -- "${escaped}"`);
+      diff = run(['diff', '--', filePath]);
     } else {
-      diff = run(`git diff HEAD -- "${escaped}"`);
+      diff = run(['diff', 'HEAD', '--', filePath]);
     }
 
     // Empty diff: only fall back to a synthetic "all lines added" view if
@@ -1951,8 +1981,8 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     if (!diff) {
       const trackedCheck = (() => {
         try {
-          execSync(`git ls-files --error-unmatch -- "${escaped}"`, {
-            cwd, timeout: 5000, encoding: 'utf-8',
+          execFileSync('git', ['ls-files', '--error-unmatch', '--', filePath], {
+            cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
           });
           return true;
         } catch {
@@ -4748,146 +4778,120 @@ export function setupIpcHandlers(window: BrowserWindow): void {
         else if (refExt === '.webp') refMimeType = 'image/webp';
       }
 
-      let imageBase64: string;
-      let ext = 'png';
+      const styleHint = ' Use the provided image as a style reference. Generate a new icon in the same visual style.';
 
-      if (settings.iconProvider === 'openai') {
-        // --- OpenAI ---
-        if (!settings.openaiApiKey) {
-          throw new Error('OpenAI API key not configured. Set it in Settings.');
-        }
-
+      // One provider call for a given model. Non-2xx responses throw an
+      // ImageApiError so the caller can tell "model retired" apart from
+      // auth, quota or safety failures.
+      const runOpenAI = async (model: string): Promise<{ imageBase64: string; ext: string }> => {
+        let response: Response;
         if (refImageBase64) {
-          // Use edits endpoint with reference image
+          // Edits endpoint with the reference image as multipart form data.
           const boundary = `----formdata${Date.now()}`;
           const refBuffer = fs.readFileSync(referenceImagePath);
-
-          // Build multipart form data manually
           const parts: Buffer[] = [];
           const addField = (name: string, value: string) => {
             parts.push(Buffer.from(
               `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
             ));
           };
-          addField('model', settings.openaiModel || 'gpt-image-1');
-          addField('prompt', prompt + ' Use the provided image as a style reference. Generate a new icon in the same visual style.');
+          addField('model', model);
+          addField('prompt', prompt + styleHint);
           addField('n', '1');
           addField('size', '1024x1024');
-
-          // Add image file
           const imgExt = path.extname(referenceImagePath).toLowerCase();
-          const imgMime = imgExt === '.png' ? 'image/png' : 'image/jpeg';
           parts.push(Buffer.from(
-            `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="ref${imgExt}"\r\nContent-Type: ${imgMime}\r\n\r\n`,
+            `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="ref${imgExt}"\r\nContent-Type: ${refMimeType}\r\n\r\n`,
           ));
           parts.push(refBuffer);
           parts.push(Buffer.from('\r\n'));
           parts.push(Buffer.from(`--${boundary}--\r\n`));
-
-          const body = Buffer.concat(parts);
-
-          const response = await fetch('https://api.openai.com/v1/images/edits', {
+          response = await fetch('https://api.openai.com/v1/images/edits', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${settings.openaiApiKey}`,
               'Content-Type': `multipart/form-data; boundary=${boundary}`,
             },
-            body,
+            body: Buffer.concat(parts),
           });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`OpenAI API error (${response.status}): ${errorText}`);
-          }
-
-          const data = await response.json();
-          const imageData = data?.data?.[0]?.b64_json;
-          if (!imageData) {
-            throw new Error('No image returned from OpenAI API');
-          }
-          imageBase64 = imageData;
         } else {
-          // No reference — use generations endpoint
-          const response = await fetch('https://api.openai.com/v1/images/generations', {
+          response = await fetch('https://api.openai.com/v1/images/generations', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${settings.openaiApiKey}`,
             },
-            body: JSON.stringify({
-              model: settings.openaiModel || 'gpt-image-1',
-              prompt,
-              n: 1,
-              size: '1024x1024',
-            }),
+            body: JSON.stringify({ model, prompt, n: 1, size: '1024x1024' }),
           });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`OpenAI API error (${response.status}): ${errorText}`);
-          }
-
-          const data = await response.json();
-          const imageData = data?.data?.[0]?.b64_json;
-          if (!imageData) {
-            throw new Error('No image returned from OpenAI API');
-          }
-          imageBase64 = imageData;
         }
-      } else {
-        // --- Gemini ---
-        if (!settings.geminiApiKey) {
-          throw new Error('Gemini API key not configured. Set it in Settings.');
-        }
+        if (!response.ok) throw new ImageApiError('openai', response.status, await response.text());
+        const data = await response.json();
+        const imageData = data?.data?.[0]?.b64_json;
+        if (!imageData) throw new Error('No image returned from OpenAI API');
+        return { imageBase64: imageData, ext: 'png' };
+      };
 
-        const model = settings.geminiModel || 'gemini-3.1-flash-image-preview';
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-
-        // Build parts: text prompt + optional reference image
-        const contentParts: unknown[] = [
-          { text: refImageBase64
-            ? prompt + ' Use the provided image as a style reference. Generate a new icon in the same visual style.'
-            : prompt },
-        ];
+      const runGemini = async (model: string): Promise<{ imageBase64: string; ext: string }> => {
+        const contentParts: unknown[] = [{ text: refImageBase64 ? prompt + styleHint : prompt }];
         if (refImageBase64) {
-          contentParts.push({
-            inline_data: {
-              mime_type: refMimeType,
-              data: refImageBase64,
-            },
-          });
+          contentParts.push({ inline_data: { mime_type: refMimeType, data: refImageBase64 } });
         }
-
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': settings.geminiApiKey,
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': settings.geminiApiKey,
+            },
+            body: JSON.stringify({
+              contents: [{ parts: contentParts }],
+              generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+            }),
           },
-          body: JSON.stringify({
-            contents: [{ parts: contentParts }],
-            generationConfig: {
-              responseModalities: ['TEXT', 'IMAGE'],
-            },
-          }),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Gemini API error (${response.status}): ${errorText}`);
-        }
-
+        );
+        if (!response.ok) throw new ImageApiError('gemini', response.status, await response.text());
         const data = await response.json();
         const respParts = data?.candidates?.[0]?.content?.parts;
         const imagePart = respParts?.find(
           (p: { inlineData?: { mimeType: string; data: string } }) => p.inlineData,
         );
-        if (!imagePart?.inlineData?.data) {
-          throw new Error('No image returned from Gemini API');
-        }
-        imageBase64 = imagePart.inlineData.data;
-        ext = imagePart.inlineData.mimeType === 'image/jpeg' ? 'jpg' : 'png';
+        if (!imagePart?.inlineData?.data) throw new Error('No image returned from Gemini API');
+        return {
+          imageBase64: imagePart.inlineData.data,
+          ext: imagePart.inlineData.mimeType === 'image/jpeg' ? 'jpg' : 'png',
+        };
+      };
+
+      const provider: ImageProvider = settings.iconProvider === 'openai' ? 'openai' : 'gemini';
+      const apiKey = provider === 'openai' ? settings.openaiApiKey : settings.geminiApiKey;
+      if (!apiKey) {
+        throw new Error(`${provider === 'openai' ? 'OpenAI' : 'Gemini'} API key not configured. Set it in Settings.`);
       }
+      const modelKey = provider === 'openai' ? 'openaiModel' : 'geminiModel';
+      const model = settings[modelKey] || DEFAULT_SETTINGS[modelKey];
+      const run = provider === 'openai' ? runOpenAI : runGemini;
+
+      let result: { imageBase64: string; ext: string };
+      try {
+        result = await run(model);
+      } catch (err) {
+        if (!isModelUnavailable(err)) throw err;
+        // The saved model has been retired. Ask the provider what this key
+        // can use, retry once with the best candidate, and remember it.
+        const available = await listImageModels(provider, apiKey).catch((): ImageModelOption[] => []);
+        const replacement = pickReplacement(available, model);
+        if (!replacement) {
+          throw new Error(
+            `The model "${model}" is no longer available, and no other image model was found for this API key. ` +
+            'Choose a model in Settings → Icons.',
+          );
+        }
+        console.warn(`[icons] ${provider} model "${model}" unavailable; retrying with "${replacement}"`);
+        result = await run(replacement);
+        saveSettings({ ...loadSettings(), [modelKey]: replacement });
+      }
+      const { imageBase64, ext } = result;
 
       // Save the image to userData/icons/ under a UNIQUE timestamped name.
       // Older generations are deliberately KEPT — regenerating an icon no
@@ -4903,6 +4907,22 @@ export function setupIpcHandlers(window: BrowserWindow): void {
       fs.writeFileSync(iconPath, Buffer.from(imageBase64, 'base64'));
 
       return iconPath;
+    },
+  );
+
+  // Image models the user's key can see, for the Settings → Icons picker.
+  // `apiKey` lets the dialog query with a key that hasn't been saved yet.
+  ipcMain.handle(
+    IPC_CHANNELS.ICON_LIST_MODELS,
+    async (_, provider: ImageProvider, apiKey?: string): Promise<{ models: ImageModelOption[]; error?: string }> => {
+      const settings = loadSettings();
+      const key = apiKey || (provider === 'openai' ? settings.openaiApiKey : settings.geminiApiKey);
+      if (!key) return { models: [] };
+      try {
+        return { models: await listImageModels(provider, key) };
+      } catch (err) {
+        return { models: [], error: err instanceof Error ? err.message : String(err) };
+      }
     },
   );
 
