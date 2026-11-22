@@ -29,7 +29,10 @@ export function DocxViewer({ path }: { path: string }) {
         if (!bytes) throw new Error('read failed');
         if (req !== reqRef.current || !hostRef.current) return;
         hostRef.current.innerHTML = '';
-        await renderAsync(bytes, hostRef.current);
+        // renderAltChunks off: docx-preview otherwise puts each altChunk
+        // part's raw HTML into an unsandboxed srcdoc iframe in this window,
+        // so a crafted .docx could run script with access to window.api.
+        await renderAsync(bytes, hostRef.current, undefined, { renderAltChunks: false });
         if (req !== reqRef.current) return;
         setState('ready');
       } catch {
