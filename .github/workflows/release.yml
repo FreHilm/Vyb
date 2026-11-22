@@ -33,7 +33,12 @@ jobs:
         # node-gyp can't recognize ("unknown version 'undefined'"), so
         # every native-module rebuild fails. VS 2022 on this image is
         # detected fine. Bump deliberately once the toolchain supports it.
-        os: [macos-latest, windows-2022, ubuntu-latest]
+        #
+        # ubuntu-24.04 is PINNED (not ubuntu-latest): the newer image
+        # ships rpm >= 4.20, whose %mkbuilddir build-directory layout
+        # breaks electron-installer-redhat's spec ("cp: cannot stat
+        # 'usr/*'"). Bump once electron-installer-redhat supports it.
+        os: [macos-latest, windows-2022, ubuntu-24.04]
 
     steps:
       - name: Checkout
