@@ -25,6 +25,7 @@ import { FileHistoryView } from './FileHistoryView';
 import { ErrorBoundary } from './ErrorBoundary';
 import { MonacoFileEditor, monacoLanguageForFile, type MonacoFileEditorHandle, type EditorStatusInfo } from './MonacoFileEditor';
 import { setDefinitionSearchRoot } from '../lib/monaco-definitions';
+import { openLink } from '../lib/open-link';
 import { DocxViewer } from './DocxViewer';
 import { ThreeWayFileEditor } from './ThreeWayFileEditor';
 import { MonacoDiffEditor } from './MonacoDiffEditor';
@@ -2942,7 +2943,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
               const href = a.getAttribute('href');
               if (!href) return;
               if (href.startsWith('http://') || href.startsWith('https://')) {
-                window.api.openUrl(href);
+                openLink(href); // Web tab when it's on, else the OS browser
                 return;
               }
               if (href.startsWith('#')) {
