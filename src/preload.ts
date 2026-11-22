@@ -512,6 +512,9 @@ contextBridge.exposeInMainWorld('api', {
   generateIcon: (profileId: string, projectName: string): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.GENERATE_ICON, profileId, projectName),
 
+  listIconModels: (provider: 'openai' | 'gemini', apiKey?: string): Promise<{ models: { id: string; label: string }[]; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ICON_LIST_MODELS, provider, apiKey),
+
   iconHistory: (profileId: string): Promise<{ path: string; mtime: number }[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.ICON_HISTORY, profileId),
   deleteIcon: (iconPath: string): Promise<boolean> =>
