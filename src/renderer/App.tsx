@@ -1127,8 +1127,10 @@ export function App() {
     const handleOpenUrl = (e: Event) => {
       const detail = (e as CustomEvent<{ url: string }>).detail;
       if (!detail?.url) return;
-      // With the Web function off, links go to the OS browser.
-      if (settingsRef.current.functionWebEnabled === false) {
+      // With the Web function off — or the user preferring the system
+      // browser (Settings → Functions) — links go to the OS browser.
+      if (settingsRef.current.functionWebEnabled === false
+        || settingsRef.current.openLinksIn === 'system') {
         window.api.openUrl(detail.url);
         return;
       }
