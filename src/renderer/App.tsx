@@ -21,7 +21,6 @@ import { StatusBar } from './components/StatusBar';
 import { GitChangesPanel } from './components/GitChangesPanel';
 import { useKeyNav } from './components/KeyNav';
 import { HotkeyHints } from './components/HotkeyHints';
-import { useDictation } from './components/Dictation';
 import { Profile, AgentStatus, AppSettings, DEFAULT_SETTINGS, SidebarLayout, Workspace, GitStatus, GitCommit, GitBlameLine, GitRef, GitRemote, GitWorktree, GitReflogEntry, GitBisectStatus, GitLfsInfo, GitLfsLock, GitSubmodule, GitCheckoutResult, GitCommitResult, GitOpResult, GitMergeResult, GitMergePreviewResult, GitRebaseResult, GitCreatePrResult, GitStash, ExternalApp, FileEntry, ProfileMemoryMap, OrdnaTaskEnvelope, ParallelAgent, EditMenuAction, EditMenuState, FileSearchOptions, FileSearchResult, FileReplaceTarget, FileReplaceResult, AgentSessionList, DEFAULT_AGENTS, ACTIVE_PROFILES_WORKSPACE_ID, resolveAgent, buildSessionArgs, RemoteChatState, RemoteChatMessage, RemoteChatEvent, RemoteChatTopics, RemoteChatTopic } from '../shared/types';
 import { applyTheme } from './theme';
 import './App.css';
@@ -447,10 +446,13 @@ export function App() {
   const openSessionMenu = useCallback((e: React.MouseEvent, profile: Profile) => {
     e.preventDefault(); // suppress the native menu on any profile right-click
     // Sessions are built-in-agent-only; temp profiles additionally get
-    // "Convert to project". Nothing to show otherwise.
-    if (!isBuiltinAgentProfile(profile) && !isTempProfile(profile)) return;
+    // "Convert to project"; in the compact (icon-only) sidebar, running
+    // profiles get Stop/Reload here since the hover row controls don't
+    // exist in that mode. Nothing to show otherwise.
+    const showRunControls = sidebarCompact && initialized.has(profile.id);
+    if (!isBuiltinAgentProfile(profile) && !isTempProfile(profile) && !showRunControls) return;
     setSessionMenu({ profile, x: e.clientX, y: e.clientY });
-  }, [isBuiltinAgentProfile, isTempProfile]);
+  }, [isBuiltinAgentProfile, isTempProfile, sidebarCompact, initialized]);
 
 
   // Launch a session for `profile`: in the profile's own terminal when the
@@ -2437,61 +2439,6 @@ export function App() {
     },
   });
 
-  // Dictation — send transcript to the focused terminal
-  const handleTranscript = useCallback((text: string) => {
-    if (!activeProfileId) return;
-    if (focusedPane.pane === 'agent') {
-      window.api.sendInput(activeProfileId, text);
-    }
-    // For shell pane, we'd need the shell ID — for now just send to agent
-  }, [activeProfileId, focusedPane]);
-
-  const dictation = useDictation({
-    lang: settings.dictationLang,
-    mode: settings.dictationMode,
-    onTranscript: handleTranscript,
-  });
-
-  // Hotkey for dictation: Ctrl+D (not Cmd — macOS swallows keyup with Cmd held)
-  const dictHoldActiveRef = useRef(false);
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && !e.metaKey && e.key === 'D') {
-        e.preventDefault();
-        if (settings.dictationMode === 'hold') {
-          if (!dictHoldActiveRef.current) {
-            dictHoldActiveRef.current = true;
-            dictation.startListening();
-          }
-        } else {
-          dictation.toggleListening();
-        }
-      }
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (settings.dictationMode === 'hold' && dictHoldActiveRef.current) {
-        if (e.key === 'D' || e.key === 'd' || e.key === 'Shift' || e.key === 'Control') {
-          dictHoldActiveRef.current = false;
-          dictation.stopListening();
-        }
-      }
-    };
-    const handleBlur = () => {
-      if (dictHoldActiveRef.current) {
-        dictHoldActiveRef.current = false;
-        dictation.stopListening();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    window.addEventListener('blur', handleBlur);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('blur', handleBlur);
-    };
-  }, [settings.dictationMode, dictation]);
-
   return (
     <div
       className={`app${sidebarCompact ? ' app-sidebar-compact' : ''}`}
@@ -2600,13 +2547,6 @@ export function App() {
           }}
           navActive={navActive}
           showActionLabels={settings.showActionLabels === true}
-          dictationListening={dictation.listening}
-          dictationSupported={dictation.supported}
-          dictationInterim={dictation.interim}
-          dictationMode={settings.dictationMode}
-          onDictationToggle={dictation.toggleListening}
-          onDictationStart={dictation.startListening}
-          onDictationStop={dictation.stopListening}
         />
         {/* Vertical split: top half hosts whichever main view is active
             (Agent terminal / Files / Kanban / parallel-agent terminal); the
@@ -2649,7 +2589,10 @@ export function App() {
               focusedPane={focusedPane}
               navActive={navActive}
               splitWidth={splitMode && !selectedParallelId ? agentSplitPercent : null}
-              webEnabled={settings.functionWebEnabled !== false}
+              /* Link routing, not tab visibility: terminal links go to the
+                 in-app Web tab only when the feature is on AND the user
+                 prefers it; otherwise they open in the system browser. */
+              webEnabled={settings.functionWebEnabled !== false && settings.openLinksIn !== 'system'}
               consumeStartupArgs={consumeStartupArgs}
             />
             {splitMode && (
@@ -2854,7 +2797,7 @@ export function App() {
                     workingDirectory={v.cwd}
                     hidden={!isVisible}
                     settings={settings}
-                    webEnabled={settings.functionWebEnabled !== false}
+                    webEnabled={settings.functionWebEnabled !== false && settings.openLinksIn !== 'system'}
                     getSnapTargets={getShellSnapTargets}
                     onDividersChange={reportShellDividers}
                     onAllClosed={() => {
@@ -3170,6 +3113,42 @@ export function App() {
                   onClick={() => { const p = sessionMenu.profile; setSessionMenu(null); convertTempProfile(p); }}
                 >
                   Convert to project…
+                </button>
+              </>
+            )}
+            {/* Compact sidebar: the hover Stop/Reload row controls don't
+                exist, so running profiles expose them here instead. */}
+            {sidebarCompact && initialized.has(sessionMenu.profile.id) && (
+              <>
+                {(isBuiltinAgentProfile(sessionMenu.profile) || isTempProfile(sessionMenu.profile)) && (
+                  <div className="file-ctx-divider" />
+                )}
+                <button
+                  className="file-ctx-item"
+                  title="Restart the agent in this profile"
+                  onClick={() => { const p = sessionMenu.profile; setSessionMenu(null); handleReloadProfile(p.id); }}
+                >
+                  <span className="file-ctx-icon">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 8a5 5 0 0 1 8.5-3.5L13 6" />
+                      <polyline points="13 3 13 6 10 6" />
+                      <path d="M13 8a5 5 0 0 1-8.5 3.5L3 10" />
+                      <polyline points="3 13 3 10 6 10" />
+                    </svg>
+                  </span>
+                  Reload agent
+                </button>
+                <button
+                  className="file-ctx-item file-ctx-danger"
+                  title="Stop the agent in this profile"
+                  onClick={() => { const p = sessionMenu.profile; setSessionMenu(null); handleStopProfile(p.id); }}
+                >
+                  <span className="file-ctx-icon">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3.5" y="3.5" width="9" height="9" rx="1" />
+                    </svg>
+                  </span>
+                  Stop agent
                 </button>
               </>
             )}

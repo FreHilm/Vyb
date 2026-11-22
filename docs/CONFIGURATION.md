@@ -95,6 +95,7 @@ Feature toggles and editor/behaviour preferences.
 |---------|-------------|---------|
 | Kanban | Show the Kanban (Ordna) tab | On |
 | Web | Show the in-app browser tab | On |
+| Open links in built-in browser | Terminal links open in the Web tab; off = system browser | On |
 | Split view by default | Open profiles in split view (agent left, editor right) the first time they're used; a profile's own split toggle is remembered and wins | Off |
 | Agent notifications | Notify when an agent finishes or needs input | On |
 | Use Monaco editor | Use Monaco (vs. CodeMirror) as the file editor | On |
@@ -127,8 +128,8 @@ Custom external-app launcher buttons, shown in the **Apps** dropdown on the comm
 
 | Setting | Used for |
 |---------|----------|
-| OpenAI API Key | Icon generation (GPT Image) and dictation (Whisper) |
-| Gemini API Key | Icon generation (Nano Banana) and dictation fallback |
+| OpenAI API Key | Icon generation (GPT Image) |
+| Gemini API Key | Icon generation (Nano Banana) |
 | Telegram (API ID, API hash, session) | Remote-agent chat profiles. Set up from the chat pane's login flow, not from this tab; the saved session lives in `settings.json`. |
 
 ### Backup
@@ -146,7 +147,6 @@ Hold the configured modifier (default Cmd) to reveal on-screen navigation hints.
 | Mod + ← / → | Cycle between the agent pane and shell terminals |
 | Ctrl + Cmd + = | Add a shell terminal split |
 | Ctrl + Cmd + - | Close the last shell terminal |
-| Ctrl + Shift + D | Toggle dictation |
 | Cmd + N | New project profile |
 | Cmd + S / Cmd + Shift + S | Save / Save As (file editor) |
 | Cmd + Alt + F | Find & Replace (file editor) |

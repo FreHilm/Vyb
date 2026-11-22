@@ -198,8 +198,6 @@ export function SettingsDialog({
     settings.externalApps || [],
   );
   const [navModifierKey, setNavModifierKey] = useState(settings.navModifierKey);
-  const [dictationMode, setDictationMode] = useState(settings.dictationMode);
-  const [dictationLang, setDictationLang] = useState(settings.dictationLang);
   // gpuAcceleration is forced to 'auto' on save — see save handler. No
   // local state needed since the picker UI was removed.
   const [flameIntensity, setFlameIntensity] = useState(settings.flameIntensity);
@@ -216,6 +214,7 @@ export function SettingsDialog({
   const [parallelAgentAutoRun, setParallelAgentAutoRun] = useState(settings.parallelAgentAutoRun !== false);
   const [functionKanbanEnabled, setFunctionKanbanEnabled] = useState(settings.functionKanbanEnabled !== false);
   const [functionWebEnabled, setFunctionWebEnabled] = useState(settings.functionWebEnabled !== false);
+  const [openLinksInVyb, setOpenLinksInVyb] = useState(settings.openLinksIn !== 'system');
   const [defaultSplitView, setDefaultSplitView] = useState(settings.defaultSplitView === true);
   const [showAuthorAvatars, setShowAuthorAvatars] = useState(settings.showAuthorAvatars !== false);
   const [formatOnSave, setFormatOnSave] = useState(settings.formatOnSave === true);
@@ -319,8 +318,6 @@ export function SettingsDialog({
       agents,
       externalApps,
       navModifierKey,
-      dictationMode,
-      dictationLang,
       // Terminal rendering is locked to 'auto' — picker is hidden.
       gpuAcceleration: 'auto',
       flameIntensity,
@@ -334,6 +331,7 @@ export function SettingsDialog({
       parallelAgentAutoRun,
       functionKanbanEnabled,
       functionWebEnabled,
+      openLinksIn: openLinksInVyb ? 'vyb' as const : 'system' as const,
       defaultSplitView,
       showAuthorAvatars,
       formatOnSave,
@@ -480,6 +478,26 @@ export function SettingsDialog({
                 An in-app browser with back/forward/reload and an address bar.
                 Each profile remembers its last URL.
               </span>
+
+              {functionWebEnabled && (
+                <>
+                  <label className="field field-row-toggle" style={{ marginTop: 12 }}>
+                    <span className="field-label">Open links in built-in browser</span>
+                    <label className="integration-toggle">
+                      <input
+                        type="checkbox"
+                        checked={openLinksInVyb}
+                        onChange={(e) => setOpenLinksInVyb(e.target.checked)}
+                      />
+                      <span className="toggle-slider" />
+                    </label>
+                  </label>
+                  <span className="field-hint">
+                    Links clicked in agent and shell terminals open in the Web
+                    tab. Off: they open in your system browser instead.
+                  </span>
+                </>
+              )}
 
               <label className="field field-row-toggle" style={{ marginTop: 12 }}>
                 <span className="field-label">Show author avatars</span>
@@ -826,48 +844,6 @@ export function SettingsDialog({
                   Hold to show navigation shortcuts over buttons
                 </span>
               </div>
-
-              <div className="field">
-                <span className="field-label">Dictation Mode</span>
-                <div className="field-row">
-                  <button
-                    className={`provider-btn ${dictationMode === 'toggle' ? 'provider-btn-active' : ''}`}
-                    onClick={() => setDictationMode('toggle')}
-                  >
-                    Toggle
-                  </button>
-                  <button
-                    className={`provider-btn ${dictationMode === 'hold' ? 'provider-btn-active' : ''}`}
-                    onClick={() => setDictationMode('hold')}
-                  >
-                    Hold
-                  </button>
-                </div>
-                <span className="field-hint">
-                  Toggle: click to start/stop. Hold: press and hold to dictate. Hotkey: Ctrl+Shift+D
-                </span>
-              </div>
-
-              <label className="field">
-                <span className="field-label">Dictation Language</span>
-                <select
-                  className="field-select"
-                  value={dictationLang}
-                  onChange={(e) => setDictationLang(e.target.value)}
-                >
-                  <option value="en-US">English (US)</option>
-                  <option value="en-GB">English (UK)</option>
-                  <option value="sv-SE">Swedish</option>
-                  <option value="de-DE">German</option>
-                  <option value="fr-FR">French</option>
-                  <option value="es-ES">Spanish</option>
-                  <option value="it-IT">Italian</option>
-                  <option value="pt-BR">Portuguese (BR)</option>
-                  <option value="ja-JP">Japanese</option>
-                  <option value="zh-CN">Chinese (Simplified)</option>
-                  <option value="ko-KR">Korean</option>
-                </select>
-              </label>
 
               {/* Terminal Rendering picker hidden — `auto` is always
                   forced (see `gpuAcceleration` initialisation below).
@@ -1430,7 +1406,7 @@ export function SettingsDialog({
                   <span className="integration-title">API Keys</span>
                 </div>
                 <span className="field-hint" style={{ marginBottom: 8 }}>
-                  Used for icon generation, dictation (speech-to-text), and other AI features.
+                  Used for icon generation and other AI features.
                 </span>
 
                 <label className="field">
@@ -1443,7 +1419,7 @@ export function SettingsDialog({
                     style={{ fontFamily: 'monospace' }}
                   />
                   <span className="field-hint">
-                    Used for: icon generation (GPT Image), dictation (Whisper). Get one at platform.openai.com
+                    Used for: icon generation (GPT Image). Get one at platform.openai.com
                   </span>
                 </label>
 
@@ -1457,7 +1433,7 @@ export function SettingsDialog({
                     style={{ fontFamily: 'monospace' }}
                   />
                   <span className="field-hint">
-                    Used for: icon generation (Nano Banana), dictation fallback. Get one at ai.google.dev
+                    Used for: icon generation (Nano Banana). Get one at ai.google.dev
                   </span>
                 </label>
               </div>

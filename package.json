@@ -1,7 +1,7 @@
 {
   "name": "vyb",
   "productName": "Vyb",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "description": "Manage multiple AI agent terminal sessions in one place",
   "main": ".vite/build/main.js",
   "private": true,
@@ -94,6 +94,7 @@
     "react-dom": "^19.2.5",
     "react-markdown": "^10.1.0",
     "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "telegram": "^2.26.22"
   },

@@ -208,10 +208,25 @@ let agentHookToken = '';
 // macOS (/var/folders/…) and Linux (/tmp); the files are rewritten on
 // every spawn, so temp cleanup between reboots is self-healing. 0o700
 // keeps the embedded hook token private on shared machines.
+//
+// Linux hardening: /tmp is shared between users, so the name carries the
+// uid and the directory must actually be ours — a fixed name could be
+// pre-created by another local user, who could then swap the hook
+// scripts agents execute (or read the embedded token). Any doubt about
+// ownership falls back to regex status detection rather than injecting
+// hooks from a directory someone else controls.
 function agentHooksDir(): string | null {
-  const dir = path.join(os.tmpdir(), 'vyb-agent-hooks');
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  const dir = path.join(os.tmpdir(), uid === null ? 'vyb-agent-hooks' : `vyb-agent-hooks-${uid}`);
   if (/\s/.test(dir)) return null; // exotic TMPDIR with spaces → regex fallback
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const st = fs.lstatSync(dir);
+    if (!st.isDirectory() || (uid !== null && st.uid !== uid)) return null; // symlink or not ours
+    if (uid !== null && (st.mode & 0o077) !== 0) fs.chmodSync(dir, 0o700); // pre-existing dir from an older Vyb
+  } catch {
+    return null;
+  }
   return dir;
 }
 
@@ -836,7 +851,19 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   });
 
   ipcMain.handle(IPC_CHANNELS.SHELL_SHOW_IN_FOLDER, (_, folderPath: string) => {
-    shell.openPath(folderPath);
+    // Only a directory may be opened directly (Finder/Explorer window).
+    // Anything else is revealed, never launched: openPath on a file runs
+    // its default handler, which turns this channel into "execute
+    // arbitrary file" for a compromised renderer.
+    try {
+      if (fs.statSync(folderPath).isDirectory()) {
+        shell.openPath(folderPath);
+        return;
+      }
+    } catch {
+      return; // missing path: nothing to show
+    }
+    shell.showItemInFolder(folderPath);
   });
 
   ipcMain.handle(IPC_CHANNELS.SHELL_OPEN_VSCODE, (_, folderPath: string) => {
@@ -1907,10 +1934,12 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   // at HEAD (a brand-new file has no baseline). Drives the unified
   // diff view in the file editor — CodeMirror's `unifiedMergeView`
   // needs the original text, not a unified-diff blob.
+  // Paths come from the repo (file names in `git status`), so they're passed
+  // to git as argv, never through a shell: a name containing `$(...)` or a
+  // backtick would otherwise run as a command.
   ipcMain.handle(IPC_CHANNELS.GIT_FILE_AT_HEAD, (_, cwd: string, filePath: string): string | null => {
-    const escaped = filePath.replace(/"/g, '\\"');
     try {
-      return execSync(`git show HEAD:"${escaped}"`, {
+      return execFileSync('git', ['show', `HEAD:${filePath}`], {
         cwd,
         timeout: 5000,
         encoding: 'utf-8',
@@ -1923,23 +1952,23 @@ export function setupIpcHandlers(window: BrowserWindow): void {
   });
 
   ipcMain.handle(IPC_CHANNELS.GIT_FILE_DIFF, (_, cwd: string, filePath: string, staged?: boolean): string => {
-    const run = (cmd: string): string => {
+    // argv, not a shell string: see GIT_FILE_AT_HEAD above.
+    const run = (args: string[]): string => {
       try {
-        return execSync(cmd, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
+        return execFileSync('git', args, { cwd, timeout: 5000, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
       } catch {
         return '';
       }
     };
-    const escaped = filePath.replace(/"/g, '\\"');
     // staged=true → index vs HEAD;  staged=false → working tree vs index;
     // staged=undefined → combined (legacy callers).
     let diff: string;
     if (staged === true) {
-      diff = run(`git diff --cached -- "${escaped}"`);
+      diff = run(['diff', '--cached', '--', filePath]);
     } else if (staged === false) {
-      diff = run(`git diff -- "${escaped}"`);
+      diff = run(['diff', '--', filePath]);
     } else {
-      diff = run(`git diff HEAD -- "${escaped}"`);
+      diff = run(['diff', 'HEAD', '--', filePath]);
     }
 
     // Empty diff: only fall back to a synthetic "all lines added" view if
@@ -1951,8 +1980,8 @@ export function setupIpcHandlers(window: BrowserWindow): void {
     if (!diff) {
       const trackedCheck = (() => {
         try {
-          execSync(`git ls-files --error-unmatch -- "${escaped}"`, {
-            cwd, timeout: 5000, encoding: 'utf-8',
+          execFileSync('git', ['ls-files', '--error-unmatch', '--', filePath], {
+            cwd, timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
           });
           return true;
         } catch {

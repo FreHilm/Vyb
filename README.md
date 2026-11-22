@@ -55,7 +55,7 @@ The rest is the work you would otherwise leave the app for.
 
 **Keep a shell and a browser close.** Split a shell terminal beneath any agent for quick commands, and open the in-app browser to check docs or a localhost preview without switching windows.
 
-**Make it yours.** Organize agents into folders and workspaces, recolor the whole UI, generate playful profile icons, wire up one-tap buttons for VS Code or your editor of choice, and drive most of it from the keyboard. Even dictation is there if you would rather talk than type.
+**Make it yours.** Organize agents into folders and workspaces, recolor the whole UI, generate playful profile icons, wire up one-tap buttons for VS Code or your editor of choice, and drive most of it from the keyboard.
 
 None of this gets in your way. When you just want to watch an agent work, that is all you see.
 
